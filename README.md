@@ -13,7 +13,7 @@ OpenAhoy 是 Codex 中的账号与内容工作台，提供内嵌管理页、项�
 
 复制下列文字到目标电脑 Codex：
 
-> 请从 https://github.com/OpenAhoy/OpenAhoy-Releases/blob/v0.6.28/INSTALL_PROMPT.md 按固定版本说明安装 OpenAhoy 0.6.28。核对公开 RELEASE.json、SHA256SUMS 和包内 manifest，使用本机支持的 Codex 官方插件命令；保留现有账号、系统钥匙串、项目规则与原稿。完成后检查空账号或原绑定、工具目录和管理资源，再打开内嵌页供我本人绑定。此次仅安装初始化，不生产、上传、发表或创建定时任务；不索取任何 Secret。
+> 请先用官方 plugin list / marketplace list 查本机是否已有 OpenAhoy。已有安装先读取 https://github.com/OpenAhoy/OpenAhoy-Releases/blob/main/UPDATE_PROMPT.md 的迁移分类，只更新原 OpenAhoy 并保留 namespace，不移除共享市场、不另启第二份；只有从未安装时才读取固定 v0.6.28/INSTALL_PROMPT.md。目标运行包始终为正式公开0.6.28，核对其 RELEASE.json、SHA256SUMS 和完整manifest，保留账号、系统钥匙串、项目规则和原稿。安装后检查工具与管理页；此次不生产、上传、发表或启用定时任务，不索取Secret。
 
 公开安装源无需 GitHub 账号、token 或私库邀请。固定版官方 CLI 命令：
 
@@ -22,7 +22,7 @@ codex plugin marketplace add https://github.com/OpenAhoy/OpenAhoy-Releases.git -
 codex plugin add wechat-ecosystem@openahoy-distribution
 ```
 
-若同名 marketplace 已存在，先读其当前来源和版本，再按官方 marketplace remove/add 或现有 upgrade 能力切换公开源；不要卸载插件、删除用户数据或手改缓存。`--ref v0.6.28` 固定本版，后续升级按 UPDATE_PROMPT.md 明确选择新版本。
+已有安装先读本仓库 UPDATE_PROMPT.md 的迁移分类：共享市场只更新 OpenAhoy 条目并保持原namespace，禁止remove整个共享市场；独占源才按实际登记切换。不要卸载插件、删除用户数据或手改缓存。`--ref v0.6.28` 固定本版，后续升级按 UPDATE_PROMPT.md 明确选择新版本。
 
 安装后的当前聊天是否立即加载由 Codex 宿主决定；只有确实需要且没有单插件刷新入口时再集中提示一次，不承诺所有宿主免重开。桌面插件卡片/入口以实际宿主显示为准。
 

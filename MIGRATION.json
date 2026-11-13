@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "kind": "PUBLIC_DISTRIBUTION_MIGRATION",
+  "version": "0.6.28",
+  "previous_repository": "OpenAhoy/OpenAhoy-Distribution",
+  "runtime_repository": "OpenAhoy/OpenAhoy-Releases",
+  "runtime_tag": "v0.6.28",
+  "runtime_commit": "ad078b170bc829ea5a5b8d5d081c6d3e98bcd6e6",
+  "runtime_manifest_sha256": "907b7b6962861984e29feb4bee4ee1bd5314d9af992a0008b1d570838a39eb88",
+  "runtime_zip_sha256": "507048f2385c3fc06e585c5f092f64b467d7f61d1ec9d74f630ebfdb050c8aab",
+  "source": {
+    "source": "git-subdir",
+    "url": "https://github.com/OpenAhoy/OpenAhoy-Releases.git",
+    "path": "plugins/wechat-ecosystem",
+    "ref": "v0.6.28",
+    "sha": "ad078b170bc829ea5a5b8d5d081c6d3e98bcd6e6"
+  },
+  "same_technical_id": true,
+  "shared_marketplace_remove_allowed": false
+}
