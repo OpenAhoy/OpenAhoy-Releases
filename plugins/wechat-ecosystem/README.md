@@ -1,4 +1,4 @@
-# OpenAhoy 0.6.29
+# OpenAhoy 0.6.30
 
 OpenAhoy 是 Codex 中的账号与内容工作台，提供内嵌管理页、项目规则/Skills、创作模板、反馈诊断及软件更新入口。
 
@@ -7,7 +7,7 @@ OpenAhoy 是 Codex 中的账号与内容工作台，提供内嵌管理页、项�
 - 小红书：独立普通 Chrome 会话，本人在官方页扫码；支持本人资料/可见笔记、图文表单提交和原笔记读回。不使用私人接口或导出 Cookie。验证码由本人在官方页面完成。
 - 配置只在本机保存；安装包没有预绑账号、私人规则、文章、登录态或密钥。既有账号和规则不因软件更新重建。配置或安装本身不自动生产、发布或启用定时任务。
 
-本版支持 X 按顺序发送最多四张照片，或发送一个动画 GIF／视频，并更新三平台管理页的界面。
+本版更新公众号、X 和小红书的管理页。亮色界面使用纯白和无描边控件，修正窄面板按钮对齐，首次打开默认英语并保留已选语言。
 
 ## 安装与升级
 
@@ -15,16 +15,16 @@ OpenAhoy 是 Codex 中的账号与内容工作台，提供内嵌管理页、项�
 
 复制下列文字到目标电脑 Codex：
 
-> 请先用官方 plugin list / marketplace list 查本机是否已有 OpenAhoy。已有安装先读取 https://github.com/OpenAhoy/OpenAhoy-Releases/blob/main/UPDATE_PROMPT.md 的迁移分类，只更新原 OpenAhoy 并保留 namespace，不移除共享市场、不另启第二份；只有从未安装时才读取固定 v0.6.29/INSTALL_PROMPT.md。目标运行包始终为正式公开0.6.29，核对其 RELEASE.json、SHA256SUMS 和完整manifest，保留账号、系统钥匙串、项目规则和原稿。安装后检查工具与管理页；此次不生产、上传、发表或启用定时任务，不索取Secret。
+> 请先用官方 plugin list / marketplace list 查本机是否已有 OpenAhoy。已有安装先读取 https://github.com/OpenAhoy/OpenAhoy-Releases/blob/main/UPDATE_PROMPT.md 的迁移分类，只更新原 OpenAhoy 并保留 namespace，不移除共享市场、不另启第二份；只有从未安装时才读取固定 v0.6.30/INSTALL_PROMPT.md。目标运行包始终为正式公开0.6.30，核对其 RELEASE.json、SHA256SUMS 和完整manifest，保留账号、系统钥匙串、项目规则和原稿。安装后检查工具与管理页；此次不生产、上传、发表或启用定时任务，不索取Secret。
 
 公开安装源无需 GitHub 账号、token 或私库邀请。固定版官方 CLI 命令：
 
 ```sh
-codex plugin marketplace add https://github.com/OpenAhoy/OpenAhoy-Releases.git --ref v0.6.29
+codex plugin marketplace add https://github.com/OpenAhoy/OpenAhoy-Releases.git --ref v0.6.30
 codex plugin add wechat-ecosystem@openahoy-distribution
 ```
 
-已有安装先读本仓库 UPDATE_PROMPT.md 的迁移分类：共享市场只更新 OpenAhoy 条目并保持原namespace，禁止remove整个共享市场；独占源才按实际登记切换。不要卸载插件、删除用户数据或手改缓存。`--ref v0.6.29` 固定本版，后续升级按 UPDATE_PROMPT.md 明确选择新版本。
+已有安装先读本仓库 UPDATE_PROMPT.md 的迁移分类：共享市场只更新 OpenAhoy 条目并保持原namespace，禁止remove整个共享市场；独占源才按实际登记切换。不要卸载插件、删除用户数据或手改缓存。`--ref v0.6.30` 固定本版，后续升级按 UPDATE_PROMPT.md 明确选择新版本。
 
 安装后的当前聊天是否立即加载由 Codex 宿主决定；只有确实需要且没有单插件刷新入口时再集中提示一次，不承诺所有宿主免重开。桌面插件卡片/入口以实际宿主显示为准。
 

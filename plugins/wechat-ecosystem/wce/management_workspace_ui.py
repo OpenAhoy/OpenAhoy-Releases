@@ -38,7 +38,7 @@ globalThis.OATaskWorkspace={mount(prefix,groups){
   const icon=document.createElement('span');icon.className='oa-task-row-icon';const image=document.createElement('img');image.src=shapes[i%shapes.length];image.alt='';icon.append(image);icon.setAttribute('aria-hidden','true');
   const copy=document.createElement('span'),title=document.createElement('strong'),text=document.createElement('small'),edit=document.createElement('span');
   copy.className='oa-task-row-copy';ui.set(title,g.title);copy.append(title,text);edit.className='oa-task-row-edit';ui.set(edit,'编辑 ›');button.append(icon,copy,edit);
-  button.onclick=()=>show(i);buttons.push(button);g.preview=text;$('Summary').append(button);
+  button.onclick=()=>{show(i);if(root.closest?.('.oa-native')&&matchMedia('(max-width:799px), (max-height:599px)').matches)$('Sheet').scrollIntoView({block:'start'});};buttons.push(button);g.preview=text;$('Summary').append(button);
  });
  function refresh(){groups.forEach(g=>{const value=g.summary?.();if(typeof value==='string'&&value){ui.raw(g.preview,value);}else{ui.set(g.preview,...(value||['未设置']));}});}
  $('SheetClose').onclick=()=>{open=false;root.classList.add('oa-sheet-closed');buttons.forEach(b=>{b.classList.remove('is-selected');b.setAttribute('aria-expanded','false');});buttons[index].focus();};
@@ -224,6 +224,9 @@ body.oa-management.oa-native[data-color-scheme=dark]{
  }
 }
 .oa-management.oa-native .oa-sidebar{border:0;background:var(--oa-rail)}
+.oa-management.oa-native .oa-sidebar .oa-nav{grid-template-columns:minmax(0,1fr)}
+.oa-management.oa-native .oa-sidebar .oa-nav button{min-width:0;max-width:100%}
+.oa-management.oa-native .oa-platform-label{white-space:normal;overflow-wrap:anywhere}
 .oa-management.oa-native :is(.oa-footer,.oa-tabs,.oa-platform-settings,.oa-task-actions,.oa-starter,.oa-schedule,.project-save,.route-row,.x-config-column){border:0}
 .oa-management.oa-native :is(button,.oa-task-menu>summary,.oa-more-settings>summary){
  border:0;background:var(--oa-fill);box-shadow:none;
@@ -276,9 +279,91 @@ body.oa-management.oa-native[data-color-scheme=dark]{
  background:var(--oa-kind-fill);color:var(--oa-kind-ink);
 }
 .oa-management.oa-native .oa-task-row.is-selected .oa-task-row-icon{background:var(--surface)}
-.oa-management.oa-native .oa-task-rows{gap:4px}
+.oa-management.oa-native #xSettings :is(.oa-task-row,[data-choice-tone]){
+ --oa-x-choice-fill:#245cce;--oa-x-choice-ink:#fff;
+}
+.oa-management.oa-native #xSettings :is(#xConfigSummary>.oa-task-row:nth-child(2),[data-choice-tone=violet],.x-config-methods){
+ --oa-x-choice-fill:#7639bd;
+}
+.oa-management.oa-native #xSettings :is(#xConfigSummary>.oa-task-row:nth-child(3),[data-choice-tone=amber]){
+ --oa-x-choice-fill:#ffbf49;--oa-x-choice-ink:#29200d;
+}
+.oa-management.oa-native #xSettings :is(#xConfigSummary>.oa-task-row:nth-child(4),[data-choice-tone=teal]){
+ --oa-x-choice-fill:#087861;
+}
+.oa-management.oa-native #xSettings #xConfigSummary>.oa-task-row:nth-child(5){
+ --oa-x-choice-fill:#435c83;
+}
+.oa-management.oa-native #xSettings #xConfigSummary>.oa-task-row:not(.is-selected){
+ background:var(--oa-fill);color:var(--ink);
+}
+.oa-management.oa-native #xSettings #xConfigSummary>.oa-task-row:not(.is-selected):hover{
+ background:var(--oa-hover);
+}
+.oa-management.oa-native #xSettings :is(
+ #xConfigSummary>.oa-task-row.is-selected,.oa-choice-picks button[aria-pressed=true],
+ .x-config-methods label:has(:checked)
+){
+ background:var(--oa-x-choice-fill);color:var(--oa-x-choice-ink);
+}
+.oa-management.oa-native #xSettings #xConfigSummary>.oa-task-row.is-selected .oa-task-row-copy small{
+ color:inherit;
+}
+.oa-management.oa-native .oa-task-rows{grid-template-columns:minmax(0,1fr);gap:4px}
+.oa-management.oa-native .oa-task-row-copy strong{overflow-wrap:anywhere}
+.oa-management.oa-native .oa-task-row-copy small{max-width:100%}
+.oa-management.oa-native .oa-task-tools{align-items:flex-start}
+.oa-management.oa-native .oa-task-tools>.oa-task-menu{margin:0;min-width:0;max-width:100%}
+.oa-management.oa-native .oa-task-tools>button,
+.oa-management.oa-native .oa-task-tools>.oa-task-menu>summary{
+ display:inline-flex;align-items:center;min-height:34px;margin:0;padding:6px 10px;line-height:1.3;
+}
+.oa-management.oa-native .oa-starter-options>button{
+ position:relative;align-content:start;padding-inline-end:30px;overflow-wrap:anywhere;
+}
+.oa-management.oa-native .oa-starter-options>button:nth-child(1){--oa-preset-fill:#245cce}
+.oa-management.oa-native .oa-starter-options>button:nth-child(2){--oa-preset-fill:#7639bd}
+.oa-management.oa-native .oa-starter-options>button:nth-child(3){--oa-preset-fill:#a13921}
+.oa-management.oa-native .oa-starter-options>button:nth-child(4){--oa-preset-fill:#ad2d74}
+.oa-management.oa-native .oa-starter-options>button:nth-child(5){--oa-preset-fill:#087861}
+.oa-management.oa-native .oa-starter-options>button:nth-child(6){--oa-preset-fill:#ffbf49;--oa-preset-ink:#29200d}
+.oa-management.oa-native .oa-starter-options>button:nth-child(7){--oa-preset-fill:#07536c}
+.oa-management.oa-native .oa-starter-options>button:is(:hover,[aria-pressed]){
+ background:var(--oa-preset-fill);color:var(--oa-preset-ink,#fff);
+}
+.oa-management.oa-native .oa-starter-options>button span{color:inherit}
+.oa-management.oa-native .oa-starter-options>button[aria-pressed=true]{
+ outline:2px solid var(--oa-focus);outline-offset:2px;
+}
+.oa-management.oa-native .oa-starter-options>button[aria-pressed=true]::after{
+ content:"✓";position:absolute;inset-block-start:8px;inset-inline-end:8px;
+ width:16px;height:16px;display:grid;place-items:center;border:1px solid currentColor;
+ border-radius:50%;font-size:11px;font-weight:700;
+}
+.oa-management.oa-native .oa-account-header{
+ display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;min-height:0;margin-bottom:10px;
+}
+.oa-management.oa-native .oa-account-header>.oa-heading{grid-area:1/1;margin:0}
+.oa-management.oa-native .oa-account-header>.oa-heading h1{overflow-wrap:anywhere}
+.oa-management.oa-native .oa-account-header>.actions{grid-area:1/2;justify-content:flex-end}
+.oa-management.oa-native .oa-account-header>.actions>button{
+ min-height:36px;padding:6px 10px;line-height:1.3;
+}
+.oa-management.oa-native #accountPanel.oa-account-cards{grid-column:1/-1;min-width:0;width:100%}
+.oa-management.oa-native .oa-account-options>.empty{margin:0;padding:8px 0}
+.oa-management.oa-native .oa-account-options{min-width:0}
 .oa-management.oa-native .oa-account-options>.account{
+ flex:0 0 auto;width:280px;max-width:100%;height:94px;margin:0;
  border:0;background:var(--oa-fill);box-shadow:none;
+}
+.oa-management.oa-native .oa-account-options>.account>div:last-child{
+ flex:1;min-width:0;
+}
+.oa-management.oa-native .oa-account-options .account-select{
+ width:100%;max-width:none;
+}
+.oa-management.oa-native .oa-account-options>.account :is(.help,.status){
+ overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .oa-management.oa-native .oa-account-options>.account:not(.is-selected):hover{
  background:var(--oa-hover);box-shadow:none;
@@ -300,5 +385,126 @@ body.oa-management.oa-native[data-color-scheme=dark]{
 .oa-management.oa-native :is(input,textarea,select):disabled{background:var(--oa-canvas)}
 .oa-management.oa-native :is(button,input,select,textarea,a,summary,[role=option]):focus-visible{
  outline:2px solid var(--oa-focus);outline-offset:2px;
+}
+@media(min-width:800px) and (max-width:999px) and (min-height:600px){
+ .oa-management.oa-native .oa-sidebar .oa-nav button{font-size:12px;padding-inline:6px;gap:6px}
+ .oa-management.oa-native .oa-sidebar .oa-platform-label{overflow-wrap:normal}
+ .oa-management.oa-native .oa-task-workspace{grid-template-columns:170px minmax(0,1fr);gap:14px}
+ .oa-management.oa-native .oa-task-workspace.oa-sheet-closed{grid-template-columns:170px}
+ .oa-management.oa-native .oa-task-summary{overflow:auto;scrollbar-width:thin}
+ .oa-management.oa-native .oa-task-heading{flex:none;min-height:0}
+ .oa-management.oa-native .oa-task-row{min-height:56px;padding:8px;gap:8px}
+ .oa-management.oa-native .oa-task-row-copy strong{font-size:14px}
+ .oa-management.oa-native #xSettings{overflow:hidden!important}
+ .oa-management.oa-native #xOperatingPanel{flex:1;min-height:0;overflow:hidden;height:auto}
+ .oa-management.oa-native.oa-x-tools #xSettings{overflow:auto!important}
+}
+@media(max-width:999px){
+ .oa-management.oa-native .oa-task-sheet{position:static;width:100%}
+ .oa-management.oa-native .oa-task-workspace:not(.oa-sheet-closed)>.oa-task-summary{opacity:1;pointer-events:auto}
+ .oa-management.oa-native .oa-task-tools>.oa-task-menu[open]>.actions{
+  position:static;min-width:0;max-width:100%;margin-top:4px;contain:inline-size;
+ }
+ .oa-management.oa-native .oa-task-menu[open]>.actions>button{white-space:normal;overflow-wrap:anywhere}
+}
+@media(max-width:799px),(max-height:599px){
+ .oa-management.oa-native .oa-task-workspace{display:flex;flex-direction:column;gap:12px;height:auto}
+ .oa-management.oa-native .oa-task-summary{padding-top:0}
+ .oa-management.oa-native .oa-task-heading{min-height:0}
+ .oa-management.oa-native .oa-task-rows{display:flex;flex-wrap:wrap;gap:5px}
+ .oa-management.oa-native .oa-task-row{width:auto;min-height:36px;padding:6px 8px;gap:5px}
+ .oa-management.oa-native .oa-task-row-icon{width:22px;height:22px}
+ .oa-management.oa-native .oa-task-row-copy :is(strong,small){margin:0}
+ .oa-management.oa-native .oa-task-row :is(small,.oa-task-row-edit){display:none}
+ .oa-management.oa-native .oa-task-sheet{position:static;width:100%}
+}
+"""
+
+
+# Native-only finish. Keep the trusted local safety page on its existing styling.
+NATIVE_FINISH_STYLE = """
+body.oa-management.oa-native:is([data-color-scheme], :not([data-color-scheme])) {
+  --oa-canvas: light-dark(#fff, #1d1d20);
+  --oa-rail: light-dark(#fff, #242427);
+  --bg: var(--oa-canvas);
+  --surface: light-dark(#fff, #29292d);
+  --soft: light-dark(#f7f7f8, #303034);
+  --ink: light-dark(#222123, #f3f2f5);
+  --muted: light-dark(#5d5b61, #c3c1c8);
+  --line: light-dark(#e8e7ea, #44434a);
+  --oa-fill: light-dark(#f3f2f4, #35353a);
+  --oa-hover: light-dark(#eae9ec, #404047);
+  --oa-selection: light-dark(#f4e6f7, #48394d);
+  --oa-selected-ink: light-dark(#482b54, #fae9fa);
+  --oa-action: light-dark(#262426, #f0edf1);
+  --oa-action-hover: light-dark(#383538, #fff);
+  --oa-action-ink: light-dark(#fff, #242226);
+  --oa-focus: light-dark(#764589, #e9a9ef);
+  --oa-save: var(--oa-action);
+  --oa-save-hover: var(--oa-action-hover);
+  --oa-save-ink: var(--oa-action-ink);
+  --oa-key-edge: light-dark(#24212b26, #101013bc);
+  --oa-main-shadow: light-dark(#211c3240, #0008);
+  --oa-key-shadow: light-dark(#24212b15, #0005);
+  --oa-panel-shadow: 0 7px 26px light-dark(#25213012, #0004);
+  --oa-popover-shadow: 0 8px 24px light-dark(#25213022, #0008);
+}
+body.oa-management.oa-native :is(.oa-heading h1,.oa-task-heading h1,.oa-task-sheet-head h2) {
+  font-weight: 800;
+}
+.oa-management.oa-native .oa-starter-options > button {
+  border-radius: 9px;
+}
+body.oa-management.oa-native .oa-starter-options strong {
+  font-weight: 750;
+  letter-spacing: -.01em;
+}
+.oa-management.oa-native .oa-account-options > .account.is-selected {
+  background: var(--oa-selection);
+  color: var(--oa-selected-ink);
+  box-shadow: none;
+}
+.oa-management.oa-native :is(.oa-account-header > .actions > button, .oa-task-tools > button,
+ .oa-task-tools > .oa-task-menu > summary, #rulesSave, #xConfigSave, #creatorSave):not(:disabled) {
+  box-shadow: 0 2px 3px var(--oa-key-shadow);
+}
+.oa-management.oa-native :is(.oa-account-header > .actions > .primary, #rulesSave, #xConfigSave, #creatorSave) {
+  border-radius: 11px;
+  font-weight: 650;
+  letter-spacing: -.01em;
+  padding-inline: 12px;
+}
+.oa-management.oa-native :is(.oa-account-header > .actions > .primary, #rulesSave, #xConfigSave, #creatorSave):not(:disabled) {
+  box-shadow: 0 5px 12px -4px var(--oa-main-shadow);
+}
+.oa-management.oa-native :is(.oa-account-header > .actions > button, .oa-task-tools > button,
+ .oa-task-tools > .oa-task-menu > summary, .oa-starter-options > button,
+ #rulesSave, #xConfigSave, #creatorSave):active:not(:disabled) {
+  box-shadow: inset 0 2px 3px var(--oa-key-edge);
+}
+@media (prefers-reduced-motion:no-preference) {
+  .oa-management.oa-native :is(.oa-account-header > .actions > button, .oa-task-tools > button,
+   .oa-task-tools > .oa-task-menu > summary, .oa-starter-options > button,
+   #rulesSave, #xConfigSave, #creatorSave):not(:disabled) { transition: translate 90ms ease, box-shadow 90ms ease; }
+  .oa-management.oa-native :is(.oa-account-header > .actions > button, .oa-task-tools > button,
+   .oa-task-tools > .oa-task-menu > summary, .oa-starter-options > button,
+   #rulesSave, #xConfigSave, #creatorSave):active:not(:disabled) { translate: 0 1px; }
+}
+
+/* Preview surfaces use fill and diffuse elevation without decorative strokes. */
+body.oa-management.oa-native :is(.oa-sidebar, .oa-account-options > .account, .oa-task-sheet,
+ .panel, .oa-x-config, .oa-x-capabilities, .oa-support-links, .oa-support-dialog,
+ .oa-support-header, .oa-support-footer, .oa-more-popover, .oa-task-menu[open] > .actions,
+ .review-card, .profile-editor, .template-card, .oa-software-update, .oa-starter,
+ .oa-choice-picks > button, button, input, textarea, select, summary) {
+  border-color: transparent;
+}
+body.oa-management.oa-native .oa-starter-options > button[aria-pressed=true]:not(:focus-visible) {
+  outline: none;
+}
+body.oa-management.oa-native .oa-starter-options > button[aria-pressed=true]::after {
+  border: 0;
+  background: var(--oa-preset-ink, #fff);
+  color: var(--oa-preset-fill);
 }
 """

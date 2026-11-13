@@ -81,7 +81,7 @@ SCRIPT = r'''
  addEventListener('message',event=>{
    if(event.source!==bridge||event.data?.jsonrpc!=='2.0')return;
    const v=event.data;
-   if(v.method==='ui/notifications/host-context-changed'&&!Object.hasOwn(v,'id')){if(ready&&!closed){applyHostTheme(v.params);if(v.params?.locale)OAUI.host(v.params.locale);}return;}
+   if(v.method==='ui/notifications/host-context-changed'&&!Object.hasOwn(v,'id')){if(ready&&!closed)applyHostTheme(v.params);return;}
    if(v.method==='ui/resource-teardown'){
      if(!Object.hasOwn(v,'id'))return;
      if(!['string','number'].includes(typeof v.id)||!v.params||typeof v.params!=='object'||Array.isArray(v.params)||Object.keys(v.params).length||Object.hasOwn(v,'result')||Object.hasOwn(v,'error')){
@@ -107,7 +107,10 @@ SCRIPT = r'''
    const p=bindingPlatform(),row=current();
    $('accountBackend').parentElement.hidden=activePlatform!=='wechat_official_account';$('wechatBackendHelp').hidden=activePlatform!=='wechat_official_account';
    $('refresh').disabled=!ready||refreshing||launching;
-   $('showAdd').disabled=!ready||launching||!p?.binding_supported;
+   const addLabel=activePlatform==='xiaohongshu'?'扫码绑定小红书':activePlatform==='x'?'绑定 X 账号':'绑定账号';
+   OAUI.set($('showAdd'),addLabel);OAUI.attr($('showAdd'),'aria-label',addLabel);
+   $('showAdd').disabled=!ready||refreshing||launching||!p?.binding_supported||
+     (activePlatform==='xiaohongshu'&&!(xhsManagement?.canBegin()));
    $('accountRules').disabled=!ready||refreshing||!row||!platform(row.platform_id)?.settings_supported||!editors.has(row.platform_id);
    $('accountImport').disabled=$('accountRules').disabled;
    $('accountCreate').disabled=$('accountRules').disabled;
@@ -168,12 +171,13 @@ SCRIPT = r'''
    $('selectedAccount').replaceChildren();
    if(row){const line=document.createElement('p');line.className='account-id';line.textContent=typeof row.account_id==='string'?(platform(row.platform_id)?.account_id_label||'账号标识')+' '+row.account_id:'账号资料暂不可用';$('selectedAccount').append(line);}
    else{const p=document.createElement('p');OAUI.set(p,'选择一个账号，查看所属平台与设置。');$('selectedAccount').append(p);}
-   projectContext?.target(activePlatform,row?.connection_id||'',rows);for(const editor of editors.values())editor.targetChanged?.();buttons();
+   projectContext?.target(activePlatform,row?.connection_id||'',rows);for(const editor of editors.values())editor.targetChanged?.();
+   if(activePlatform==='xiaohongshu')xhsManagement.updateControls();else buttons();
  }
  async function renderAccounts(){
    const visible=rows.filter(row=>row.platform_id===activePlatform);
    $('accounts').replaceChildren();for(const row of visible)$('accounts').append(card(row,true));
-   if(!visible.length){const p=document.createElement('p');p.className='empty';OAUI.set(p,platform(activePlatform)?'此平台尚未绑定账号，点击“绑定账号”开始。':'当前没有可管理的账号。');$('accounts').append(p);}
+   if(!visible.length){const p=document.createElement('p');p.className='empty';OAUI.set(p,'尚未绑定账号');$('accounts').append(p);}
    $('accountCount').textContent=String(visible.length);
    const remembered=selectedByPlatform.get(activePlatform)||selected;await select(visible.some(row=>key(row)===remembered)?remembered:(visible[0]?key(visible[0]):''));
  }
@@ -215,7 +219,7 @@ SCRIPT = r'''
  xManagement=OAXManagement.mount((operation,args)=>tool('x.ui.action',{operation,arguments:args}),async url=>{
   if(!hostCapabilities.openLinks)throw new Error('HOST_OPEN_LINK_UNAVAILABLE');const result=await rpc('ui/open-link',{url});if(!result||result.isError)throw new Error('HOST_OPEN_LINK_FAILED');return result;
  },async(cid,original)=>{await refresh();if(!closed&&original?.platform==='x'&&activePlatform==='x'&&original.epoch===platformEpoch&&original.intent===selectionIntent){const row=rows.find(r=>r.platform_id==='x'&&r.connection_id===cid);if(row)await select(key(row));}},{captureSelection:()=>({platform:activePlatform,epoch:platformEpoch,intent:selectionIntent})});
- xhsManagement=OAXHSManagement.mount((operation,args)=>tool('xhs.ui.action',{operation,...args}),refresh,()=>current()?.platform_id==='xiaohongshu'?current().connection_id:null);
+ xhsManagement=OAXHSManagement.mount((operation,args)=>tool('xhs.ui.action',{operation,...args}),refresh,()=>current()?.platform_id==='xiaohongshu'?current().connection_id:null,buttons);
  projectContext=OAProjectContext.mount((operation,args)=>tool('wce.ui.projects.action',{operation,arguments:args}),async text=>{
   if(!hostCapabilities.message?.text)throw new Error('HOST_MESSAGE_UNAVAILABLE');
   const result=await rpc('ui/message',{role:'user',content:[{type:'text',text}]});if(!result||typeof result!=='object'||Array.isArray(result)||(result.isError!==undefined&&typeof result.isError!=='boolean')||result.isError)throw new Error('HOST_MESSAGE_NOT_CONFIRMED');return result;
@@ -272,7 +276,7 @@ SCRIPT = r'''
  addEventListener('pagehide',event=>{if(!event.persisted)dispose();});buttons();
  rpc('ui/initialize',{appInfo:{name:'openahoy-management',version:'3.0.0'},protocolVersion:'2026-01-26',appCapabilities:{availableDisplayModes:['inline','fullscreen']}})
  .then(async host=>{if(closed||host?.protocolVersion!=='2026-01-26'||!host.hostCapabilities?.serverTools)throw new Error('NO_SERVER_TOOLS');
-   hostCapabilities=host.hostCapabilities;ready=true;applyHostTheme(host.hostContext);OAUI.host(host.hostContext?.locale);projectContext.setReady(true,!!hostCapabilities.message?.text);bridge.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized'},'*');buttons();await refresh();
+   hostCapabilities=host.hostCapabilities;ready=true;applyHostTheme(host.hostContext);projectContext.setReady(true,!!hostCapabilities.message?.text);bridge.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized'},'*');buttons();await refresh();
  }).catch(()=>{ready=false;buttons();notice('当前宿主管理工具桥不可用，未进行任何账号操作。',true);});
 })();
 
@@ -282,6 +286,7 @@ SCRIPT = r'''
 def resource():
     from .own_settings_ui import LOGO, STYLE
     from .own_management_ui import STYLE as management_style, native_page_body
+    from .management_workspace_ui import NATIVE_FINISH_STYLE
     from .own_wechat_management import settings_html, settings_script
     from .own_inline_binding_ui import SCRIPT as binding_script
     from .x_management_ui import HTML as x_html, SCRIPT as x_script
@@ -291,10 +296,10 @@ def resource():
     from .content_templates_ui import STYLE as template_style
     from .x_schedule_ui import STYLE as schedule_style, SCRIPT as schedule_script
     from .x_operating_ui import STYLE as operating_style, SCRIPT as operating_script
-    html = ('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
+    html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<title>OpenAhoy · 平台管理</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + font_style() + '</style>'
+        '<title>OpenAhoy · Platform management</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
+        + '<style>' + font_style() + NATIVE_FINISH_STYLE + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
         + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + x_script + xhs_script + schedule_script + operating_script + project_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,

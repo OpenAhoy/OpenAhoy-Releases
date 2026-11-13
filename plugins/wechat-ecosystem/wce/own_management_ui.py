@@ -73,11 +73,12 @@ def native_page_body(logo, platform_settings):
     return '''<body class="oa-management oa-platform-workspace oa-native"><div class="oa-shell">
 '''+platform_sidebar(logo, '<p class="help">正在读取平台…</p>', localized=True)+'''
 <main class="oa-content"><div id="nativeWorkspace"><header class="oa-account-header">
+<div class="oa-heading"><h1 id="pageTitle">选择平台</h1></div>
 <section id="accountPanel" class="oa-account-cards" aria-label="平台账号"><span id="accountCurrent" hidden></span>
 <div class="oa-account-cards-body"><div class="oa-list-head"><span>已绑定账号</span><span id="accountCount" class="count">—</span></div><div id="accounts" class="oa-account-options"></div>
 <div class="oa-account-tools"><details class="oa-more-settings"><summary>更多设置</summary><div class="oa-more-popover"><button id="accountRules" disabled>编辑本号配置</button><button id="accountCreate" disabled>快速创建配置</button><button id="accountImport" disabled>加载并保存配置</button><div><button id="accountBackend" disabled>打开公众号后台</button></div><p id="wechatBackendHelp" class="help">使用浏览器现有登录，请核对账号。</p><details><summary>账号信息</summary><div id="selectedAccount"></div></details></div></details></div></div></section>
-<div class="actions"><button id="refresh" aria-label="刷新账号">刷新</button><button id="showAdd" aria-label="绑定账号">绑定账号</button></div></header>
-<div class="oa-heading"><h1 id="pageTitle">选择平台</h1></div><p id="notice" class="notice" role="status" aria-live="polite">正在连接管理工具…</p>
+<div class="actions"><button id="refresh" aria-label="刷新账号">刷新</button><button id="showAdd" class="primary" aria-label="绑定账号">绑定账号</button></div></header>
+<p id="notice" class="notice" role="status" aria-live="polite">正在连接管理工具…</p>
 <section id="settingsPanel" class="oa-platform-settings" aria-label="平台设置"><h2 id="platformTitle">平台设置</h2><p id="platformHelp" class="help"></p>
 <div class="actions oa-context-tabs" role="tablist" aria-label="工作区设置"><button id="platformSettingsTab" role="tab" aria-selected="true">平台设置</button><button id="contextSettingsTab" role="tab" aria-selected="false">项目与 Skills</button></div>
 <p id="unsupportedSettings" class="empty" hidden>当前平台暂不支持这些设置，未调用其他平台工具。</p>'''+platform_settings+'''</section>

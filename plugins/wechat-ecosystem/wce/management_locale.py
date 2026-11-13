@@ -23,9 +23,7 @@ class _Chrome(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         source = self.get_starttag_text()
-        if tag in ('style', 'svg', 'script', 'pre', 'textarea'):
-            self.ignored.append(tag)
-        if not self.ignored:
+        if not self.ignored and tag not in ('style', 'svg', 'script', 'pre'):
             markers = ''.join(
                 f' data-oa-copy-{name}="{escape(value, quote=True)}"'
                 for name, value in attrs
@@ -34,6 +32,8 @@ class _Chrome(HTMLParser):
             if markers:
                 end = -2 if source.endswith('/>') else -1
                 source = source[:end] + markers + source[end:]
+        if tag in ('style', 'svg', 'script', 'pre', 'textarea'):
+            self.ignored.append(tag)
         self.parts.append(source)
 
     def handle_startendtag(self, tag, attrs):
@@ -79,12 +79,14 @@ globalThis.OAUI=(()=>{
  const en=__MESSAGES__,storageKey='openahoy.management.language';
  const nodes=new Map(),attributes=new Map();
  let cleanupPending=false;
- let language='zh-CN',choice='';
+ let language='en';
  const message=(key,...values)=>({key,values});
  const list=keys=>keys.map(key=>message(key));
  const display=value=>Array.isArray(value)?value.map(display).join(' · '):value&&typeof value==='object'?format(value.key,value.values):String(value);
- try{choice=localStorage.getItem(storageKey)||'';}catch(_){}
- if(choice==='en')language='en';
+ try{
+  const choice=localStorage.getItem(storageKey);
+  if(choice==='zh-CN'||choice==='en')language=choice;
+ }catch(_){}
  function format(key,values=[]){
   return (language==='en'&&Object.hasOwn(en,key)?en[key]:key)
     .replace(/\{(\d+)\}/g,(match,i)=>i<values.length?display(values[i]):match);
@@ -121,6 +123,7 @@ globalThis.OAUI=(()=>{
  }
  function render(){
   document.documentElement.lang=language;
+  document.title=format('OpenAhoy · 平台管理');
   for(const [node,{key,values}]of nodes){
    if(!node.isConnected)nodes.delete(node);
    else node.textContent=format(key,values);
@@ -132,16 +135,12 @@ globalThis.OAUI=(()=>{
   const toggle=document.getElementById('oaLocale');
   if(toggle){toggle.textContent=language==='en'?'中文':'English';toggle.setAttribute('aria-label',language==='en'?'切换到中文':'Switch to English');}
  }
- function select(value){choice=value;language=value;try{localStorage.setItem(storageKey,value);}catch(_){}render();}
- function host(locale){
-  if(choice==='zh-CN'||choice==='en')return;
-  language=typeof locale==='string'&&/^en(?:-|$)/i.test(locale)?'en':'zh-CN';render();
- }
+ function select(value){language=value;try{localStorage.setItem(storageKey,value);}catch(_){}render();}
  scan(document);
  const toggle=document.getElementById('oaLocale');
  if(toggle)toggle.addEventListener('click',()=>select(language==='en'?'zh-CN':'en'));
  render();
- return {set,raw,attr,label,format,host,message,list,scan(root){scan(root);render();}};
+ return {set,raw,attr,label,format,message,list,scan(root){scan(root);render();}};
 })();
 '''
 
