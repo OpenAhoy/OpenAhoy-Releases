@@ -2,6 +2,8 @@
 from .x_schedule_ui import HTML as SCHEDULE_HTML
 from .x_operating_ui import HTML as OPERATING_HTML
 
+from .management_locale import FALLBACK
+
 HTML = '''<style>
 .oa-x-capabilities{flex:none;padding:12px 14px;margin-bottom:12px;border:1px solid var(--line,#dce4e1);border-radius:12px;background:var(--surface,#fff);font-size:12px;line-height:1.5}
 .oa-x-capabilities h2{font-size:14px;margin:0 0 8px}.oa-x-features{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0;padding:0;list-style:none}.oa-x-features li{min-width:0;padding:7px 9px;border-radius:7px;background:var(--bg,#f6f8fa)}.oa-x-features strong,.oa-x-features span{display:block}.oa-x-features span,.oa-x-capabilities p{color:var(--muted,#61746c)}.oa-x-capabilities p{margin:8px 0 0}.oa-native #settingsPanel:has(#xSettings:not([hidden])){overflow:auto}
@@ -24,12 +26,12 @@ HTML = '''<style>
 HTML = HTML.replace('<details><summary>账号授权', SCHEDULE_HTML + '<details><summary>账号授权')
 HTML = HTML.replace('<details id="xSchedulePanel"', OPERATING_HTML + '<details id="xSchedulePanel"')
 
-SCRIPT = r'''
+SCRIPT = FALLBACK + r'''
 window.OAXManagement = {
  mount(call,openLink,onBound,{captureSelection=()=>null}={}){
   const $=id=>document.getElementById(id);let busy=false,ready=false,generation=0,timer=null,waiting=false,readAgain=false,lastBound='',authorizationHandle=null,bindingSelection=null;
   const capability=$('xCapabilities');
-  const say=(text,error=false)=>{$('xStatus').textContent=text;$('xStatus').className='notice'+(error?' error':'');};
+  const say=(text,error=false,...values)=>{(globalThis.OAUI||globalThis.OAPlainUI).set($('xStatus'),text,...values);$('xStatus').className='notice'+(error?' error':'');};
   const buttons=()=>{for(const id of ['xAuthorize','xCheck','xCancel'])$(id).disabled=!ready||busy;};
   const errors={X_APPLICATION_REQUIRED:'OpenAhoy 的 X 接入暂未就绪，请联系产品维护者。',X_CALLBACK_PORT_BUSY:'本机已有 X 授权正在进行，请回到原授权页面完成或取消。',X_AUTHORIZATION_IN_PROGRESS:'本机已有 X 授权正在进行，请在原页面完成或取消。',X_AUTHORIZATION_SESSION_MISMATCH:'此页面不是原授权会话，未取消其他授权。',X_AUTHORIZATION_ACCOUNT_MISMATCH:'重新授权返回的账号与所选账号不同，原绑定未替换。',X_AUTHORIZATION_DENIED:'你已在 X 页面取消授权。',X_AUTHORIZATION_SCOPES_INVALID:'X 未授予所需权限，请重新核对官方授权。',X_KEYCHAIN_ACCESS_REQUIRED:'请在系统钥匙串授权提示中处理访问请求。'};
   async function action(op,args={}){const current=generation,result=await call(op,args);if(!ready||current!==generation)throw new Error('X_VIEW_CLOSED');if(result?.isError||!result?.structuredContent)throw new Error(result?.structuredContent?.error||result?.content?.[0]?.text||'X_UNAVAILABLE');return result.structuredContent;}
@@ -41,14 +43,14 @@ window.OAXManagement = {
    if(waiting)lastBound='';
    if(status==='BOUND'){
     const bound=value.authorization?.result,cid=bound?.connection_id;
-    say('X 已授权并绑定：'+(bound?.profile?.name||''));
+    say('X 已授权并绑定：{0}',false,bound?.profile?.name||'');
     if(cid&&cid!==lastBound){const current=generation;await onBound(cid,bindingSelection);if(ready&&current===generation)lastBound=cid;}
    }
    else if(['FAILED','DENIED'].includes(status))say(errors[value.authorization?.result?.error]||'X 授权未完成，请核对官方应用、权限和 API 资格。',true);
    else if(status==='AWAITING_AUTHORIZATION')say('请在 X 官方页面核对账号并授权，完成后会自动显示账号。');
    else if(status==='EXCHANGING')say('正在与 X 核对授权结果，完成后自动刷新。');
    else if(status==='EXPIRED')say('本次授权已过期，未自动重新发起授权。',true);
-   else if(value.connections?.length)say('已绑定 '+value.connections.length+' 个 X 账号，可继续添加账号。');
+   else if(value.connections?.length)say('已绑定 {0} 个 X 账号，可继续添加账号。',false,value.connections.length);
    else say(value.client_id?'点击“绑定 X 账号”，在 X 官方页面完成授权。':'OpenAhoy 的 X 接入暂未配置，请联系产品维护者。');
   }
   async function run(fn){if(!ready||busy)return;const current=generation;busy=true;stop();buttons();try{await fn();}catch(e){if(ready&&current===generation){waiting=false;readAgain=false;say(errors[e.message]||'操作未完成（'+String(e.message).replace(/[^A-Z0-9_]/g,'').slice(0,80)+'），可手动检查连接状态。',true);}}finally{if(ready&&current===generation){busy=false;buttons();if(readAgain){readAgain=false;queueMicrotask(requestRead);}else schedule();}}}

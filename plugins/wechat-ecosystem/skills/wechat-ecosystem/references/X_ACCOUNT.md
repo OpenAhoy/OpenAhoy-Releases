@@ -42,13 +42,13 @@
 
 ### 原生图文执行顺序
 
-用户已明确授权的真实内容由Codex创作；插件只负责官方执行。使用本次独立PNG/JPEG原件或本人已授权的 GIF/视频素材，不跨用微信media_id。只做当前请求，不自行启动回复、私信、增长、定时任务、转帖或擅自切换本次未指定的账号。
+用户已明确授权的真实内容由Codex创作；插件只负责官方执行。使用本次独立 PNG/JPEG/WebP 原件或本人已授权的 GIF/视频素材，不跨用微信media_id。只做当前请求，不自行启动回复、私信、增长、定时任务、转帖或擅自切换本次未指定的账号。
 
-1. `x.media.upload`传入connection_id、原attempt_id和明确的本机媒体绝对路径；兼容参数名仍为 `image_path`。支持PNG/JPEG、GIF及可识别的MP4/WebM/MPEG-TS/QuickTime，编码/格式/时长/尺寸/大小和账号权益由 X 实际接口判断，不把 API 套餐等同于 Premium，不自动转码、压缩、降质或截时长，也不新增业务额度。PNG/JPEG保留原上传接口与回执；GIF/视频沿官方v2 initialize→append→finalize，分别使用 tweet_gif / tweet_video。传输分块不是总文件额度。
+1. `x.media.upload`传入connection_id、原attempt_id和明确的本机媒体绝对路径；兼容参数名仍为 `image_path`。支持 PNG/JPEG/WebP、GIF 及可识别的MP4/WebM/MPEG-TS/QuickTime，编码/格式/时长/尺寸/大小和账号权益由 X 实际接口判断，不把 API 套餐等同于 Premium，不自动转码、压缩、降质或截时长，也不新增业务额度。常规照片走原上传接口；GIF/视频沿官方 v2 initialize→append→finalize，单帧 GIF 使用 tweet_image，动画 GIF 使用 tweet_gif，视频使用 tweet_video。传输分块不是总文件额度。
    `UPLOADING` 是已确认进度后的可续传状态：相同账号、attempt及原路径再次调用 upload 继续原 session；不会重新 INIT。`PROCESSING` 或 `phase=FINALIZE_UNKNOWN` 时用原 `x.attempt.status` 加 `poll_media=true`，按 next_check_at/check_after_secs 继续官方 GET，直到 SUCCEEDED/明确失败；默认 status 仍只读本地。不要把待处理标成失败或重新上传。INIT/APPEND 结果 UNKNOWN 不盲重放，FINALIZE UNKNOWN 只查询原 media_id，过期不替换媒体或换 key。原媒体字节及进度保存在该账号既有私有任务目录，不修改原件、不另启后台。
-   仅 SUCCEEDED 且未过期的本账号媒体可用于新发帖；一条 GIF 或视频复用原单媒体发帖通路，不混用其他账号/公众号素材。处理失败、平台拒绝和未知阶段如实报告，未知原发帖只沿原 readback，不重复 POST。
-2. 成功后 `x.posts.create` 使用同号、原创建attempt_id、实际text和上传的upload_attempt_id。一次提交，不加审稿/QA许可。公开发表属于真实写入，须已有用户委托。
-3. `x.posts.readback` 用原创建attempt_id独立GET核对真实账号、文字和媒体；只有MATCHED才能报告实际链接。SUCCEEDED创建ACK与独立读回MATCHED分别表述。
+   仅 SUCCEEDED 且未过期的本账号媒体可用于新发帖；每帖最多四张照片，或单个动画 GIF 或视频，不混用其他账号/公众号素材。处理失败、平台拒绝和未知阶段如实报告，未知原发帖只沿原 readback，不重复 POST。
+2. 成功后 `x.posts.create` 使用同号、原创建attempt_id、实际 text 和按展示顺序填写的 `upload_attempt_ids`（一到四项）。每个附件各用原上传回执，全部就绪后一次提交。单附件也可沿用 `upload_attempt_id`，两参数二选一。不加审稿/QA许可。公开发表属于真实写入，须已有用户委托。
+3. `x.posts.readback` 用原创建attempt_id独立GET核对真实账号、文字、媒体数量与顺序，按 media_key 关联各附件；只有MATCHED才能报告实际链接。SUCCEEDED创建ACK与独立读回MATCHED分别表述。
 
 上传或创建RESULT_UNKNOWN时，先 `x.attempt.status` 查询原请求；创建还可 `x.posts.readback` 通过原账号时间线只读对账。无唯一匹配保持UNKNOWN，不换key重发，不以“没看到”推定失败。已有成功在重启后沿原attempt续接。读回MISMATCH保留原发布，报告实际差异，不重复发帖或删帖。
 

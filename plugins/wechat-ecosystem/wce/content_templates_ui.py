@@ -37,7 +37,9 @@ window.OACreativeTemplates={mount(rules,host){
  const $=id=>document.getElementById(id),decode=new TextDecoder('utf-8',{fatal:true});
  let ready=false,busy=false,reloadPending=false,epoch=0,catalog=null,downloadUnknown=new Set(),lastTarget='';
  const hash=async bytes=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(v=>v.toString(16).padStart(2,'0')).join('');
- const say=(text)=>{$('templateNotice').textContent=text;};
+ const ui=globalThis.OAUI;
+ const set=(node,text,...values)=>{if(ui)ui.set(node,text,...values);else node.textContent=text.replace(/\{(\d+)\}/g,(match,i)=>values[i]??match);};
+ const say=(text,...values)=>set($('templateNotice'),text,...values);
  const target=()=>host.templateTarget?.()||null;
  const pin=m=>({template_id:m.id,version:m.version,manifest_sha256:m.manifest_sha256});
  async function read(args){const v=await host.templateCall('own.templates.read',args);if(v?.isError||!v?.structuredContent)throw Error(v?.structuredContent?.error||'TEMPLATE_UNAVAILABLE');return v.structuredContent;}
@@ -85,8 +87,8 @@ window.OACreativeTemplates={mount(rules,host){
   for(const id of ['templateDraftCover','templateWideCover','templateSquareCover'])$(id).src=cover;
   for(const id of ['templateDraftTitle','templateWideTitle','templateSquareTitle','templateArticleTitle'])$(id).textContent=title;
   for(const id of ['templateAccount','templateWideAccount','templateSquareAccount'])$(id).textContent=account;
-  $('templateArticleAuthor').textContent=author||'请输入作者';
-  $('templateWordCount').textContent='正文字数 '+Array.from(doc.body.textContent.replace(/\s/g,'')).length;
+  if(author){if(ui)ui.raw($('templateArticleAuthor'),author);else $('templateArticleAuthor').textContent=author;}else set($('templateArticleAuthor'),'请输入作者');
+  set($('templateWordCount'),'正文字数 {0}',Array.from(doc.body.textContent.replace(/\s/g,'')).length);
   $('templatePreview').hidden=false;$('creativeTemplates').classList.add('template-previewing');$('creativeTemplates').scrollTop=0;
   say('同包HTML与配图的草稿式预览；实际发布显示以微信为准。');
  }
@@ -115,15 +117,15 @@ window.OACreativeTemplates={mount(rules,host){
     const cover=document.createElement('img');cover.src=await image(m,m.assets[0]);cover.alt=m.name+'封面演示';
     if(captured!==epoch||!ready)return;
     const body=document.createElement('div'),title=document.createElement('h3'),desc=document.createElement('p'),change=document.createElement('p'),state=document.createElement('p'),actions=document.createElement('div');
-    title.textContent=m.name+' · '+m.version+' · OpenAhoy官方';desc.textContent=m.description;desc.className='help';change.textContent=m.changelog.join(' ');change.className='help';state.className='template-target';
-    const prior=refs.filter(r=>r.id===m.id).at(-1);state.textContent=!t?'预览和下载无需绑定；应用前请选择公众号。':prior?.manifest_sha256===m.manifest_sha256?'「'+t.name+'」已采用此版本':prior?'「'+t.name+'」已有 '+prior.version+'；此版本可用，应用后保留已有自定义。':'应用目标：「'+t.name+'」';actions.className='actions';
-    for(const [text,action,apply] of [['预览效果',()=>preview(m),false],['下载完整模板',()=>download(m),false],['应用到此公众号',async()=>{const chosen=target();if(!chosen)throw Error('TEMPLATE_ACCOUNT_REQUIRED');const out=await rules.applyTemplate(m,{connection_id:chosen.connection_id,name:chosen.name,isCurrent:chosen.isCurrent});if(out?.verified||out?.alreadyApplied){state.textContent='「'+chosen.name+'」已采用此版本';say(out.alreadyApplied?'本号已采用此版本，没有重复追加。':'模板已应用，八项有效规则及继承关系已独立读回。');}else say(out?.pending?'原保存结果待确认，请在生产规则中查询原操作，不要重复应用。':'应用尚未确认，请查看生产规则提示。');},true]]){
-     const b=document.createElement('button');b.textContent=text;b.dataset.apply=String(apply);if(apply)b.className='primary';b.addEventListener('click',()=>run(action));actions.append(b);
+    set(title,'{0} · {1} · OpenAhoy官方',m.name,m.version);desc.textContent=m.description;desc.className='help';change.textContent=m.changelog.join(' ');change.className='help';state.className='template-target';
+    const prior=refs.filter(r=>r.id===m.id).at(-1);set(state,!t?'预览和下载无需绑定；应用前请选择公众号。':prior?.manifest_sha256===m.manifest_sha256?'「{0}」已采用此版本':prior?'「{0}」已有 {1}；此版本可用，应用后保留已有自定义。':'应用目标：「{0}」',t?.name,prior?.version);actions.className='actions';
+    for(const [text,action,apply] of [['预览效果',()=>preview(m),false],['下载完整模板',()=>download(m),false],['应用到此公众号',async()=>{const chosen=target();if(!chosen)throw Error('TEMPLATE_ACCOUNT_REQUIRED');const out=await rules.applyTemplate(m,{connection_id:chosen.connection_id,name:chosen.name,isCurrent:chosen.isCurrent});if(out?.verified||out?.alreadyApplied){set(state,'「{0}」已采用此版本',chosen.name);say(out.alreadyApplied?'本号已采用此版本，没有重复追加。':'模板已应用，八项有效规则及继承关系已独立读回。');}else say(out?.pending?'原保存结果待确认，请在生产规则中查询原操作，不要重复应用。':'应用尚未确认，请查看生产规则提示。');},true]]){
+     const b=document.createElement('button');set(b,text);b.dataset.apply=String(apply);if(apply)b.className='primary';b.addEventListener('click',()=>run(action));actions.append(b);
     }
     body.append(title,desc,change,state,actions);card.append(cover,body);$('templateCards').append(card);
    }
-   say('模板随插件发布更新；升级不自动覆盖本号设置。应用前请核对下方变更范围。');
-  }catch(e){if(captured===epoch)say('模板暂不可用：'+e.message+'；现有生产规则及发文通路不受影响。');}
+   say(materials.length?'模板随插件发布更新；升级不自动覆盖本号设置。应用前请核对下方变更范围。':'当前没有可用模板。');
+  }catch(e){if(captured===epoch)say('模板暂不可用：{0}；现有生产规则及发文通路不受影响。',e.message);}
   finally{busy=false;buttons();if(reloadPending&&ready){reloadPending=false;void load();}}
  }
  async function refreshTarget(){const cid=target()?.connection_id||'';if(cid!==lastTarget){lastTarget=cid;epoch++;if(busy)reloadPending=true;else if(!$('creativeTemplates').hidden)await load();}}

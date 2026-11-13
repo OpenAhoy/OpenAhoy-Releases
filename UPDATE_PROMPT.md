@@ -1,43 +1,9 @@
-# 升级与旧来源迁移 · OpenAhoy 0.6.28
+# 升级 OpenAhoy 至 0.6.29
 
-这是 OpenAhoy 原分发者指定的公开后继源。正式运行制品仍是未改写的 public v0.6.28 / commit ad078b170bc829ea5a5b8d5d081c6d3e98bcd6e6；本次只补迁移说明，不推出0.6.29、不修改该标签或包。旧PRIVATE源后来新增的v0.6.28只为旧checker发现这一迁移，目标仍为本公开正式包。
+正式源为 [OpenAhoy/OpenAhoy-Releases](https://github.com/OpenAhoy/OpenAhoy-Releases)。按 [v0.6.29 发行清单](https://github.com/OpenAhoy/OpenAhoy-Releases/blob/v0.6.29/RELEASE.json) 和随版 SHA256SUMS、package-manifest.json 核对制品。先用 Codex 官方命令读回实际版本、市场来源、技术 ID 和启用状态。内嵌页的升级入口只发起请求；由用户授权的目标电脑 Codex 执行实际安装。
 
-核验目标：OpenAhoy/OpenAhoy-Releases；ZIP SHA256 507048f2385c3fc06e585c5f092f64b467d7f61d1ec9d74f630ebfdb050c8aab；包内manifest SHA256 907b7b6962861984e29feb4bee4ee1bd5314d9af992a0008b1d570838a39eb88；496payload。读取该固定运行标签的RELEASE.json和完整manifest并逐项核验，不拿迁移说明冒运行包。
+- **公开独占市场**：技术 ID 保持 `wechat-ecosystem@openahoy-distribution`。固定旧标签时，普通 marketplace upgrade 会保留旧 ref；确认市场仅有 OpenAhoy 后，沿官方 marketplace remove/add 把市场登记更新到 `https://github.com/OpenAhoy/OpenAhoy-Releases.git --ref v0.6.29`，再用官方 `codex plugin add wechat-ecosystem@openahoy-distribution`。不卸载插件、不删除数据。
+- **共享市场**：保留原市场名和其他插件，别删除整个市场或另启第二份 OpenAhoy。由该市场维护者只将 OpenAhoy 条目的 git-subdir ref 更新为 `v0.6.29`，并以该公开标签实际解析到的提交替换原 sha；核对后沿原 marketplace 名安装。保留已有单条变更保护；受管市场无法安全编辑时交原维护者。
+- **旧私有来源**：较旧客户端可能只发现迁移用的 0.6.28。按 [0.6.28 迁移说明](https://github.com/OpenAhoy/OpenAhoy-Releases/blob/5428de4f2c7d603a889863d2b8e5513d1b3066e0/UPDATE_PROMPT.md) 识别原命名和来源，再由用户选择采用公开源。全新安装见本版 INSTALL_PROMPT.md。
 
-## 先核本机实际登记
-
-用官方 `codex plugin list --json`、`codex plugin marketplace list --json` 查当前技术ID、市场来源、已装版本和启用状态。更新只操作OpenAhoy（技术name仍wechat-ecosystem），保留同名其他插件、现有namespace及所有账号、Keychain引用、个人规则、项目、原稿、历史和UNKNOWN。
-
-先保存精确627回退软件及配置/数据保护记录。正常官方安装可能清理旧软件cache，不能只依赖原cache目录做回退。禁止恢复旧账号DB快照覆盖新数据。业务在途先等其完成，不杀其他任务。沿已验证包的 scripts/wce_update_brokers.py 的quiesced上下文持有两号启动门，配合既有设置/X/project等维护锁覆盖安装和回读；idle_drain只释放空闲旧broker，忙则等待安全点，未知先查原任务，不重发平台请求。
-
-## A. 共享、本机用户维护的local marketplace
-
-例如已启用wechat-ecosystem@my-plugins，市场内还含其他工具插件。**不能remove这个共享市场，也不能另外启用第二份OpenAhoy。** 根据官方marketplace登记找到用户维护的marketplace.json（不要改供应商cache/snapshot），保全原文件并按原SHA做单行CAS：保留所有其他条目、原目标字段，只把wechat-ecosystem那条source替换为：
-
-```json
-{
-  "source": "git-subdir",
-  "url": "https://github.com/OpenAhoy/OpenAhoy-Releases.git",
-  "path": "plugins/wechat-ecosystem",
-  "ref": "v0.6.28",
-  "sha": "ad078b170bc829ea5a5b8d5d081c6d3e98bcd6e6"
-}
-```
-
-采用同目录临时文件/原mode/owner核验和原字节CAS原子替换，不跟随symlink，不重写其他插件配置。然后执行 `codex plugin add wechat-ecosystem@原有marketplace名 --json`；上例原市场名为my-plugins。保持原技术ID和marketplace名，因此不会另起宿主插件data namespace。
-
-如原市场为共享远端受管Git源，不直接编辑其vendor缓存；应让该市场维护者只更新OpenAhoy源条目，或使用当前宿主明确支持的单插件来源迁移入口。没有安全单条迁移入口时报告具体登记，不删除整个市场或猜新namespace。
-
-## B. 独占OpenAhoy的旧私有分发marketplace
-
-只有确认该市场仅有OpenAhoy时，才沿官方 `marketplace remove 该市场名` / `marketplace add https://github.com/OpenAhoy/OpenAhoy-Releases.git --ref v0.6.28` / `plugin add wechat-ecosystem@openahoy-distribution` 切公开源。先确认原namespace是否本来就是openahoy-distribution；原名不同不能在未核宿主data归属时静默重命名。不是 `plugin remove`，不卸载软件或删除账号资料。已固定旧Git tag的marketplace upgrade会保留原ref，因此仅刷新不足以切新版本。
-
-## C. 从未安装
-
-使用本公开固定运行标签的INSTALL_PROMPT.md与官方两步marketplace add/plugin add。首次账号应为空，用户本人在内嵌页完成绑定，不需要开发者GitHub邀请/token。
-
-## 安装验收
-
-逐manifest校核已装628全部496payload；仅一份OpenAhoy启用，其他插件启用/来源/版本保持。标准MCP initialize和工具目录、当前聊天真实原生调用及管理resource版本分别验证。628检查更新应指PUBLIC OpenAhoy/OpenAhoy-Releases且UP_TO_DATE。独立stdio不冒当前聊天已加载。
-
-尽量使用宿主支持刷新；无可用单插件刷新、已证宿主仍用旧连接时再集中说明必要的一次重开，不盲重启整个Codex或强杀进程。保留原包做软件回退，不覆盖账号数据、不索取Secret、不读Keychain秘密、不新开平台授权，不以升级进行内容上传/发表/互动/定时任务。运营机只按本人委托在当地执行，不远控代装。
+在安全点更新并保留原软件作为回退，包括 [0.6.28 稳定包](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.28)。保留账号、钥匙串、规则、项目、草稿、历史及未决请求；回退软件不覆盖账号数据。核对安装包完整性、标准 MCP 版本与工具、管理资源及原有账号可见性。当前聊天实际加载另行确认。不要重绑、代开授权、索取密钥或试发内容。

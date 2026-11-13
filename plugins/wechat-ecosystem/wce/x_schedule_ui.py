@@ -1,5 +1,7 @@
 """Embedded schedule form; standard app tool/message bridges only."""
 
+from .management_locale import FALLBACK
+
 HTML = '''<details id="xSchedulePanel" class="oa-schedule"><summary>定时生产与发布</summary>
 <p class="help">到点开始创作，完成后发布；不是保证该分钟已经发出。由 Codex 原生任务运行，无需保持管理页打开。本机任务需要电脑在线、应用运行。</p>
 <p id="xScheduleAccount" class="help"></p>
@@ -16,7 +18,7 @@ HTML = '''<details id="xSchedulePanel" class="oa-schedule"><summary>定时生产
 
 STYLE = '''.oa-schedule{margin-top:14px;border-top:1px solid var(--line,#dce4e1);padding-top:10px}.oa-schedule summary{font-weight:600;cursor:pointer}.oa-schedule-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.oa-schedule-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px}.oa-schedule input,.oa-schedule select{box-sizing:border-box;max-width:100%;min-width:0}.oa-schedule fieldset{border:0;padding:4px 0;display:flex;flex-wrap:wrap;gap:12px}.oa-schedule fieldset[hidden],.oa-schedule [hidden]{display:none}.oa-schedule fieldset label{display:flex;align-items:center;gap:3px;font-size:12px}.oa-schedule #xScheduleTasks{overflow-wrap:anywhere}@media(max-width:560px){.oa-schedule-grid{grid-template-columns:1fr}}'''
 
-SCRIPT = r'''
+SCRIPT = FALLBACK + r'''
 window.OAXSchedule={mount(call,message){
  const $=id=>document.getElementById(id),drafts=new Map(),sent=new Set();let ready=false,closed=false,target=null,epoch=0,busy=false,value=null;
  const shownTime=(t)=>{try{return new Intl.DateTimeFormat('zh-CN',{dateStyle:'medium',timeStyle:'short',timeZone:value?.applied_config?.timezone||value?.config?.timezone||undefined}).format(new Date(t));}catch(_){return t;}};
@@ -24,7 +26,8 @@ window.OAXSchedule={mount(call,message){
  const configKey=c=>JSON.stringify([c.mode,c.timezone,c.once_at,[...c.times].sort(),[...c.weekdays].sort()]);
  const valid=c=>{if(!c.timezone)return false;try{new Intl.DateTimeFormat('zh-CN',{timeZone:c.timezone});}catch(_){return false;}return c.mode==='once'?/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(c.once_at):!!c.times.length&&c.times.every(t=>/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(t))&&new Set(c.times).size===c.times.length&&(c.mode!=='weekly'||!!c.weekdays.length);};
  const cfg=()=>({mode:$('xScheduleMode').value,timezone:$('xScheduleTimezone').value.trim(),times:$('xScheduleMode').value==='once'?[]:$('xScheduleTimes').value.split(/[,，\s]+/).filter(Boolean),weekdays:$('xScheduleMode').value==='weekly'?[...$('xScheduleWeekdays').querySelectorAll('input:checked')].map(x=>Number(x.value)):[],once_at:$('xScheduleMode').value==='once'?$('xScheduleOnce').value:''});
- function say(t,error=false){$('xScheduleStatus').textContent=t;$('xScheduleStatus').className='notice'+(error?' error':'');}
+ const ui=globalThis.OAUI||globalThis.OAPlainUI;
+ function say(t,error=false,...values){(globalThis.OAUI||globalThis.OAPlainUI).set($('xScheduleStatus'),t,...values);$('xScheduleStatus').className='notice'+(error?' error':'');}
  function fields(c){$('xScheduleMode').value=c.mode;$('xScheduleTimezone').value=c.timezone;$('xScheduleTimes').value=c.times.join(', ');$('xScheduleOnce').value=c.once_at;for(const x of $('xScheduleWeekdays').querySelectorAll('input'))x.checked=c.weekdays.includes(Number(x.value));modes();}
  function modes(){const m=$('xScheduleMode').value;$('xScheduleTimesLabel').hidden=m==='once';$('xScheduleOnceLabel').hidden=m!=='once';$('xScheduleWeekdays').hidden=m!=='weekly';}
  function buttons(){const ok=ready&&!closed&&target?.state==='BOUND_IDLE'&&!busy&&!!value,waiting=!!value?.pending,complete=valid(cfg());
@@ -32,17 +35,17 @@ window.OAXSchedule={mount(call,message){
   $('xSchedulePause').disabled=!ok||waiting||!message||!value?.tasks.some(t=>t.status==='ACTIVE');
   $('xScheduleResume').disabled=!ok||waiting||!message||!value?.applied_config||!value?.tasks.length||value.tasks.some(t=>t.status==='ACTIVE');
   $('xScheduleReload').disabled=!ok;$('xScheduleCheck').disabled=!ok||!message||!waiting&&!value?.tasks.length;
-  $('xScheduleEnable').textContent=value?.tasks.length?'应用时段并启用':'启用定时';$('xScheduleCheck').textContent=value?.pending?.delivery==='NOT_SENT'?'继续原请求':'核对原任务';
+  ui.set($('xScheduleEnable'),value?.tasks.length?'应用时段并启用':'启用定时');ui.set($('xScheduleCheck'),value?.pending?.delivery==='NOT_SENT'?'继续原请求':'核对原任务');
  }
  function render(){
-  $('xScheduleAccount').textContent=target?'目标账号：'+(target.presentation?.display_name||target.connection_id)+(target.username?' · @'+target.username:''):'请选择已绑定的 X 账号。';
+  ui.set($('xScheduleAccount'),target?'目标账号：{0}':'请选择已绑定的 X 账号。',target?(target.presentation?.display_name||target.connection_id)+(target.username?' · @'+target.username:''):'');
   $('xScheduleTasks').replaceChildren();
   if(value){
    const o=value.observed,p=value.pending;
    say(p?(p.delivery==='NOT_SENT'?'原请求尚未发送，可继续：':'原请求待核对：')+p.action+' · '+p.id+'。不会新建重复请求。':o?({ACTIVE:'原生任务最近核对为已启用',PAUSED:'原生任务最近核对为已暂停',FAILED:'原生任务操作失败',UNKNOWN:'原生任务结果未知',PENDING:'部分任务已记录，等待完整执行'}[o.status]||'任务待核对')+' · '+shownTime(o.checked_at):'尚未启用定时任务。');
    if(o){const p=document.createElement('p');p.textContent='状态来源：Codex 原生任务核对记录'+(o.note?' · '+o.note:'');$('xScheduleTasks').append(p);}
    for(const task of value.tasks){const p=document.createElement('p');p.textContent=task.slot+' · '+(task.status==='ACTIVE'?'已启用':'已暂停')+' · '+task.id+' · 运行聊天 '+task.thread_id+' · 下次运行：'+(task.next_run_at||'宿主未提供');$('xScheduleTasks').append(p);}
-   $('xScheduleDraft').textContent=configKey(cfg())!==configKey(value.config||empty())?'表单有未保存修改。':value.config&&(!value.applied_config||configKey(value.config)!==configKey(value.applied_config))?'时段已保存，尚未应用到原生任务。':'内容规则沿用上方本号已保存配置；每次触发重新读取。';
+   ui.set($('xScheduleDraft'),configKey(cfg())!==configKey(value.config||empty())?'表单有未保存修改。':value.config&&(!value.applied_config||configKey(value.config)!==configKey(value.applied_config))?'时段已保存，尚未应用到原生任务。':'内容规则沿用上方本号已保存配置；每次触发重新读取。');
    const run=value.last_run;$('xScheduleLastRun').textContent=run?'最近实际运行：'+run.state+' · '+shownTime(run.finished_at||run.started_at)+(run.url?' · '+run.url:''):'尚无本功能的实际定时生产记录。';
   }else{$('xScheduleLastRun').textContent='';$('xScheduleDraft').textContent='';say(target?'正在读取本号定时设置…':'请选择已绑定的 X 账号。');}
   buttons();

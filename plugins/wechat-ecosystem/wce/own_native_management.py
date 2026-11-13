@@ -1,5 +1,7 @@
 """Static MCP App. Account data arrives through the standard parent bridge."""
 from .own_native_management_contract import RESOURCE
+from .management_locale import mark_chrome, script as locale_script
+from .management_fonts import style as font_style
 
 MIME = 'text/html;profile=mcp-app'
 
@@ -9,11 +11,13 @@ SCRIPT = r'''
  const $=id=>document.getElementById(id),bridge=window.parent,pending=new Map();
  const allowed=new Set(['wce.ui.management.overview','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download']);
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
- const notice=(text,error=false)=>{$('notice').textContent=text;$('notice').className='notice'+(error?' error':'');};
+ const notice=(text,error=false,...values)=>{OAUI.set($('notice'),text,...values);$('notice').className='notice'+(error?' error':'');};
  const key=row=>JSON.stringify([row.platform_id,row.connection_id]);
  const platform=id=>directory.find(p=>p.id===id);
  const current=()=>rows.find(row=>key(row)===selected);
- const name=row=>row.presentation?.display_name||'账号资料暂不可用';
+ const name=row=>row.presentation?.display_name||'';
+ const platformNames=new Map([['wechat_official_account','公众号'],['x','X'],['xiaohongshu','小红书']]);
+ const platformName=id=>platformNames.get(id);
  const initializedEditors=new Set();let binding=null,xManagement=null,xhsManagement=null,projectContext=null,contextOpen=false;
  const localExports=new Map(),selectedByPlatform=new Map();let selectEpoch=0,platformEpoch=0,selectionIntent=0;
  const hostDownloadsUnknown=new Set();
@@ -64,6 +68,7 @@ SCRIPT = r'''
    }
   }
  })]));
+ function applyHostTheme(context){if(context?.theme==='light'||context?.theme==='dark')document.body.dataset.colorScheme=context.theme;}
  function dispose(){binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
    for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('VIEW_CLOSED'));}pending.clear();
    for(const el of document.querySelectorAll('button,input,select,textarea'))el.disabled=true;
@@ -76,6 +81,7 @@ SCRIPT = r'''
  addEventListener('message',event=>{
    if(event.source!==bridge||event.data?.jsonrpc!=='2.0')return;
    const v=event.data;
+   if(v.method==='ui/notifications/host-context-changed'&&!Object.hasOwn(v,'id')){if(ready&&!closed){applyHostTheme(v.params);if(v.params?.locale)OAUI.host(v.params.locale);}return;}
    if(v.method==='ui/resource-teardown'){
      if(!Object.hasOwn(v,'id'))return;
      if(!['string','number'].includes(typeof v.id)||!v.params||typeof v.params!=='object'||Array.isArray(v.params)||Object.keys(v.params).length||Object.hasOwn(v,'result')||Object.hasOwn(v,'error')){
@@ -109,8 +115,8 @@ SCRIPT = r'''
  }
  function showSettings(id){
    const p=platform(id),editor=editors.get(id),supported=!!p?.settings_supported&&!!editor;
-   $('pageTitle').textContent=p?p.name:(id?'平台暂不可用':'选择平台');
-   $('platformHelp').textContent=p?.settings_help||'';$('unsupportedSettings').hidden=supported;
+   if(p&&!platformName(id))OAUI.raw($('pageTitle'),p.name);else OAUI.set($('pageTitle'),p?platformName(id):id?'平台暂不可用':'选择平台');
+   if(p&&platformName(id))OAUI.set($('platformHelp'),p.settings_help||'');else OAUI.raw($('platformHelp'),p?.settings_help||'');$('unsupportedSettings').hidden=supported;
    for(const el of document.querySelectorAll('#settingsPanel [data-platform-id]'))el.hidden=!supported||el.dataset.platformId!==id;
    $('xSettings').hidden=id!=='x';if(id==='x')$('unsupportedSettings').hidden=true;
    $('xhsSettings').hidden=id!=='xiaohongshu';if(id==='xiaohongshu')$('unsupportedSettings').hidden=true;
@@ -138,10 +144,10 @@ SCRIPT = r'''
  }
  function card(row,choose=false){
    const el=document.createElement('div');el.className='account';el.style.display='flex';el.dataset.accountKey=key(row);
-   const body=document.createElement('div');body.style.minWidth='0';const title=document.createElement(choose?'button':'strong');title.className=choose?'account-select':'account-title';title.textContent=name(row);
+   const body=document.createElement('div');body.style.minWidth='0';const title=document.createElement(choose?'button':'strong');title.className=choose?'account-select':'account-title';if(name(row))OAUI.raw(title,name(row));else OAUI.set(title,'账号资料暂不可用');title.title=name(row);
    if(choose){el.tabIndex=0;el.setAttribute('role','option');el.addEventListener('click',e=>{if(!e.target.closest('button,a')){selectionIntent++;select(key(row));}});el.addEventListener('keydown',e=>{if(e.target===el&&['Enter',' '].includes(e.key)){e.preventDefault();selectionIntent++;select(key(row));}});title.setAttribute('aria-pressed',String(key(row)===selected));title.addEventListener('click',()=>{selectionIntent++;select(key(row));});}
-   const attribution=document.createElement('span');attribution.className='help';attribution.style.display='block';attribution.textContent=platform(row.platform_id)?.name||'未知平台 · 操作不可用';
-   const state=document.createElement('span');state.className='status'+(['CONNECTED','BOUND_IDLE'].includes(row.state)?' good':'');state.textContent=({CONNECTED:'已连接',BOUND_IDLE:'已绑定 · 空闲',DISCONNECTED:'已断开',ACTION_REQUIRED:'需要处理',BUSY:'正在使用'}[row.state]||'状态待核对');
+   const attribution=document.createElement('span');attribution.className='help';attribution.style.display='block';if(platformName(row.platform_id))OAUI.set(attribution,platformName(row.platform_id));else OAUI.raw(attribution,platform(row.platform_id)?.name||'');
+   const state=document.createElement('span');state.className='status'+(['CONNECTED','BOUND_IDLE'].includes(row.state)?' good':'');OAUI.set(state,({CONNECTED:'已连接',BOUND_IDLE:'已绑定 · 空闲',DISCONNECTED:'已断开',ACTION_REQUIRED:'需要处理',BUSY:'正在使用'}[row.state]||'状态待核对'));
    body.append(title,attribution,state);el.append(avatar(row),body);return el;
  }
  async function select(id){
@@ -158,16 +164,16 @@ SCRIPT = r'''
    for(const editor of editors.values())editor.closeCreator();
    selected=rows.some(row=>key(row)===id)?id:'';if(selected)selectedByPlatform.set(activePlatform,selected);
    for(const el of $('accounts').children){const chosen=el.dataset.accountKey===selected;el.classList.toggle('is-selected',chosen);el.setAttribute('aria-selected',String(chosen));el.querySelector('button')?.setAttribute('aria-pressed',String(chosen));}
-   const row=current();$('accountCurrent').replaceChildren();if(row){const text=document.createElement('span'),title=document.createElement('strong'),sub=document.createElement('small');title.textContent=name(row);sub.textContent=row.platform_id==='x'&&row.username?'@'+row.username:({CONNECTED:'已连接',BOUND_IDLE:'已绑定 · 空闲',DISCONNECTED:'已断开',BUSY:'正在使用',ACTION_REQUIRED:'需要处理'}[row.state]||'状态待核对');text.append(title,sub);$('accountCurrent').append(avatar(row),text);}else $('accountCurrent').textContent='平台默认规则 / 尚未选择账号';
+   const row=current();$('accountCurrent').replaceChildren();if(row){const text=document.createElement('span'),title=document.createElement('strong'),sub=document.createElement('small');if(name(row))OAUI.raw(title,name(row));else OAUI.set(title,'账号资料暂不可用');if(row.platform_id==='x'&&row.username)OAUI.raw(sub,'@'+row.username);else OAUI.set(sub,({CONNECTED:'已连接',BOUND_IDLE:'已绑定 · 空闲',DISCONNECTED:'已断开',BUSY:'正在使用',ACTION_REQUIRED:'需要处理'}[row.state]||'状态待核对'));text.append(title,sub);$('accountCurrent').append(avatar(row),text);}else OAUI.set($('accountCurrent'),'平台默认规则 / 尚未选择账号');
    $('selectedAccount').replaceChildren();
    if(row){const line=document.createElement('p');line.className='account-id';line.textContent=typeof row.account_id==='string'?(platform(row.platform_id)?.account_id_label||'账号标识')+' '+row.account_id:'账号资料暂不可用';$('selectedAccount').append(line);}
-   else{const p=document.createElement('p');p.textContent='选择一个账号，查看所属平台与设置。';$('selectedAccount').append(p);}
+   else{const p=document.createElement('p');OAUI.set(p,'选择一个账号，查看所属平台与设置。');$('selectedAccount').append(p);}
    projectContext?.target(activePlatform,row?.connection_id||'',rows);for(const editor of editors.values())editor.targetChanged?.();buttons();
  }
  async function renderAccounts(){
    const visible=rows.filter(row=>row.platform_id===activePlatform);
    $('accounts').replaceChildren();for(const row of visible)$('accounts').append(card(row,true));
-   if(!visible.length){const p=document.createElement('p');p.className='empty';p.textContent=platform(activePlatform)?'此平台尚未绑定账号，点击“绑定账号”开始。':'当前没有可管理的账号。';$('accounts').append(p);}
+   if(!visible.length){const p=document.createElement('p');p.className='empty';OAUI.set(p,platform(activePlatform)?'此平台尚未绑定账号，点击“绑定账号”开始。':'当前没有可管理的账号。');$('accounts').append(p);}
    $('accountCount').textContent=String(visible.length);
    const remembered=selectedByPlatform.get(activePlatform)||selected;await select(visible.some(row=>key(row)===remembered)?remembered:(visible[0]?key(visible[0]):''));
  }
@@ -175,11 +181,11 @@ SCRIPT = r'''
    const ids=[...new Set([...directory.map(p=>p.id),...rows.map(row=>row.platform_id),...(activePlatform?[activePlatform]:[])])];
    $('platformNavigation').replaceChildren();
    for(const id of ids){
-     const p=platform(id),button=document.createElement('button');OAPlatformBranding.decorate(button,id,p?p.name:'原平台当前不可用');
+     const p=platform(id),button=document.createElement('button');OAPlatformBranding.decorate(button,id,p?.name,OAUI);
      button.dataset.platformId=id;button.setAttribute('aria-current',id===activePlatform?'page':'false');
      button.addEventListener('click',()=>selectPlatform(id,true));$('platformNavigation').append(button);
    }
-   if(!ids.length){const p=document.createElement('p');p.className='help';p.textContent='暂无可用平台';$('platformNavigation').append(p);}
+   if(!ids.length){const p=document.createElement('p');p.className='help';OAUI.set(p,'暂无可用平台');$('platformNavigation').append(p);}
  }
  async function refresh(){
    if(!ready||refreshing||launching)return;refreshing=true;buttons();notice('正在读取账号…');
@@ -191,7 +197,7 @@ SCRIPT = r'''
      if(!activePlatform)activePlatform=directory[0]?.id||rows[0]?.platform_id||'';
      renderPlatforms();await renderAccounts();showSettings(activePlatform);
      for(const [id,editor]of editors){const own=rows.filter(row=>row.platform_id===id);editor.accounts(own,new Map(own.map(row=>[row.connection_id,name(row)])));}
-     notice('已读取 '+rows.length+' 个账号；绑定状态不代表所有平台接口已实测。');
+     notice('已读取 {0} 个账号；绑定状态不代表所有平台接口已实测。',false,rows.length);
      for(const [id,editor]of editors){
        if(closed)return;
        if(platform(id)?.settings_supported&&!initializedEditors.has(id)){
@@ -231,8 +237,8 @@ SCRIPT = r'''
  document.querySelectorAll('[data-workspace-project]').forEach(button=>button.addEventListener('click',()=>$('contextSettingsTab').click()));
  $('xWorkspaceTools').onclick=()=>{document.body.classList.add('oa-x-tools');};
  $('xProductionEdit').addEventListener('click',()=>document.body.classList.remove('oa-x-tools'));
- const xBack=document.createElement('button');xBack.id='xWorkspaceBack';xBack.textContent='返回内容配置';xBack.className='oa-x-tools-back';xBack.onclick=()=>document.body.classList.remove('oa-x-tools');$('xSettings').prepend(xBack);
- const xCapabilities=document.createElement('details');xCapabilities.className='oa-capability-details';const xCaption=document.createElement('summary');xCaption.textContent='X 支持的自动能力';xCapabilities.append(xCaption,$('xCapabilities'));$('xSettings').prepend(xCapabilities);
+ const xBack=document.createElement('button');xBack.id='xWorkspaceBack';OAUI.set(xBack,'返回内容配置');xBack.className='oa-x-tools-back';xBack.onclick=()=>document.body.classList.remove('oa-x-tools');$('xSettings').prepend(xBack);
+ const xCapabilities=document.createElement('details');xCapabilities.className='oa-capability-details';const xCaption=document.createElement('summary');OAUI.set(xCaption,'X 支持的自动能力');xCapabilities.append(xCaption,$('xCapabilities'));$('xSettings').prepend(xCapabilities);
  $('contextSettingsTab').addEventListener('click',()=>{contextOpen=true;showSettings(activePlatform);xManagement.deactivate();xhsManagement.deactivate();$('xCapabilities').hidden=activePlatform!=='x';projectContext.activate();});
  $('platformSettingsTab').addEventListener('click',()=>{contextOpen=false;projectContext.deactivate();showSettings(activePlatform);if(activePlatform==='x')xManagement.activate();if(activePlatform==='xiaohongshu')xhsManagement.activate();});
  async function secure(){if(!ready||!bindingPlatform()?.binding_supported)return;if(activePlatform==='xiaohongshu'){await xhsManagement.begin();return;}if(activePlatform==='x'){const intent=navigationEpoch;await xManagement.activate();if(!closed&&activePlatform==='x'&&navigationEpoch===intent)await xManagement.authorize();return;}await binding.open();}
@@ -266,7 +272,7 @@ SCRIPT = r'''
  addEventListener('pagehide',event=>{if(!event.persisted)dispose();});buttons();
  rpc('ui/initialize',{appInfo:{name:'openahoy-management',version:'3.0.0'},protocolVersion:'2026-01-26',appCapabilities:{availableDisplayModes:['inline','fullscreen']}})
  .then(async host=>{if(closed||host?.protocolVersion!=='2026-01-26'||!host.hostCapabilities?.serverTools)throw new Error('NO_SERVER_TOOLS');
-   hostCapabilities=host.hostCapabilities;ready=true;projectContext.setReady(true,!!hostCapabilities.message?.text);bridge.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized'},'*');buttons();await refresh();
+   hostCapabilities=host.hostCapabilities;ready=true;applyHostTheme(host.hostContext);OAUI.host(host.hostContext?.locale);projectContext.setReady(true,!!hostCapabilities.message?.text);bridge.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized'},'*');buttons();await refresh();
  }).catch(()=>{ready=false;buttons();notice('当前宿主管理工具桥不可用，未进行任何账号操作。',true);});
 })();
 
@@ -288,8 +294,9 @@ def resource():
     html = ('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>OpenAhoy · 平台管理</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html)
-        + '<script>' + platform_branding_script() + settings_script(compact=True) + binding_script + x_script + xhs_script + schedule_script + operating_script + project_script + SCRIPT + '</script></body></html>')
+        + '<style>' + font_style() + '</style>'
+        + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
+        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + x_script + xhs_script + schedule_script + operating_script + project_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
         '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com'], 'frameDomains': []}},
                   'openai/ui': {'availableDisplayModes': ['inline', 'fullscreen'], 'preferredDisplayMode': 'inline'}}}]}

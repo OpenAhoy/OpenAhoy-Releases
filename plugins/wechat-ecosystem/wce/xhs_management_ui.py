@@ -1,4 +1,6 @@
 """App-only human login controls. No publication button or exposed QR secret."""
+from .management_locale import FALLBACK
+
 HTML='''<section id="xhsSettings" class="panel" data-platform-id="xiaohongshu" hidden>
 <h2>小红书平台能力</h2><p class="help">本人扫码绑定 · 本号资料与笔记读取 · 原生图文发布 · 原笔记链接读回</p>
 <p class="help">通过本机标准 Chrome 的正常页面操作，不代表已取得官方发布 API。Codex 负责标题、正文、图片和话题；这里不使用公众号 HTML。</p>
@@ -6,10 +8,10 @@ HTML='''<section id="xhsSettings" class="panel" data-platform-id="xiaohongshu" h
 <p id="xhsStatus" class="notice" role="status">读取本机接入状态后可开始。</p>
 <p class="help">登录在插件独立的 Chrome 窗口中完成，不读取你的其他浏览器账号。验证码、风控或协议确认请本人在官方页面处理。项目与 Skills 可保留本平台自己的创作偏好。</p></section>'''
 
-SCRIPT=r'''
+SCRIPT=FALLBACK + r'''
 const OAXHSManagement={mount(call,onBound,selectedConnection=()=>null){
  const $=id=>document.getElementById(id);let ready=false,busy=false,waiting=false,timer=null,epoch=0,bindingId=null;
- const say=text=>{$('xhsStatus').textContent=text;};
+ const say=text=>(globalThis.OAUI||globalThis.OAPlainUI).set($('xhsStatus'),text);
  const buttons=()=>{$('xhsLogin').disabled=!ready||busy||waiting;$('xhsReconnect').disabled=!ready||busy||waiting||!selectedConnection();$('xhsCheck').disabled=!ready||busy;$('xhsCancel').disabled=!ready||busy;$('xhsCancel').hidden=!waiting;};
  function stop(){clearTimeout(timer);timer=null;}
  async function action(operation,args){const r=await call(operation,{...args,...(bindingId?{binding_id:bindingId}:{})});if(r?.isError||!r?.structuredContent)throw new Error('XHS_UNAVAILABLE');return r.structuredContent;}

@@ -35,14 +35,14 @@ def label(platform_id, fallback):
 
 def script():
     return 'const OAPlatformBranding=(()=>{const marks=' + json.dumps(catalog(), separators=(',', ':')) + r''';
- function decorate(button,id,fallback){
+ function decorate(button,id,fallback,ui){
   const value=Object.hasOwn(marks,id)?marks[id]:null;button.replaceChildren();
   if(value){const box=document.createElement('span');box.className='oa-platform-mark';box.dataset.brand=id;box.setAttribute('aria-hidden','true');
    const image=(src,variant='')=>{const img=document.createElement('img');img.className='oa-platform-logo'+(variant?' oa-platform-logo--'+variant:'');img.src=src;img.alt='';return img;};
    if(value.dark!==value.light)box.append(image(value.light,'light'),image(value.dark,'dark'));else box.append(image(value.light));
    button.append(box);
   }
-  const text=document.createElement('span');text.className='oa-platform-label';text.textContent=value?value.name:fallback;button.append(text);
+  const text=document.createElement('span');text.className='oa-platform-label';if(ui&&(value||!fallback))ui.set(text,value?.name||'原平台当前不可用');else text.textContent=value?value.name:fallback;button.append(text);
  }
  return {decorate};
 })();

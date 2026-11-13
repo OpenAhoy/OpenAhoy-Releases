@@ -425,23 +425,46 @@ class XPlatform:
         from .x_media import upload
         return upload(self,cid,attempt_id,path)
 
-    def create(self, cid, attempt_id, text, upload_attempt):
+    def create(self, cid, attempt_id, text, upload_attempt=None, *, upload_attempt_ids=None):
+        require((upload_attempt is None) != (upload_attempt_ids is None), 'INVALID_TOOL_ARGUMENTS')
+        attempts = [upload_attempt] if upload_attempt_ids is None else upload_attempt_ids
+        require(type(attempts) is list and 1 <= len(attempts) <= 4
+                and all(type(item) is str for item in attempts)
+                and len(set(attempts)) == len(attempts), 'INVALID_TOOL_ARGUMENTS')
         self._connection(cid)
-        _, media = self._receipt(cid, 'upload', upload_attempt)
-        if not media or media['state'] != 'SUCCEEDED':
-            raise WCEError('X_MEDIA_NOT_AVAILABLE')
-        content = {'text': text, 'media_id': media['result']['media_id'], 'media_key': media['result']['media_key']}
-        _, original = self._receipt(cid, 'post', attempt_id)
-        if original:
-            if original['fingerprint'] != fingerprint(content):
-                raise WCEError('X_ATTEMPT_CONFLICT')
-            return original
-        if media['result']['expires_at'] <= self.clock():
-            raise WCEError('X_MEDIA_NOT_AVAILABLE')
-        def send(token):
-            data = self.api.create(token, text, [content['media_id']])['data']
-            return {'post_id': identifier(data.get('id'))}
-        return self._write_once(cid, 'post', attempt_id, content, send)
+        with locked(self.root / 'connection.lock'):
+            self._connection(cid)
+            uploads = [self._receipt(cid, 'upload', item)[1] for item in attempts]
+            require(all(row and row['state'] == 'SUCCEEDED' for row in uploads), 'X_MEDIA_NOT_AVAILABLE')
+            require(len(uploads) == 1 or all(row.get('media_category', 'tweet_image') == 'tweet_image'
+                                             for row in uploads), 'X_MEDIA_COMBINATION_INVALID')
+            media_ids = [row['result']['media_id'] for row in uploads]
+            media_keys = [row['result']['media_key'] for row in uploads]
+            require(len(set(media_ids)) == len(uploads) and len(set(media_keys)) == len(uploads),
+                    'X_MEDIA_COMBINATION_INVALID')
+            if len(uploads) == 1:
+                # Preserve the original persisted input and its fingerprint.
+                content = {'text': text, 'media_id': media_ids[0], 'media_key': media_keys[0]}
+            else:
+                content = {'text': text, 'media_ids': media_ids, 'media_keys': media_keys}
+            path, original = self._receipt(cid, 'post', attempt_id)
+            digest = fingerprint(content)
+            if original:
+                require(original['fingerprint'] == digest, 'X_ATTEMPT_CONFLICT')
+                return original
+            token = self._access(self._load(), cid)
+            require(all(row['result']['expires_at'] > self.clock() for row in uploads),
+                    'X_MEDIA_NOT_AVAILABLE')
+            receipt = {'connection_id': cid, 'kind': 'post', 'attempt_id': attempt_id,
+                       'fingerprint': digest, 'state': 'RESULT_UNKNOWN', 'created_at': self.clock(),
+                       'input': content}
+            atomic_write(path, receipt, maximum=None)
+
+            def send(access):
+                data = self.api.create(access, text, media_ids)['data']
+                return {'post_id': identifier(data.get('id'))}
+
+            return self._send_receipt(path, receipt, send, token)
 
     @staticmethod
     def _text(post):
@@ -464,12 +487,19 @@ class XPlatform:
         return text
 
     @staticmethod
+    def _media_keys(receipt):
+        content = receipt['input']
+        return content['media_keys'] if 'media_keys' in content else [content['media_key']]
+
+    @staticmethod
     def _matches(post, c, receipt):
+        if type(post) is not dict or type(post.get('attachments')) is not dict:
+            return False
         content = receipt['input']
         representations = [post.get('text'), XPlatform._text(post)]
         representations += [html.unescape(text) for text in representations if type(text) is str]
         return (post.get('author_id') == c['profile']['id'] and content['text'] in representations and
-                post.get('attachments', {}).get('media_keys') == [content['media_key']])
+                post.get('attachments', {}).get('media_keys') == XPlatform._media_keys(receipt))
 
     def status(self, cid, kind, attempt_id, *, readback=False, poll_media=False):
         self._connection(cid)
@@ -489,9 +519,11 @@ class XPlatform:
                 cursor, seen, matches = None, set(), []
                 while True:
                     page = self.api.posts(token, c['profile']['id'], cursor=cursor, start_time=start)
-                    if type(page.get('data', [])) is not list:
+                    if (type(page) is not dict or page.get('errors') or type(page.get('data', [])) is not list
+                            or any(type(row) is not dict for row in page.get('data', []))):
                         raise WCEError('X_TIMELINE_INCOMPLETE')
-                    matches.extend(row for row in page.get('data', []) if self._matches(row, c, receipt))
+                    matches.extend(identifier(row.get('id')) for row in page.get('data', [])
+                                   if self._matches(row, c, receipt))
                     cursor = page.get('meta', {}).get('next_token')
                     if not cursor:
                         break
@@ -500,12 +532,15 @@ class XPlatform:
                     seen.add(cursor)
                 if len(matches) != 1:
                     return receipt | {'readback_state': 'NO_UNIQUE_MATCH'}
-                receipt['result'] = {'post_id': identifier(matches[0].get('id'))}
+                receipt['result'] = {'post_id': matches[0]}
             result = self.api.post(token, receipt['result']['post_id'])
-            post = result.get('data', {})
-            media_keys = [row.get('media_key') for row in result.get('includes', {}).get('media', [])]
-            if (post.get('id') != receipt['result']['post_id'] or not self._matches(post, c, receipt)
-                    or receipt['input']['media_key'] not in media_keys):
+            post = result.get('data') if type(result) is dict else None
+            includes = result.get('includes') if type(result) is dict else None
+            media = includes.get('media') if type(includes) is dict else None
+            media_keys = [row.get('media_key') for row in media if type(row) is dict] if type(media) is list else []
+            if (type(result) is not dict or result.get('errors') or not self._matches(post, c, receipt)
+                    or post.get('id') != receipt['result']['post_id']
+                    or any(media_keys.count(key) != 1 for key in self._media_keys(receipt))):
                 return receipt | {'readback_state': 'MISMATCH', 'actual': result}
             receipt['state'], receipt['readback_state'] = 'SUCCEEDED', 'MATCHED'
             receipt['text_comparison'] = 'EXACT_RAW_OR_EVIDENCED_X_URL_AND_HTML_REPRESENTATION'

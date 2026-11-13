@@ -1,4 +1,6 @@
 """Native binding view; the parent bridge receives only a JWE, never form secrets."""
+from .management_locale import FALLBACK
+
 HTML = '''<section id="inlineBinding" class="oa-binding panel" hidden aria-labelledby="inlineBindingTitle">
 <div class="drawer-head"><h2 id="inlineBindingTitle">绑定公众号</h2><button id="bindingBack" type="button" class="quiet">返回账号管理</button></div>
 <form id="inlineBindingForm" autocomplete="off">
@@ -11,18 +13,19 @@ HTML = '''<section id="inlineBinding" class="oa-binding panel" hidden aria-label
 <p id="bindingNotice" class="notice" role="status" aria-live="polite"></p>
 </form></section>'''
 
-SCRIPT = r'''
+SCRIPT = FALLBACK + r'''
 const OAInlineBinding = {
  mount(call,{enter,leave,complete}){
   const $=id=>document.getElementById(id);let view='',operation='',generation=0,busy=false,timer=null,visible=false,checked=false,revalidating=false,mayRevalidate=false,pendingBindings=[],selectionLocked=false;
-  const note=text=>{$('bindingNotice').textContent=text;};
+  const ui=globalThis.OAUI||globalThis.OAPlainUI;
+  const note=(text,...values)=>ui.set($('bindingNotice'),text,...values);
   const clear=()=>{$('bindingSecret').value='';clearTimeout(timer);timer=null;};
   const supported=()=>globalThis.isSecureContext===true&&!!globalThis.crypto?.subtle;
   function controls(){
    $('bindingSubmit').disabled=busy||!view||!checked||!supported();$('bindingAppID').disabled=busy||revalidating;
    $('bindingSecret').disabled=busy||!checked||!supported();$('bindingLabel').disabled=busy||revalidating;
    $('bindingRetry').disabled=!mayRevalidate||!view||!checked||!supported();
-   $('bindingSubmit').textContent=revalidating?'重新验证并继续绑定':'绑定公众号';
+   ui.set($('bindingSubmit'),revalidating?'重新验证并继续绑定':'绑定公众号');
    $('bindingPending').disabled=selectionLocked||revalidating;
   }
   const b64=bytes=>{let s='';for(const v of new Uint8Array(bytes))s+=String.fromCharCode(v);return btoa(s).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');};
@@ -153,7 +156,7 @@ const OAInlineBinding = {
      if(verified.state!=='BINDING_CHANNEL_VERIFIED'||verified.envelope_sha256!==expected)throw new Error('CHANNEL_NOT_VERIFIED');
      checked=true;$('inlineBindingForm').dataset.channelEnvelopeSha256=expected;
      if(pendingBindings.length){
-      const select=$('bindingPending');select.replaceChildren();const empty=document.createElement('option');empty.value='';empty.textContent='选择原账号';select.append(empty);
+      const select=$('bindingPending');select.replaceChildren();const empty=document.createElement('option');empty.value='';ui.set(empty,'选择原账号');select.append(empty);
       for(const row of pendingBindings){const option=document.createElement('option');option.value=row.appid;option.textContent=(row.label||row.appid)+' · '+row.appid;select.append(option);}
       select.hidden=false;$('bindingPendingLabel').hidden=false;
       if(pendingBindings.length===1){select.value=pendingBindings[0].appid;await choosePending(select.value,epoch);return;}

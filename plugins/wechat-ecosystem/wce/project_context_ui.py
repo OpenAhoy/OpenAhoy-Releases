@@ -1,4 +1,6 @@
 """Embedded project/Skill preferences. Sources render as text, never HTML."""
+from .management_locale import FALLBACK
+
 HTML = r'''
 <section id="projectContextPanel" class="panel" hidden aria-label="项目与 Skills">
 <div class="project-toolbar"><div><h3>项目与 Skills</h3><p class="help">关联已有项目，复用原规则与创作方法。源文件保留；本页设置作为补充偏好。</p></div>
@@ -31,35 +33,36 @@ STYLE = r'''
 @media(max-width:799px){.project-grid,.project-editor-columns{grid-template-columns:1fr;gap:4px}.project-toolbar{flex-direction:column}.project-save button{flex:1}.project-source-text{max-height:200px}}
 '''
 
-SCRIPT = r'''
+SCRIPT = FALLBACK + r'''
 const OAProjectContext=(()=>{
  'use strict';const $=id=>document.getElementById(id),clone=v=>JSON.parse(JSON.stringify(v));
+ const ui=globalThis.OAUI||globalThis.OAPlainUI;
  const fields=['topics','selection','writing','reply_style','notes'];
  const fresh=()=>({project_id:'',skills:[],preferences:Object.fromEntries(fields.map(k=>[k,'']))});
  const buffers=new Map(),productionRequests=new Map();let call,message,readPost,scheduleUI=null,operatingUI=null,ready=false,closed=false,platform='',account='',scope='',active=false,epoch=0,previewEpoch=0,productionEpoch=0,accountRows=[],productionEffective=null,productionConfigError='',linkState='NOT_SENT',catalog={revision:0,projects:[]},effective=null,preview=null;
  let initialization={state:'NOT_SENT',id:null};
  function clearPreview(){previewEpoch++;preview=null;$('projectSourcePreview').open=false;$('projectSourceText').textContent='';$('projectSourceInfo').textContent='';}
  const key=()=>JSON.stringify([platform,scope]);const buffer=()=>buffers.get(key());
- const say=(value,error=false)=>{$('projectNotice').textContent=value;$('projectNotice').className='notice'+(error?' error':'');};
+ const say=(value,error=false,...args)=>{(globalThis.OAUI||globalThis.OAPlainUI).set($('projectNotice'),value,...args);$('projectNotice').className='notice'+(error?' error':'');};
  async function invoke(operation,args){const r=await call(operation,args);if(r?.isError||!r?.structuredContent)throw new Error(r?.structuredContent?.error||'PROJECT_REQUEST_FAILED');return r.structuredContent;}
  const mark=()=>{const b=buffer();if(b){b.dirty=true;say('有未保存修改；切换账号时将保留在本页。');}buttons();};
  const productionTarget=()=>platform==='x'?accountRows.find(r=>r.platform_id==='x'&&r.connection_id===account):null;
  const productionKey=(cid,kind)=>kind+':'+cid;
- function productionSay(text,error=false){$('xProductionStatus').textContent=text;$('xProductionStatus').className='notice'+(error?' error':'');}
+ function productionSay(text,error=false,...args){(globalThis.OAUI||globalThis.OAPlainUI).set($('xProductionStatus'),text,...args);$('xProductionStatus').className='notice'+(error?' error':'');}
  function productionButtons(){
   const row=productionTarget(),request=productionRequests.get(productionKey(account,'now'));
   const available=ready&&!closed&&!!message&&!!row&&row.state==='BOUND_IDLE';
-  $('xProduceNow').disabled=!available||!!request&&request.state!=='MATCHED';$('xProduceNow').textContent=request?.state==='MATCHED'?'开始下一条并发布':'立即生产并发布';
+  $('xProduceNow').disabled=!available||!!request&&request.state!=='MATCHED';ui.set($('xProduceNow'),request?.state==='MATCHED'?'开始下一条并发布':'立即生产并发布');
   $('xProductionSchedule').disabled=!ready||closed||!row;$('projectXSchedule').disabled=!ready||closed||!row;
   $('xProductionResult').hidden=!request||request.state==='SENDING';$('xProductionResult').disabled=!ready||closed||!row||!readPost||!!request?.checking;
   $('xProductionEdit').disabled=!ready||closed||!row;
  }
  function renderProduction(){
-  const row=productionTarget();$('xProductionAccount').textContent=row?'目标账号：'+(row.presentation?.display_name||row.connection_id)+(row.username?' · @'+row.username:''):'选择已绑定的 X 账号后启动。';
+  const row=productionTarget();ui.set($('xProductionAccount'),row?'目标账号：{0}':'选择已绑定的 X 账号后启动。',row?(row.presentation?.display_name||row.connection_id)+(row.username?' · @'+row.username:''):'');
   $('xProductionPreferences').replaceChildren();
   const cfg=productionEffective?.x_configuration?.configuration?.profile;
   for(const [title,value]of [['关注主题',cfg?.positioning.topics||productionEffective?.settings?.preferences?.topics],['目标读者',cfg?.positioning.readers],['文案与配图',cfg?.positioning.voice||productionEffective?.settings?.preferences?.writing],['运营配置',cfg?cfg.columns.length+' 个栏目 · '+cfg.growth.methods.join('、'):productionEffective?.settings?.preferences?.notes]]){
-   const p=document.createElement('p'),label=document.createElement('strong');label.textContent=title;p.append(label,document.createTextNode(value||'未设置 · 由 Codex 自主创作'));$('xProductionPreferences').append(p);
+   const p=document.createElement('p'),label=document.createElement('strong');ui.set(label,title);p.append(label,value?document.createTextNode(value):ui.label('未设置 · 由 Codex 自主创作'));$('xProductionPreferences').append(p);
   }
   $('xProductionConfigStatus').textContent=productionConfigError||(!row?'无需填写 API Key。':productionEffective?(productionEffective.inherited_from==='account'?'本号配置':'继承平台默认')+' · '+(productionEffective.project?.name||'未关联项目，沿用默认方法')+' · 规则来源：'+productionEffective.sources.map(s=>s.name).join('、'):'正在读取已保存的本号内容配置…');
   const request=productionRequests.get(productionKey(account,'now'));productionSay(request?.notice||'一次启动由当前 Codex 完成新文字、新配图、公开发布及真实链接读回。',request?.state==='UNKNOWN'||request?.state==='REJECTED');productionButtons();
@@ -105,18 +108,18 @@ const OAProjectContext=(()=>{
   for(const button of $('projectSources').querySelectorAll('button'))button.disabled=!ready||closed||!b;
  }
  function renderSources(){const b=buffer(),project=catalog.projects.find(p=>p.id===b?.settings.project_id);
-  $('projectSkills').replaceChildren();$('projectSources').replaceChildren();
-  $('projectPath').textContent=project?.root||'未关联项目：继续使用原平台规则。';
+  ui.raw($('projectSkills'),'');$('projectSources').replaceChildren();
+  if(project?.root)ui.raw($('projectPath'),project.root);else ui.set($('projectPath'),'未关联项目：继续使用原平台规则。');
   const sources=project?.sources||[],by=new Map((effective?.sources||[]).map(s=>[s.id,s]));
   const skills=sources.filter(s=>s.kind==='skill');
   for(const row of skills){const label=document.createElement('label'),input=document.createElement('input'),body=document.createElement('span'),title=document.createElement('span'),help=document.createElement('span');input.type='checkbox';input.value=row.id;input.checked=b.settings.skills.includes(row.id);title.textContent=row.name;help.className='help';help.textContent=row.description;body.append(title,help);label.append(input,body);input.addEventListener('change',()=>{b.settings.skills=b.settings.skills.filter(id=>id!==row.id);if(input.checked)b.settings.skills.push(row.id);mark();});$('projectSkills').append(label);}
-  if(!skills.length)$('projectSkills').textContent='此项目尚无可选 Skill。可从本聊天关联已具备的 Skill。';
+  if(!skills.length)ui.set($('projectSkills'),'此项目尚无可选 Skill。可从本聊天关联已具备的 Skill。');
   const missing=b.settings.skills.filter(id=>!skills.some(s=>s.id===id));if(missing.length){const p=document.createElement('p');p.className='project-stale';p.textContent='有 '+missing.length+' 个已选 Skill 来源缺失，请刷新来源并核对。';$('projectSkills').append(p);}
   for(const row of [catalog.builtin,...sources].filter(Boolean)){const button=document.createElement('button'),actual=by.get(row.id);button.type='button';button.textContent=(row.kind==='agents'?'AGENTS · ':row.origin==='plugin'?'插件 · ':'Skill · ')+row.name+(actual&&actual.status!=='CURRENT'?' · 来源已变化':'');button.title=row.path+'\nSHA256 '+row.sha256;if(actual&&actual.status!=='CURRENT')button.className='project-stale';button.addEventListener('click',()=>showSource(row,0));$('projectSources').append(button);}
  }
  function render(){const b=buffer();if(!b)return;
-  $('projectChoice').replaceChildren(new Option('沿用现有工作流程',''));for(const project of catalog.projects)$('projectChoice').add(new Option(project.name,project.id));
-  if(b.settings.project_id&&!catalog.projects.some(p=>p.id===b.settings.project_id))$('projectChoice').add(new Option('项目来源不可用',b.settings.project_id));
+  const defaults=new Option('','');ui.set(defaults,'沿用现有工作流程');$('projectChoice').replaceChildren(defaults);for(const project of catalog.projects)$('projectChoice').add(new Option(project.name,project.id));
+  if(b.settings.project_id&&!catalog.projects.some(p=>p.id===b.settings.project_id)){const missing=new Option('',b.settings.project_id);ui.set(missing,'项目来源不可用');$('projectChoice').add(missing);}
   $('projectChoice').value=b.settings.project_id;$('projectInheritLabel').hidden=!scope;$('projectInherit').checked=!!b.inherit;
   $('projectPreferenceText').value=b.settings.preferences[$('projectPreference').value]||'';
   $('projectOrigin').textContent=(scope?(b.inherit?'本账号继承平台默认':'本账号单独设置'):'当前平台默认')+' · 来源 revision '+b.revision;

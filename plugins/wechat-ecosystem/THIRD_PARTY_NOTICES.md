@@ -1,6 +1,7 @@
 # Third-party notices and runtime dependencies
 
 - Phosphor Icons: embedded interface icon SVG paths; MIT license text included at assets/third-party/Phosphor-Icons-LICENSE.txt.
+- Management fonts: modified, renamed Resource Han Rounded and Nunito UI subsets, distributed under SIL Open Font License 1.1. License texts and exact source and payload digests are included in assets/management/fonts/.
 - WeChat Official Account, X, and Xiaohongshu marks: third-party platform identifiers. Exact asset provenance/hashes are in assets/platforms/SOURCES.json; no affiliation or endorsement is claimed. These marks are not relicensed as OpenAhoy software.
 - The editorial-notebook demo text/HTML/images are generic distributable template examples, not user articles; each version includes LICENSE.md and manifest.json. The demo images are AI generated, with no claim of exclusive copyright.
 - Xiaohongshu workflow research: xpzouying/xiaohongshu-mcp (Apache-2.0), commit bb6fa2e. Independently implemented normal-browser adapter; no upstream source code or upstream binary is bundled.

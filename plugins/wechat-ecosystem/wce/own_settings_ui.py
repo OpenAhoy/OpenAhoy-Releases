@@ -138,7 +138,7 @@ button.primary{background:#387a52;border-color:#387a52}button.primary:hover:not(
 
 STYLE += MANAGEMENT_STYLE
 
-SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '微信公众号默认规则').replace('全局版本', '微信默认版本') + MANAGEMENT_JS + r"""
+SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '公众号默认规则').replace('全局版本', '公众号默认版本') + MANAGEMENT_JS + r"""
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
@@ -170,12 +170,11 @@ SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '微信公众号
     $('bodyRecoveryPreview').replaceChildren();
   }
   function renderBodyRecovery(display) {
-    throw new Error("LEGACY_CASE_NOT_DISTRIBUTED");
     clearBodyRecovery();
     if(!display || !Array.isArray(display.cases) || ![1,2,3].includes(display.cases.length) ||
        display.maximum_new_sends !== display.cases.length || display.per_case_new_sends !== 1)
       throw new Error('R1_PREVIEW_INVALID');
-    if(display.cases.length===1 && (display.contract_sha!=='NOT_DISTRIBUTED' || display.cases[0].case_id!=='NOT_DISTRIBUTED')) throw new Error('R1_PREVIEW_INVALID');
+    if(display.cases.length===1 && (display.contract_sha!=='337ce7b69a0a07bb00f884d1f53ae8aa01b9868666ac6e9904f596acacf5b59c' || display.cases[0].case_id!=='a2cc8c9b3c92b779e5be94e64e884b12e6435fc60db3371d3ea05cdbb4c0251a')) throw new Error('R1_PREVIEW_INVALID');
     riskPhrase = display.cases.length === 1 ? '同意本图额外上传一次' : display.cases.length === 2 ? '同意两图各额外上传一次' : '同意三图各额外上传一次';
     $('riskHelp').textContent = riskPhrase;
     if(display.retained_unrelated_locks > 0) {
@@ -652,8 +651,8 @@ SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '微信公众号
       if(isRecovery(intent)) {
         const d=response.review?.body_recovery;
         if(response.review?.intent!==intent || !d ||
-            ((intent===body5Intent)!==(d.contract_sha==='NOT_DISTRIBUTED')) ||
-            (intent===body5Intent && (d.maximum_new_sends!==1 || d.cases?.length!==1 || d.cases[0].case_id!=='NOT_DISTRIBUTED'))) {
+            ((intent===body5Intent)!==(d.contract_sha==='337ce7b69a0a07bb00f884d1f53ae8aa01b9868666ac6e9904f596acacf5b59c')) ||
+            (intent===body5Intent && (d.maximum_new_sends!==1 || d.cases?.length!==1 || d.cases[0].case_id!=='a2cc8c9b3c92b779e5be94e64e884b12e6435fc60db3371d3ea05cdbb4c0251a'))) {
           await call('/cancel'); throw new Error('R1_REVIEW_CHANGED');
         }
       }

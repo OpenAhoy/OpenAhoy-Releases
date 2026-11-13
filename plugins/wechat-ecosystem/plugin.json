@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "wechat-ecosystem",
-  "version": "0.6.28",
+  "version": "0.6.29",
   "description": "OpenAhoy account and content workspace for Codex: WeChat official accounts, X OAuth2, and isolated standard-browser Xiaohongshu image-text workflows. Permissions and login remain account-specific.",
   "extensions": {
     "com.openai": {

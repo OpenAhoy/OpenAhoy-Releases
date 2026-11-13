@@ -19,11 +19,13 @@ from .x_api import identifier
 
 SEGMENT_BYTES=4*1024*1024  # below official 8 MB multipart maximum
 TRANSFER_SECONDS=20  # cooperative call yield, never a file/duration quota
+SIMPLE_IMAGE_BYTES = 5_000_000  # route larger inputs to the streaming endpoint
 
 
 def media_type(head):
     if head.startswith(b'\x89PNG\r\n\x1a\n'):return 'image/png','tweet_image'
     if head.startswith(b'\xff\xd8\xff'):return 'image/jpeg','tweet_image'
+    if head[:4] == b'RIFF' and head[8:12] == b'WEBP':return 'image/webp','tweet_image'
     if head.startswith((b'GIF87a',b'GIF89a')):return 'image/gif','tweet_gif'
     if len(head)>=12 and head[4:8]==b'ftyp':
         return ('video/quicktime'if head[8:12]==b'qt  'else 'video/mp4'),'tweet_video'
@@ -39,15 +41,46 @@ def source_bytes(source):
     return FileSource(source.parent).iter_html(source.name)
 
 
+def gif_category(artifact):
+    """Distinguish one image frame from animation without decoding the pixels."""
+    with artifact.open('rb') as source:
+        header = source.read(13)
+        if len(header) != 13:
+            return 'tweet_gif'
+        if header[10] & 0x80:
+            source.seek(3 * (2 << (header[10] & 7)), os.SEEK_CUR)
+        frames = 0
+        while True:
+            marker = source.read(1)
+            if marker == b';':
+                return 'tweet_image' if frames == 1 else 'tweet_gif'
+            if marker == b',':
+                frames += 1
+                descriptor = source.read(9)
+                if frames > 1 or len(descriptor) != 9:
+                    return 'tweet_gif'
+                if descriptor[8] & 0x80:
+                    source.seek(3 * (2 << (descriptor[8] & 7)), os.SEEK_CUR)
+                if not source.read(1):
+                    return 'tweet_gif'
+            elif marker != b'!' or not source.read(1):
+                return 'tweet_gif'
+            while length := source.read(1):
+                if not length[0]:
+                    break
+                source.seek(length[0], os.SEEK_CUR)
+
+
 def capture(x,path,source):
     """Atomically retain exact stable bytes; never overwrite an older capture."""
     artifact=path.with_suffix('.media')
     temporary=x.root/('.media-capture-'+uuid.uuid4().hex)
     fd=None
     try:
+        original_pin = file_state(source.stat(follow_symlinks=False))
         digest=sha256();size=0;head=b''
         fd=os.open(temporary,os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
-        for chunk in source_bytes(source):
+        for chunk in FileSource(source.parent).iter_html(source.name, expected_state=original_pin):
             if len(head)<512:head=(head+chunk)[:512]
             digest.update(chunk);size+=len(chunk)
             view=memoryview(chunk)
@@ -57,6 +90,8 @@ def capture(x,path,source):
                 view=view[written:]
         os.fsync(fd);os.close(fd);fd=None
         mime,category=media_type(head)
+        if mime == 'image/gif':
+            category = gif_category(temporary)
         content={'sha256':digest.hexdigest(),'bytes':size}
         # All legitimate capture writers hold the existing connection.lock.
         # Atomic rename publishes complete bytes in one step; unlike link/unlink
@@ -71,7 +106,7 @@ def capture(x,path,source):
         directory=os.open(x.root,os.O_RDONLY|os.O_DIRECTORY)
         try:os.fsync(directory)
         finally:os.close(directory)
-        return content,mime,category,artifact,list(file_state(artifact.stat(follow_symlinks=False)))
+        return content,mime,category,artifact,list(file_state(artifact.stat(follow_symlinks=False))),list(original_pin)
     finally:
         if fd is not None:os.close(fd)
         if os.path.lexists(temporary):temporary.unlink()
@@ -205,7 +240,15 @@ def upload(x,cid,attempt_id,path):
     try:
         first=next(stream);mime,category=media_type(first[:512])
         if category=='tweet_image':
-            raw=first+b''.join(stream)
+            raw=bytearray(first)
+            for chunk in stream:
+                raw.extend(chunk)
+                if len(raw) > SIMPLE_IMAGE_BYTES:
+                    break
+        else:
+            raw=None
+        if raw is not None and len(raw) <= SIMPLE_IMAGE_BYTES:
+            raw=bytes(raw)
             content={'sha256':sha256(raw).hexdigest(),'bytes':len(raw)}
             def send(token):
                 data=x.api.upload(token,raw)['data'];mid=identifier(data.get('id'))
@@ -216,17 +259,23 @@ def upload(x,cid,attempt_id,path):
     finally:stream.close()
     with locked(x.root/'connection.lock'):
         x._connection(cid);receipt_path,old=x._receipt(cid,'upload',attempt_id)
-        content,mime,category,artifact,pin=capture(x,receipt_path,source)
+        source_key = sha256(os.fsencode(source)).hexdigest()
+        if (old and old.get('source_key') == source_key and
+                old.get('original_source_state') == list(file_state(source.stat(follow_symlinks=False)))):
+            return advance(x,cid,receipt_path,old,receipt_path.with_suffix('.media'))
+        content,mime,category,artifact,pin,original_pin=capture(x,receipt_path,source)
         if old is not None:
             if old['fingerprint']!=x_fingerprint(content):raise WCEError('X_ATTEMPT_CONFLICT')
             if old.get('media_protocol')!='X_V2_CHUNKED':return old
-            if old['media_type']!=mime or old['media_category']!=category:raise WCEError('X_ATTEMPT_CONFLICT')
+            if old['media_type']!=mime or (old['media_category']!=category and mime!='image/gif'):
+                raise WCEError('X_ATTEMPT_CONFLICT')
             row=old
         else:
             row={'connection_id':cid,'kind':'upload','attempt_id':attempt_id,'fingerprint':x_fingerprint(content),
                 'state':'UPLOADING','created_at':x.clock(),'input':content,'media_protocol':'X_V2_CHUNKED',
                 'phase':'PREPARED','media_type':mime,'media_category':category,'source_state':pin}
-            save(receipt_path,row)
+        row.update(source_key=source_key,original_source_state=original_pin)
+        save(receipt_path,row)
         return advance(x,cid,receipt_path,row,artifact)
 
 

@@ -1,0 +1,25 @@
+{
+  "license": "SIL Open Font License 1.1; modified, renamed, UI subsets",
+  "files": {
+    "openahoy-rounded-sc.woff2": {
+      "source": "https://github.com/CyanoHao/Resource-Han-Rounded/releases/tag/v0.990",
+      "archive_sha256": "e7005f7b4a7a0b8352d32c4a1358ff47564eb73be7fdb2db00d9f792755e9dc7",
+      "input": "ResourceHanRoundedCN-Medium.ttf",
+      "input_sha256": "b2ec1727fbc04b70255db6cb71be0eca3b7a7167ef11655059c5576cc920143f",
+      "license_file": "Resource-Han-Rounded-LICENSE.md",
+      "license_source": "https://github.com/CyanoHao/Resource-Han-Rounded/blob/be90fee7a031c1297da5a260ccfb91756088d51c/LICENSE.md",
+      "coverage": "SC interface characters; original Medium outlines",
+      "sha256": "f803a819eecf18cb69bc464412f75ff88640e73278070422b586b4f403e9df2b",
+      "bytes": 113856
+    },
+    "openahoy-rounded-latin.woff2": {
+      "source": "https://github.com/google/fonts/tree/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/nunito",
+      "input": "Nunito[wght].ttf",
+      "input_sha256": "bb55a5ca5c2042335b3991af27c4d0705d0ef41cac6164ac737fd8f2a1e85207",
+      "license_file": "Nunito-OFL.txt",
+      "coverage": "Latin and interface punctuation; weight axis 400–800",
+      "sha256": "af64c6e91c45718855928d574451bbe73fe5b0e860595f1c3612ccffa75dc044",
+      "bytes": 47904
+    }
+  }
+}

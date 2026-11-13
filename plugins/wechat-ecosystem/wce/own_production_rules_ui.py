@@ -1,4 +1,5 @@
 """Embedded preference editor. All user text is text, never executable markup."""
+from .account_starter_ui import entry as starter_entry
 from .html_technical_standard import render_html
 from .management_workspace_ui import workspace, SCRIPT as WORKSPACE_SCRIPT
 
@@ -50,7 +51,7 @@ _fields = '<div class="rules-body"><div class="rules-context"><div class="oa-sco
 _actions = '<p id="rulesStatus" class="notice" role="status">正在读取配置…</p><button id="rulesSave" class="primary" disabled>保存并应用</button>'
 _tools = '<details class="oa-task-menu"><summary>导入 / 下载</summary><div class="actions"><button id="rulesCreate" disabled>创建、导入与下载配置</button><button id="rulesReload" disabled>读取最新版并保留编辑</button></div></details>'
 _context = '<p class="help">只影响后续创作，原文、账号权限和任务保留。</p><button type="button" data-workspace-project>项目与 Skills</button>'
-HTML = HTML[:_start] + '<div id="rulesEditing">' + workspace('rules', '配置公众号的内容定位、表达风格、图文版式与创作偏好。', _fields, _actions, _tools, _context) + '</div>' + HTML[_end:]
+HTML = HTML[:_start] + '<div id="rulesEditing">' + workspace('rules', '配置公众号的内容定位、表达风格、图文版式与创作偏好。', starter_entry('rules') + _fields, _actions, _tools, _context) + '</div>' + HTML[_end:]
 
 JS = r'''
 (() => {
@@ -90,35 +91,57 @@ JS = r'''
   }
   function mount(send, {compact=false}={}, {downloadFile=null}={}) {
     const $=id=>document.getElementById(id), editors={}, inherited={}, sources={}, summaries={}, buffers=new Map();
-    let workspace=null;const fieldRows={};
+    const ui=globalThis.OAUI||globalThis.OAPlainUI;
+    let workspace=null, starter=null;const fieldRows={}, choiceEditors={};
+    const choiceGroups={audience_topics:['主题','读者','内容形式','目标'],voice:['表达'],image_preferences:['配图'],visual_layout:['版式']};
     const loaded=new Map(),verifications=new Map();let accountNames=new Map(),configAccounts=new Set(),importRequest=null,selectionEpoch=0,cardAccount='';
     const creations=new Map(),creatorEditors={},creatorChoices=[];let creator=null,creatorEpoch=0,fillRequest=null,lastRead=null;
     const summarize=field=>{workspace?.refresh();if(summaries[field])summaries[field].textContent=inherited[field].checked?'沿用现有偏好 / 平台默认':(editors[field].value.trim().replace(/\s+/g,' ').slice(0,48)||'未设置');};
     let pendingRestore=null;
     let ready=false, selected='', generation=0, busy=false, meta=null, before=null, pendingSave=null, historyEnded=false;
-    const status=text=>{$('rulesStatus').textContent=text;};
+    const status=(text,...values)=>ui.set($('rulesStatus'),text,...values);
     const base=()=>({connection_id:selected,scope:selected?'account':'global'});
     const inputs=()=>Object.fromEntries(fields.map(field=>[field,{text:editors[field].value,inherit:inherited[field].checked}]));
     const remember=()=>{if(meta)buffers.set(selected,inputs());};
     for(let i=0;i<fields.length;i++) {
-      const field=fields[i], row=document.createElement('label'), title=document.createElement('span');title.textContent=labels[i];row.append(title);
+      const field=fields[i], row=document.createElement('label'), title=document.createElement('span');ui.set(title,labels[i]);row.append(title);
       const source=document.createElement('span');source.className='rule-source';sources[field]=source;row.append(source);
-      const toggle=document.createElement('input');toggle.type='checkbox';toggle.setAttribute('aria-label',labels[i]+'继承全局');
-      const help=document.createElement('span');help.textContent=' 继承现有账号偏好 / 全局默认';help.className='help';
-      const area=document.createElement('textarea');area.rows=field==='additional_notes'?8:3;area.className='rule-input';area.setAttribute('aria-label',labels[i]);area.setAttribute('data-field',field);
-      inherited[field]=toggle;editors[field]=area;row.append(toggle,help,area);
+      const toggle=document.createElement('input');toggle.type='checkbox';ui.attr(toggle,'aria-label','继承默认规则：{0}',ui.message(labels[i]));
+      const help=document.createElement('span');ui.set(help,' 继承现有账号偏好 / 全局默认');help.className='help';
+      const area=document.createElement('textarea');area.rows=field==='additional_notes'?8:3;area.className='rule-input';ui.attr(area,'aria-label',labels[i]);area.setAttribute('data-field',field);
+      inherited[field]=toggle;editors[field]=area;row.append(toggle,help);
+      let body=row;
+      if(compact&&globalThis.OAAccountStarter&&choiceGroups[field]){
+        const choices=OAAccountStarter.choices(area,choiceGroups[field],{
+          canEdit:()=>!!meta&&!toggle.disabled,
+          beforeEdit:()=>{if(toggle.checked&&lastRead?.connection_id===selected)area.value=lastRead.combined[field]??'';},
+          commit:()=>{toggle.checked=false;area.disabled=false;summarize(field);remember();}
+        });
+        choiceEditors[field]=choices;
+        body=document.createElement('div');
+        body.append(row,choices.root);
+      }else row.append(area);
       if(compact){
         const detail=document.createElement('details'),summary=document.createElement('summary'),caption=document.createElement('strong'),preview=document.createElement('span');
-        detail.className='rule-editor';fieldRows[field]=detail;caption.textContent=labels[i];preview.className='rule-summary';summaries[field]=preview;
-        summary.append(caption,preview);detail.append(summary,row);$('rulesFields').append(detail);
+        detail.className='rule-editor';fieldRows[field]=detail;ui.set(caption,labels[i]);preview.className='rule-summary';summaries[field]=preview;
+        summary.append(caption,preview);detail.append(summary,body);$('rulesFields').append(detail);
       }else{fieldRows[field]=row;$('rulesFields').append(row);}
       area.addEventListener('input',()=>{summarize(field);remember();});
-      toggle.addEventListener('change',()=>{area.disabled=toggle.checked;summarize(field);remember();});
+      toggle.addEventListener('change',()=>{area.disabled=toggle.checked;choiceEditors[field]?.refresh();summarize(field);remember();});
+    }
+    if(compact&&globalThis.OAAccountStarter&&$('rulesStarter')){
+      starter=OAAccountStarter.mount($('rulesStarter'),'wechat',{
+        read:field=>({text:editors[field].value,inherit:inherited[field].checked}),
+        write:(field,value)=>{editors[field].value=value.text;inherited[field].checked=value.inherit;},
+        empty:(field,value)=>!value.text.trim()&&(!value.inherit||!lastRead?.combined[field]?.trim())&&
+          (!loaded.get(selected)?.[field]?.text.trim()),
+        onChange:()=>{remember();buttons();workspace?.refresh();}
+      });
     }
     if(globalThis.OATaskWorkspace){
       const definitions=[['内容定位',['audience_topics']],['表达与署名',['author','voice']],['配图与版式',['image_preferences','visual_layout']],['制作与交付',['content_qa','delivery_publication']],['项目与 Skill',['additional_notes']]];
       workspace=OATaskWorkspace.mount('rules',definitions.map(([title,keys])=>({title,
-        summary:()=>keys.map(k=>editors[k].value.trim().replace(/\s+/g,' ')).filter(Boolean).join(' · ')||'沿用现有偏好',
+        summary:()=>keys.map(k=>editors[k].value.trim().replace(/\s+/g,' ')).filter(Boolean).join(' · ')||['沿用现有偏好'],
         show:shown=>{for(const k of keys){if(fieldRows[k]){fieldRows[k].hidden=!shown;fieldRows[k].open=shown;}}}
       })));
     }
@@ -130,6 +153,8 @@ JS = r'''
       $('rulesAccountScope').setAttribute('aria-pressed',String(!!selected));$('rulesDefaultScope').setAttribute('aria-pressed',String(!selected));
       for(const field of fields){inherited[field].disabled=locked;editors[field].disabled=locked||inherited[field].checked;}
       $('rulesCreate').disabled=!ready||busy||!selected||!configAccounts.has(selected)||!!pendingSave||!!pendingRestore;
+      for(const choice of Object.values(choiceEditors))choice.refresh();
+      starter?.update(meta?selected:'',locked||!meta);
       creatorButtons();
     }
     async function tool(name,args) {
@@ -157,6 +182,7 @@ JS = r'''
     }
     async function load(keepEdits=true) {
       if(!ready||busy)return;
+      if(!keepEdits)starter?.forget(selected);
       const epoch=++generation, target=base();busy=true;buttons();status('正在读取当前规则与有效预览。');
       try {
         const pending=pendingSave||pendingRestore;
@@ -179,18 +205,21 @@ JS = r'''
         for(const field of fields) {
           editors[field].value=saved?saved[field].text:(own[field]??combined[field]??'');
           editors[field].setAttribute('data-source',effective.fields[field].source);
-          sources[field].textContent='当前生效来源：'+({'global':'全局默认','account':'本号覆盖','legacy-editor':'现有账号偏好','default':'未设置'}[effective.fields[field].source]||'当前规则');
+          ui.set(sources[field],'当前生效来源：{0}',ui.message(({'global':'全局默认','account':'本号覆盖','legacy-editor':'现有账号偏好','default':'未设置'}[effective.fields[field].source]||'当前规则')));
           inherited[field].hidden=!selected;inherited[field].nextSibling.hidden=!selected;
           inherited[field].checked=!!selected && (saved?saved[field].inherit:!Object.hasOwn(own,field));
           editors[field].disabled=inherited[field].checked;summarize(field);
         }
         $('rulesPreview').textContent=fields.map((field,i)=>labels[i]+' ['+({'global':'全局默认','account':'本号覆盖','legacy-editor':'现有账号偏好','default':'未设置'}[effective.fields[field].source]||'当前规则')+']\n'+combined[field]).join('\n\n');
         $('rulesHistory').replaceChildren();before=null;historyEnded=false;
-        status((target.scope==='account'?'正在编辑本号「'+(accountNames.get(target.connection_id)||'所选公众号')+'」；未覆盖项继承现有偏好或公众号默认规则。':'正在编辑公众号默认规则；本号单独保存的内容不会显示在此范围。')+' 已读取版本 '+current.scope_revision+'；默认版本 '+effective.global_revision+(saved?'。未保存编辑已保留。':'。'));
+        const scopeMessage=target.scope==='account'
+          ? ui.message('正在编辑本号「{0}」；未覆盖项继承现有偏好或公众号默认规则。',accountNames.get(target.connection_id)||ui.message('所选公众号'))
+          : ui.message('正在编辑公众号默认规则；本号单独保存的内容不会显示在此范围。');
+        status(saved?'{0} 已读取版本 {1}；默认版本 {2}。未保存编辑已保留。':'{0} 已读取版本 {1}；默认版本 {2}。',scopeMessage,current.scope_revision,effective.global_revision);
         const verification=verifications.get(selected);
         if(verification){
           const complete=fields.every(field=>combined[field]===verification.fields[field]&&(verification.inherited?.[field]?!Object.hasOwn(own,field):own[field]===verification.fields[field]));
-          status(complete?'已为「'+verification.name+'」加载配置，八项有效规则已完整读回。':'原配置保存已提交，但八项有效规则读回不匹配；请查看原账号版本，不要重复导入。');
+          status(complete?'已为「{0}」加载配置，八项有效规则已完整读回。':'原配置保存已提交，但八项有效规则读回不匹配；请查看原账号版本，不要重复导入。',verification.name);
           if(complete){
             verifications.delete(selected);const draft=creations.get(selected);
             if(draft&&verification.creatorDraft===draft){draft.saved=JSON.stringify(verification.fields);draft.revision={store_revision:current.store_revision,scope_revision:current.scope_revision};}
@@ -274,7 +303,7 @@ JS = r'''
       try {
         const result=await tool('own.production.rules.read',{...target,view:'history',...(before===null?{}:{before})});
         if(epoch!==generation)return;
-        for(const row of result.items){const option=document.createElement('option');option.value=row.id;option.textContent='版本 '+row.scope_revision+(row.restore_from?'（恢复）':'');$('rulesHistory').append(option);}
+        for(const row of result.items){const option=document.createElement('option');option.value=row.id;ui.set(option,row.restore_from?'版本 {0}（恢复）':'版本 {0}',row.scope_revision);$('rulesHistory').append(option);}
         before=result.next_before;historyEnded=before===null;status(before===null?'已读到该范围最早版本。':'已读取一页历史，可继续读取。');
       }catch(error){status('历史读取失败：'+error.message);}finally{busy=false;buttons();}
     }
@@ -304,22 +333,22 @@ JS = r'''
     const dirty=cid=>{const value=cid===selected&&meta?inputs():buffers.get(cid);return !!value&&loaded.has(cid)&&JSON.stringify(value)!==JSON.stringify(loaded.get(cid));};
     const configMessage=code=>({RULES_CONFIG_ACCOUNT_MISMATCH:'配置名称与所选账号不一致，请选择该账号自己的配置文件。',RULES_CONFIG_ACCOUNT_UNAVAILABLE:'账号名称当前无法唯一确认，请先核对账号显示资料。',RULES_SECRET_NOT_ALLOWED:'配置包含疑似秘密；只能填写非秘密生产偏好。',RULES_CONFIG_INVALID:'配置格式、版本、平台或字段不正确。',RULES_CONFIG_JSON:'文件不是有效 JSON，请修正语法后重试。',RULES_CONFIG_DUPLICATE:'JSON 含重复字段，请移除重复项后重试。',RULES_CONFIG_KEYS:'配置根字段不正确；只能包含 format、schema_version、platform、account_name 和 fields。',RULES_CONFIG_FORMAT:'文件不是 OpenAhoy 生产偏好配置。',RULES_CONFIG_VERSION:'配置版本不兼容，当前仅支持 schema_version 1。',RULES_CONFIG_PLATFORM:'配置不属于公众号平台。',RULES_CONFIG_FIELDS:'fields 必须包含标准的八个字段，并且每项都是字符串。',RULES_CONFIG_TEXT:'配置含无效 Unicode 或不支持的控制字符。',RULES_CONFIG_ENCODING:'文件无法读取或不是有效 UTF-8 编码。',RULES_CONFIG_TARGET_CHANGED:'选择或填写已变化，原规则与草稿已保留，请重新选择文件。',RULES_CONFIG_DIRTY:'本号有未保存编辑，请先保存后再加载；全部编辑已保留。',RULES_VERSION_CONFLICT:'规则版本已变化，当前填写已保留；可用最新规则重新填写。'}[code]||'配置未能完成，原规则与填写已保留。');
     const copied=value=>JSON.parse(JSON.stringify(value));
-    function settleBuffer(context,cid){if(context?.editorBuffer)buffers.set(cid,copied(context.editorBuffer));else buffers.delete(cid);}
+    function settleBuffer(context,cid){starter?.forget(cid);if(context?.editorBuffer)buffers.set(cid,copied(context.editorBuffer));else buffers.delete(cid);}
     async function readConfigurationFile(file){
       try{return new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer()).replace(/^\uFEFF/,'');}
       catch(_){throw new Error('RULES_CONFIG_ENCODING');}
     }
-    const creatorNote=text=>{$('creatorStatus').textContent=text;};
+    const creatorNote=(text,...values)=>ui.set($('creatorStatus'),text,...values);
     function creatorCurrent(d=creator){return !!d&&creator===d&&ready&&configAccounts.has(d.cid)&&accountNames.get(d.cid)===d.name&&selected===d.cid&&d.isCurrent();}
     function creatorButtons(){
       const valid=creatorCurrent(),locked=!valid||busy||!!pendingSave||!!pendingRestore;
       for(const area of Object.values(creatorEditors))area.disabled=locked;
       for(const button of creatorChoices)button.disabled=locked;
       $('creatorSave').disabled=!valid||busy||!!pendingRestore||!!pendingSave&&pendingSave.target.connection_id!==creator?.cid;
-      $('creatorSave').textContent=pendingSave?.commitAttempted?'查询原保存结果':pendingSave?'继续原保存':'保存到此公众号';
+      ui.set($('creatorSave'),pendingSave?.commitAttempted?'查询原保存结果':pendingSave?'继续原保存':'保存到此公众号');
       for(const id of ['creatorFill','creatorReset'])$(id).disabled=locked;
       $('creatorDownload').disabled=!valid||busy||!!creator?.downloading;
-      $('creatorDownload').textContent=creator?.downloadPending?'查询上次导出结果':'下载配置文件';
+      ui.set($('creatorDownload'),creator?.downloadPending?'查询上次导出结果':'下载配置文件');
     }
     const guidance=[
       '读者、领域、选题、参考信源及排除主题。可自由填写，不必设置封闭信源名单。',
@@ -334,18 +363,18 @@ JS = r'''
     for(const [title,indexes]of [['账号定位',[0,1]],['写作方式',[2]],['配图与排版',[3,4]],['创作复查与交付',[5,6]],['补充说明',[7]]]){
       const group=document.createElement('fieldset'),legend=document.createElement('legend'),tab=document.createElement('button');
       const groupIndex=$('creatorSteps').children.length;group.id='creator-group-'+groupIndex;group.className='configuration-group';group.dataset.fieldCount=String(indexes.length);group.hidden=groupIndex!==0;group.setAttribute('role','tabpanel');
-      legend.textContent=title;legend.id='creator-group-title-'+groupIndex;group.setAttribute('aria-labelledby',legend.id);group.append(legend);
-      tab.type='button';tab.textContent=title;tab.setAttribute('role','tab');tab.setAttribute('aria-controls',group.id);tab.setAttribute('aria-selected',String(groupIndex===0));tab.tabIndex=groupIndex===0?0:-1;
+      ui.set(legend,title);legend.id='creator-group-title-'+groupIndex;group.setAttribute('aria-labelledby',legend.id);group.append(legend);
+      tab.type='button';ui.set(tab,title);tab.setAttribute('role','tab');tab.setAttribute('aria-controls',group.id);tab.setAttribute('aria-selected',String(groupIndex===0));tab.tabIndex=groupIndex===0?0:-1;
       const selectGroup=()=>{for(const item of $('creatorSteps').children){const active=item===tab;item.setAttribute('aria-selected',String(active));item.tabIndex=active?0:-1;$(item.getAttribute('aria-controls')).hidden=!active;}};
       tab.addEventListener('click',selectGroup);tab.addEventListener('keydown',event=>{const tabs=[...$('creatorSteps').children],index=tabs.indexOf(tab);let next;if(event.key==='ArrowRight')next=(index+1)%tabs.length;else if(event.key==='ArrowLeft')next=(index+tabs.length-1)%tabs.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=tabs.length-1;else return;event.preventDefault();tabs[next].click();tabs[next].focus();});$('creatorSteps').append(tab);
       for(const index of indexes){
         const field=fields[index],label=document.createElement('label'),caption=document.createElement('strong'),help=document.createElement('p'),area=document.createElement('textarea');
-        caption.textContent=labels[index];help.className='help';help.textContent=guidance[index];area.rows=index===1?2:4;area.setAttribute('aria-label','创建配置：'+labels[index]);area.dataset.creatorField=field;
+        ui.set(caption,labels[index]);help.className='help';ui.set(help,guidance[index]);area.rows=index===1?2:4;ui.attr(area,'aria-label','创建配置：{0}',ui.message(labels[index]));area.dataset.creatorField=field;
         creatorEditors[field]=area;label.append(caption,help,area);group.append(label);
         area.addEventListener('input',()=>{if(creator){creator.fields[field]=area.value;creator.editRevision++;creatorNote('当前填写尚未保存到公众号配置。');}});
         if(choices[index].length){
           const shortcuts=document.createElement('div');shortcuts.className='configuration-choices';shortcuts.setAttribute('aria-label',labels[index]+'快捷文字');
-          for(const text of choices[index]){const button=document.createElement('button');button.type='button';button.textContent=text;creatorChoices.push(button);shortcuts.append(button);
+          for(const text of choices[index]){const button=document.createElement('button');button.type='button';ui.set(button,text);creatorChoices.push(button);shortcuts.append(button);
             button.addEventListener('click',()=>{if(!creatorCurrent()||busy||pendingSave||pendingRestore)return;const old=creator.fields[field];creator.fields[field]=old?old+'\n'+text:text;creator.editRevision++;area.value=creator.fields[field];creatorNote('已加入快捷文字，可继续自定义；尚未保存。');});}
           label.append(shortcuts);
         }
@@ -353,7 +382,7 @@ JS = r'''
       $('creatorFields').append(group);
     }
     function renderCreator(){
-      if(!creator)return;$('creatorTitle').textContent='为「'+creator.name+'」创建生产配置';
+      if(!creator)return;ui.set($('creatorTitle'),'为「{0}」创建生产配置',creator.name);
       for(const field of fields)creatorEditors[field].value=creator.fields[field];
       $('rulesEditing').hidden=true;$('rulesCreator').hidden=false;creatorButtons();
     }
@@ -548,7 +577,7 @@ JS = r'''
         valid:()=>isCurrent()&&selected===cid&&selectionEpoch===targetEpoch&&configAccounts.has(cid)&&accountNames.get(cid)===name});
     }
     return {setReady(value){ready=value;if(!value)selectionEpoch++;buttons();if(ready)return load();},
-      accounts(rows,choices){const current=selected;const box=$('rulesScope');box.replaceChildren();const global=document.createElement('option');global.value='';global.textContent='全局默认';box.append(global);
+      accounts(rows,choices){const current=selected;const box=$('rulesScope');box.replaceChildren();const global=document.createElement('option');global.value='';ui.set(global,'全局默认');box.append(global);
         accountNames=new Map(choices);configAccounts=new Set();
         for(const row of rows){
           const name=choices.get(row.connection_id),p=row.presentation;
@@ -556,7 +585,7 @@ JS = r'''
           if(p&&!automatic&&['SAVED','MISSING','LEGACY'].includes(p.state)&&['LOCAL_USER','REGISTRY_LABEL'].includes(p.name_source)&&p.display_name===name&&typeof name==='string'&&name.trim()&&[...choices.values()].filter(n=>n===name).length===1)configAccounts.add(row.connection_id);
           const item=document.createElement('option');item.value=row.connection_id;item.textContent=name||'公众号';box.append(item);
         }
-        if(current&&!rows.some(row=>row.connection_id===current)){const missing=document.createElement('option');missing.value=current;missing.textContent='原选择当前不可用';missing.disabled=true;box.append(missing);}box.value=current;buttons();},
+        if(current&&!rows.some(row=>row.connection_id===current)){const missing=document.createElement('option');missing.value=current;ui.set(missing,'原选择当前不可用');missing.disabled=true;box.append(missing);}box.value=current;buttons();},
       scope(){return selected;},selectScope,chooseConfiguration,openCreator,closeCreator,load,save,history,restore,applyTemplate};
   }
   globalThis.WCEProductionRules={mount,split,parseConfiguration};
