@@ -279,6 +279,13 @@ body.oa-management.oa-native[data-color-scheme=dark]{
  background:var(--oa-kind-fill);color:var(--oa-kind-ink);
 }
 .oa-management.oa-native .oa-task-row.is-selected .oa-task-row-icon{background:var(--surface)}
+.oa-management.oa-native .oa-choice-editor [data-choice-tone]{--oa-chip-fill:#245cce;--oa-chip-ink:#fff}
+.oa-management.oa-native .oa-choice-editor [data-choice-tone=violet]{--oa-chip-fill:#7639bd}
+.oa-management.oa-native .oa-choice-editor [data-choice-tone=teal]{--oa-chip-fill:#087861}
+.oa-management.oa-native .oa-choice-editor [data-choice-tone=amber]{--oa-chip-fill:#ffbf49;--oa-chip-ink:#29200d}
+.oa-management.oa-native .oa-choice-editor .oa-choice-picks button[aria-pressed=true]{
+ background:var(--oa-chip-fill);color:var(--oa-chip-ink);font-weight:650;
+}
 .oa-management.oa-native #xSettings :is(.oa-task-row,[data-choice-tone]){
  --oa-x-choice-fill:#245cce;--oa-x-choice-ink:#fff;
 }
@@ -301,7 +308,7 @@ body.oa-management.oa-native[data-color-scheme=dark]{
  background:var(--oa-hover);
 }
 .oa-management.oa-native #xSettings :is(
- #xConfigSummary>.oa-task-row.is-selected,.oa-choice-picks button[aria-pressed=true],
+ #xConfigSummary>.oa-task-row.is-selected,
  .x-config-methods label:has(:checked)
 ){
  background:var(--oa-x-choice-fill);color:var(--oa-x-choice-ink);

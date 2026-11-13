@@ -96,9 +96,20 @@ JS = r'''
     const choiceGroups={audience_topics:['主题','读者','内容形式','目标'],voice:['表达'],image_preferences:['配图'],visual_layout:['版式']};
     const loaded=new Map(),verifications=new Map();let accountNames=new Map(),configAccounts=new Set(),importRequest=null,selectionEpoch=0,cardAccount='';
     const creations=new Map(),creatorEditors={},creatorChoices=[];let creator=null,creatorEpoch=0,fillRequest=null,lastRead=null;
-    const summarize=field=>{workspace?.refresh();if(summaries[field])summaries[field].textContent=inherited[field].checked?'沿用现有偏好 / 平台默认':(editors[field].value.trim().replace(/\s+/g,' ').slice(0,48)||'未设置');};
     let pendingRestore=null;
     let ready=false, selected='', generation=0, busy=false, meta=null, before=null, pendingSave=null, historyEnded=false;
+    // A saved override masks its fallback in the effective read. Show that
+    // fallback only after a save and readback when inheritance is newly enabled.
+    const awaitingInheritance=field=>!!meta&&inherited[field].checked&&lastRead?.effective.fields[field]?.source==='account';
+    const displayed=field=>!meta||awaitingInheritance(field)?'':inherited[field].checked?lastRead.combined[field]:editors[field].value;
+    const summarize=field=>{
+      workspace?.refresh();
+      if(summaries[field]){
+        const text=displayed(field).trim().replace(/\s+/g,' ').slice(0,48);
+        if(text)ui.raw(summaries[field],text);
+        else ui.set(summaries[field],awaitingInheritance(field)?'保存后读取继承值':'未设置');
+      }
+    };
     const status=(text,...values)=>ui.set($('rulesStatus'),text,...values);
     const base=()=>({connection_id:selected,scope:selected?'account':'global'});
     const inputs=()=>Object.fromEntries(fields.map(field=>[field,{text:editors[field].value,inherit:inherited[field].checked}]));
@@ -113,8 +124,9 @@ JS = r'''
       let body=row;
       if(compact&&globalThis.OAAccountStarter&&choiceGroups[field]){
         const choices=OAAccountStarter.choices(area,choiceGroups[field],{
-          canEdit:()=>!!meta&&!toggle.disabled,
-          beforeEdit:()=>{if(toggle.checked&&lastRead?.connection_id===selected)area.value=lastRead.combined[field]??'';},
+          canEdit:()=>!!meta&&!toggle.disabled&&!awaitingInheritance(field),
+          read:()=>displayed(field),
+          beforeEdit:()=>{if(toggle.checked)area.value=displayed(field);},
           commit:()=>{toggle.checked=false;area.disabled=false;summarize(field);remember();}
         });
         choiceEditors[field]=choices;
@@ -141,7 +153,7 @@ JS = r'''
     if(globalThis.OATaskWorkspace){
       const definitions=[['内容定位',['audience_topics']],['表达与署名',['author','voice']],['配图与版式',['image_preferences','visual_layout']],['制作与交付',['content_qa','delivery_publication']],['项目与 Skill',['additional_notes']]];
       workspace=OATaskWorkspace.mount('rules',definitions.map(([title,keys])=>({title,
-        summary:()=>keys.map(k=>editors[k].value.trim().replace(/\s+/g,' ')).filter(Boolean).join(' · ')||['沿用现有偏好'],
+        summary:()=>keys.map(k=>displayed(k).trim().replace(/\s+/g,' ')).filter(Boolean).join(' · ')||['未设置'],
         show:shown=>{for(const k of keys){if(fieldRows[k]){fieldRows[k].hidden=!shown;fieldRows[k].open=shown;}}}
       })));
     }
@@ -197,6 +209,7 @@ JS = r'''
         const own=await content(current,target,epoch), combined=await content(effective,target,epoch);
         if(epoch!==generation||!own||!combined)return;
         if(current.store_revision!==effective.store_revision)throw new Error('RULES_VERSION_CONFLICT');
+        lastRead={connection_id:target.connection_id,current,effective,own,combined};
         meta=current;
         // Textarea normalizes line endings; compare visible drafts against the
         // same normalization, while imported storage retains the file's text.
@@ -225,7 +238,6 @@ JS = r'''
             if(draft&&verification.creatorDraft===draft){draft.saved=JSON.stringify(verification.fields);draft.revision={store_revision:current.store_revision,scope_revision:current.scope_revision};}
           }
         }
-        lastRead={connection_id:target.connection_id,current,effective,own,combined};
         return lastRead;
       } catch(error){if(epoch===generation)status('规则未能确认读取：'+error.message+'；已有编辑不会被覆盖。');}
       finally{if(epoch===generation){busy=false;buttons();}}

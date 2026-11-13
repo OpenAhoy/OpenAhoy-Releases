@@ -34,14 +34,8 @@ def presentation_schema():
     })
 
 
-def settings_value(registry=None):
-    from .own_settings_readonly import names_description
-    return {'schema': schema({}), 'values': {}, 'layout': [{
-        'kind': 'group', 'title': '公众号', 'items': [
-            {'kind': 'tool', 'tool': PREFIX + 'manage',
-             'description': names_description(registry)},
-            {'kind': 'tool', 'tool': PREFIX + 'add',
-             'description': '在本机安全页面添加公众号'}]}]}
+def settings_value():
+    return {'schema': schema({}), 'values': {}, 'layout': []}
 
 
 def descriptors():
@@ -322,7 +316,7 @@ class SettingsRouter:
             return self.original.call(name, arguments)
         strict_validate(arguments, SPECS[name])
         if name in {PREFIX + 'read', PREFIX + 'update'}:
-            return settings_value(self.original.registry)
+            return settings_value()
         if name == PREFIX + 'manage':
             return overview(self.original)
         if name == PREFIX + 'add':

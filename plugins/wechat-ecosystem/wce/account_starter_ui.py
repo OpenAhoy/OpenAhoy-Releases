@@ -81,6 +81,8 @@ STYLE = """
 .oa-choice-editor{display:grid;gap:7px;margin-top:8px}
 .oa-choice-group{font-size:12px;color:var(--muted);margin:0}
 .oa-choice-current{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;max-height:9em;overflow:auto}
+.oa-choice-custom-value{min-width:0;padding:8px 10px;border-radius:8px;background:var(--oa-fill,var(--soft));color:var(--ink)}
+.oa-choice-custom-value strong{display:block;font-size:12px;margin-bottom:3px}
 """
 
 
@@ -232,11 +234,16 @@ globalThis.OAAccountStarter = (() => {
     }};
   }
 
-  function choices(input, labels, {canEdit, beforeEdit, commit}) {
+  function choices(input, labels, {canEdit, beforeEdit, commit, read = () => input.value}) {
     const root = document.createElement('div');
     root.className = 'oa-choice-editor';
     const current = document.createElement('p');
     current.className = 'oa-choice-current';
+    const customValue = document.createElement('div');
+    customValue.className = 'oa-choice-custom-value';
+    const customLabel = document.createElement('strong');
+    ui.set(customLabel, '当前自定义文字');
+    customValue.append(customLabel, current);
     const custom = document.createElement('details');
     const heading = document.createElement('summary');
     ui.set(heading, '自定义文字');
@@ -268,29 +275,59 @@ globalThis.OAAccountStarter = (() => {
         const button = document.createElement('button');
         button.type = 'button';
         ui.set(button, value);
+        const uncommon = !groups[label].includes(value);
+        const option = {button, label, value, single: label === '语言', uncommon, picks, morePicks};
         button.onclick = () => {
           if (!canEdit()) return;
           beforeEdit?.();
-          const lines = input.value.split('\n');
-          if (label === '语言') input.value = input.value === value ? '' : value;
-          else if (lines.includes(text)) input.value = lines.filter(line => line !== text).join('\n');
-          else input.value += (input.value && !input.value.endsWith('\n') ? '\n' : '') + text;
+          const rows = selection(input.value);
+          const active = rows.some(row => row.options.includes(option));
+          if (option.single) input.value = active ? '' : value;
+          else if (active) {
+            input.value = rows.flatMap(row => {
+              if (!row.options.includes(option)) return [row.raw];
+              const remaining = row.options.filter(item => item !== option);
+              return remaining.length ? [row.prefix + remaining.map(item => item.value).join(row.separator)] : [];
+            }).join('\n');
+          } else input.value += (input.value && !input.value.endsWith('\n') ? '\n' : '') + text;
           commit();
           refresh();
         };
-        const uncommon = !groups[label].includes(value);
-        buttons.push({button, text, single: label === '语言' ? value : null, uncommon, picks, morePicks});
+        buttons.push(option);
         (uncommon ? morePicks : picks).append(button);
       }
       group.append(caption, picks);
       if (morePicks.children.length) group.append(extra);
       root.append(group);
     }
-    root.append(current, custom);
+    root.append(customValue, custom);
+    function selection(text) {
+      // Resolve only exact values. A bare value shared by multiple groups, or
+      // a list with an unknown entry, remains custom instead of guessing.
+      return text.split('\n').map(raw => {
+        const line = raw.trim();
+        const tagged = line.match(/^([^:：]+?)\s*[:：]\s*(.*)$/);
+        const body = tagged ? tagged[2] : line;
+        const candidates = tagged ? buttons.filter(item => item.label === tagged[1].trim()) : buttons;
+        const exact = value => candidates.filter(item => item.value === value);
+        const matches = exact(body);
+        const separator = body.match(/[、,，]/)?.[0];
+        let options = matches.length === 1 ? matches : [];
+        if (options[0]?.single && text.trim() !== line) options = [];
+        if (!matches.length && separator && !candidates.some(item => item.single)) {
+          const parts = body.split(/[、,，]/).map(part => exact(part.trim()));
+          if (parts.every(part => part.length === 1) && new Set(parts.flat().map(item => item.label)).size === 1) options = parts.flat();
+        }
+        return {raw, options, prefix: tagged ? line.slice(0, line.length - body.length) : '', separator};
+      });
+    }
     function refresh() {
-      const lines = input.value.split('\n');
-      for (const {button, text, single, uncommon, picks, morePicks} of buttons) {
-        const active = single ? input.value === single : lines.includes(text);
+      const value = read();
+      const rows = selection(value);
+      const selected = new Set(rows.flatMap(row => row.options));
+      for (const option of buttons) {
+        const {button, uncommon, picks, morePicks} = option;
+        const active = selected.has(option);
         button.disabled = !canEdit();
         button.setAttribute('aria-pressed', String(active));
         if (uncommon) {
@@ -298,8 +335,9 @@ globalThis.OAAccountStarter = (() => {
           if (button.parentNode !== target && document.activeElement !== button) target.append(button);
         }
       }
-      current.hidden = !input.value;
-      current.textContent = input.value;
+      const customText = rows.filter(row => !row.options.length).map(row => row.raw).join('\n');
+      customValue.hidden = !customText.trim();
+      current.textContent = customText;
     }
     input.addEventListener('input', refresh);
     refresh();

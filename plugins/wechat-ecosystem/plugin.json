@@ -1,14 +1,14 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "wechat-ecosystem",
-  "version": "0.6.30",
-  "description": "OpenAhoy account and content workspace for Codex: WeChat official accounts, X OAuth2, and isolated standard-browser Xiaohongshu image-text workflows. Permissions and login remain account-specific.",
+  "version": "0.6.31",
+  "description": "OpenAhoy is an account and content workspace for WeChat Official Accounts, X, and Xiaohongshu in Codex.",
   "extensions": {
     "com.openai": {
       "requires_local_executor": true,
       "interface": {
         "displayName": "OpenAhoy",
-        "shortDescription": "账号与内容工作台；公众号、X 与小红书图文接入。",
+        "shortDescription": "公众号、X 和小红书的账号与内容工作台。",
         "brandColor": "#026364",
         "composerIcon": "./assets/openahoy-v1/openahoy-symbol-color-256.png",
         "logo": "./assets/openahoy-v1/openahoy-symbol-color-256.png",

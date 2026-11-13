@@ -1,0 +1,3 @@
+interface:
+  display_name: "OpenAhoy"
+  short_description: "Manage WeChat, X, and Xiaohongshu accounts and content."
