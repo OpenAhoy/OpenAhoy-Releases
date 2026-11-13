@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "profile": "WCE_UI_INLINE_ZERO_ACCOUNT_PROBE_V2",
+  "platform_authority": false,
+  "secret_parameters": false,
+  "old_resource_uri": "ui://wechat-ecosystem/settings.html",
+  "new_resource_uri": "ui://wechat-ecosystem/inline-account-probe-v1.html",
+  "migrated_tools": [
+    "wce.settings.manage",
+    "wce.ui.show_management",
+    "wce.ui.open_management_page"
+  ],
+  "open_behavior": "APP_ONLY_ZERO_ACCOUNT_UI_META_NO_EXTERNAL_LAUNCH",
+  "before_full_descriptor_sha256": "d4f1972ff9153480faa015de8eca5c921bd8d180ca2879ec356c6fd4da8a3cd7",
+  "after_full_descriptor_sha256": "dfebb76d40d2ba1c9b11d905ed83d0cf3507ade452879aab863708c5347641cb",
+  "normal_authority_sha256": "4256f0d8b5a82ce7283e0ed0a5e06f7da78c777bb346d238ae40ae59a9249496",
+  "default_view_mode": "ZERO_ACCOUNT_PROBE_SHELL",
+  "host_config_default": "UNVERIFIED_NO_CAPABILITY",
+  "request_pairing": "NONREENTRANT_APP_ONLY_OPEN_SERIALIZED_AND_FINALLY_CLEARED",
+  "transport_generation": "PROCESS_CONFIG_GENERATION_BOUND_AND_REVALIDATED_PER_AUTHENTICATION",
+  "host_observation": "FIXED_PRIVATE_FILE_EXACT_SHA_AND_CLOSED_SHAPE"
+}

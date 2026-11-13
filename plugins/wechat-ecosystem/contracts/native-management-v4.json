@@ -1,0 +1,817 @@
+{
+  "schema": 1,
+  "profile": "OPENAHOY_NATIVE_MANAGEMENT_V4",
+  "platform_authority": false,
+  "credential_parameters": false,
+  "previous_resource_uri": "ui://wechat-ecosystem/inline-account-probe-v1.html",
+  "resource_uri": "ui://wechat-ecosystem/management-v5.html",
+  "entry_tools": [
+    "wce.settings.manage",
+    "wce.ui.show_management",
+    "wce.ui.open_management_page"
+  ],
+  "overview_tool": {
+    "name": "wce.ui.management.overview",
+    "title": "读取管理页公众号列表",
+    "description": "Read local account presentation and binding state for this management view. No credentials, account mutations, platform calls or UI remount.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "idempotentHint": true
+    },
+    "_meta": {
+      "ui": {
+        "visibility": [
+          "app"
+        ]
+      }
+    }
+  },
+  "before_descriptor_sha256": "dfebb76d40d2ba1c9b11d905ed83d0cf3507ade452879aab863708c5347641cb",
+  "after_descriptor_sha256": "c31eb94b91727fb5a38db725ba9c8a5720da7f8f994eeaff0f218cb2a4cb8700",
+  "entry_titles": {
+    "wce.settings.manage": {
+      "previous": "WeChat Ecosystem",
+      "current": "OpenAhoy"
+    },
+    "wce.ui.show_management": {
+      "previous": "在当前聊天打开公众号管理",
+      "current": "在当前聊天打开OpenAhoy账号管理"
+    },
+    "wce.ui.open_management_page": {
+      "previous": "WeChat Ecosystem · 独立管理页",
+      "current": "OpenAhoy · 独立管理页"
+    }
+  },
+  "action_tool": {
+    "name": "wce.ui.platform.action",
+    "title": "平台设置与安全页入口",
+    "description": "App-only fixed platform settings operations. Only the registered official-account adapter is currently enabled. No arbitrary methods, URLs or credential parameters. Explicit current configuration export writes only a private, exclusive file in the local Downloads folder; query resumes the original export ID without rewriting rules.",
+    "inputSchema": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "platform_id": {
+              "type": "string",
+              "enum": [
+                "wechat_official_account"
+              ]
+            },
+            "operation": {
+              "type": "string",
+              "const": "READ_RULES"
+            },
+            "arguments": {
+              "type": "object",
+              "properties": {
+                "connection_id": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "scope": {
+                  "enum": [
+                    "global",
+                    "account"
+                  ],
+                  "type": "string"
+                },
+                "view": {
+                  "type": "string",
+                  "enum": [
+                    "summary",
+                    "effective",
+                    "chunk",
+                    "history",
+                    "operation",
+                    "version"
+                  ]
+                },
+                "version_id": {
+                  "type": "string",
+                  "pattern": "^(?:rules-[a-f0-9]{32}|legacy-editor-[a-f0-9]{64})$"
+                },
+                "field": {
+                  "type": "string",
+                  "enum": [
+                    "audience_topics",
+                    "author",
+                    "voice",
+                    "image_preferences",
+                    "visual_layout",
+                    "content_qa",
+                    "delivery_publication",
+                    "additional_notes"
+                  ]
+                },
+                "index": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "before": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "operation_id": {
+                  "type": "string",
+                  "pattern": "^rules-[a-f0-9]{32}$"
+                }
+              },
+              "required": [
+                "connection_id",
+                "scope",
+                "view"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "platform_id",
+            "operation",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "platform_id": {
+              "type": "string",
+              "enum": [
+                "wechat_official_account"
+              ]
+            },
+            "operation": {
+              "type": "string",
+              "const": "SAVE_RULES"
+            },
+            "arguments": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "connection_id": {
+                      "type": "string",
+                      "maxLength": 128
+                    },
+                    "scope": {
+                      "enum": [
+                        "global",
+                        "account"
+                      ],
+                      "type": "string"
+                    },
+                    "action": {
+                      "type": "string",
+                      "const": "begin"
+                    },
+                    "operation_id": {
+                      "type": "string",
+                      "pattern": "^rules-[a-f0-9]{32}$"
+                    },
+                    "expected_store_revision": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "expected_scope_revision": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "fields": {
+                      "type": "array",
+                      "minItems": 0,
+                      "maxItems": 8,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "enum": [
+                              "audience_topics",
+                              "author",
+                              "voice",
+                              "image_preferences",
+                              "visual_layout",
+                              "content_qa",
+                              "delivery_publication",
+                              "additional_notes"
+                            ]
+                          },
+                          "chunks": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "unicode_length": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "utf8_bytes": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "chunks",
+                          "unicode_length",
+                          "utf8_bytes",
+                          "sha256"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "connection_id",
+                    "scope",
+                    "action",
+                    "operation_id",
+                    "expected_store_revision",
+                    "expected_scope_revision",
+                    "fields"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "connection_id": {
+                      "type": "string",
+                      "maxLength": 128
+                    },
+                    "scope": {
+                      "enum": [
+                        "global",
+                        "account"
+                      ],
+                      "type": "string"
+                    },
+                    "action": {
+                      "type": "string",
+                      "const": "chunk"
+                    },
+                    "operation_id": {
+                      "type": "string",
+                      "pattern": "^rules-[a-f0-9]{32}$"
+                    },
+                    "field": {
+                      "type": "string",
+                      "enum": [
+                        "audience_topics",
+                        "author",
+                        "voice",
+                        "image_preferences",
+                        "visual_layout",
+                        "content_qa",
+                        "delivery_publication",
+                        "additional_notes"
+                      ]
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "text": {
+                      "type": "string",
+                      "maxLength": 8192,
+                      "description": "At most 8192 Unicode scalar characters and 32768 UTF-8 bytes in this chunk. Automatically continue chunks; no total text/history quota."
+                    }
+                  },
+                  "required": [
+                    "connection_id",
+                    "scope",
+                    "action",
+                    "operation_id",
+                    "field",
+                    "index",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "connection_id": {
+                      "type": "string",
+                      "maxLength": 128
+                    },
+                    "scope": {
+                      "enum": [
+                        "global",
+                        "account"
+                      ],
+                      "type": "string"
+                    },
+                    "action": {
+                      "type": "string",
+                      "const": "commit"
+                    },
+                    "operation_id": {
+                      "type": "string",
+                      "pattern": "^rules-[a-f0-9]{32}$"
+                    }
+                  },
+                  "required": [
+                    "connection_id",
+                    "scope",
+                    "action",
+                    "operation_id"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "platform_id",
+            "operation",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "platform_id": {
+              "type": "string",
+              "enum": [
+                "wechat_official_account"
+              ]
+            },
+            "operation": {
+              "type": "string",
+              "const": "RESTORE_RULES"
+            },
+            "arguments": {
+              "type": "object",
+              "properties": {
+                "connection_id": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "scope": {
+                  "enum": [
+                    "global",
+                    "account"
+                  ],
+                  "type": "string"
+                },
+                "operation_id": {
+                  "type": "string",
+                  "pattern": "^rules-[a-f0-9]{32}$"
+                },
+                "version_id": {
+                  "type": "string",
+                  "pattern": "^rules-[a-f0-9]{32}$"
+                },
+                "expected_store_revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "expected_scope_revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "connection_id",
+                "scope",
+                "operation_id",
+                "version_id",
+                "expected_store_revision",
+                "expected_scope_revision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "platform_id",
+            "operation",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "platform_id": {
+              "type": "string",
+              "enum": [
+                "wechat_official_account"
+              ]
+            },
+            "operation": {
+              "type": "string",
+              "const": "EXPORT_CONFIG"
+            },
+            "arguments": {
+              "type": "object",
+              "properties": {
+                "connection_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "export_id": {
+                  "type": "string",
+                  "pattern": "^config-[a-f0-9]{32}$"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "write",
+                    "query"
+                  ]
+                },
+                "configuration": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "connection_id",
+                "export_id",
+                "action",
+                "configuration"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "platform_id",
+            "operation",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "platform_id": {
+              "type": "string",
+              "enum": [
+                "wechat_official_account"
+              ]
+            },
+            "operation": {
+              "type": "string",
+              "const": "OPEN_BINDING"
+            },
+            "arguments": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "platform_id",
+            "operation",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "platform_id": {
+              "type": "string",
+              "enum": [
+                "wechat_official_account"
+              ]
+            },
+            "operation": {
+              "type": "string",
+              "const": "OPEN_SECURITY"
+            },
+            "arguments": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "platform_id",
+            "operation",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "platform_id": {
+              "type": "string",
+              "enum": [
+                "wechat_official_account"
+              ]
+            },
+            "operation": {
+              "type": "string",
+              "const": "BINDING_CHECK"
+            },
+            "arguments": {
+              "type": "object",
+              "properties": {
+                "view": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "jwe": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16384
+                }
+              },
+              "required": [
+                "view"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "platform_id",
+            "operation",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "platform_id": {
+              "type": "string",
+              "enum": [
+                "wechat_official_account"
+              ]
+            },
+            "operation": {
+              "type": "string",
+              "const": "BINDING_BEGIN"
+            },
+            "arguments": {
+              "type": "object",
+              "properties": {
+                "view": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "appid": {
+                  "type": "string",
+                  "pattern": "^wx[a-fA-F0-9]{16}$"
+                },
+                "label": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              },
+              "required": [
+                "view",
+                "appid"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "platform_id",
+            "operation",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "platform_id": {
+              "type": "string",
+              "enum": [
+                "wechat_official_account"
+              ]
+            },
+            "operation": {
+              "type": "string",
+              "const": "BINDING_SUBMIT"
+            },
+            "arguments": {
+              "type": "object",
+              "properties": {
+                "view": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "operation": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "jwe": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16384
+                }
+              },
+              "required": [
+                "view",
+                "operation",
+                "jwe"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "platform_id",
+            "operation",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "platform_id": {
+              "type": "string",
+              "enum": [
+                "wechat_official_account"
+              ]
+            },
+            "operation": {
+              "type": "string",
+              "const": "BINDING_STATUS"
+            },
+            "arguments": {
+              "type": "object",
+              "properties": {
+                "view": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "operation": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "view",
+                "operation"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "platform_id",
+            "operation",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "platform_id": {
+              "type": "string",
+              "enum": [
+                "wechat_official_account"
+              ]
+            },
+            "operation": {
+              "type": "string",
+              "const": "BINDING_CANCEL"
+            },
+            "arguments": {
+              "type": "object",
+              "properties": {
+                "view": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "operation": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "view",
+                "operation"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "platform_id",
+            "operation",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "platform_id": {
+              "type": "string",
+              "enum": [
+                "wechat_official_account"
+              ]
+            },
+            "operation": {
+              "type": "string",
+              "const": "BINDING_RESUME"
+            },
+            "arguments": {
+              "type": "object",
+              "properties": {
+                "view": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "operation": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "view",
+                "operation"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "platform_id",
+            "operation",
+            "arguments"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "outputSchema": {
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "idempotentHint": false
+    },
+    "_meta": {
+      "ui": {
+        "visibility": [
+          "app"
+        ]
+      }
+    }
+  },
+  "entry_icons": {
+    "wce.settings.manage": {
+      "previous": [
+        {
+          "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjEwMjQiIGhlaWdodD0iMTAyNCIgZmlsbD0ibm9uZSIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsbGVkYnk9IndjZS10aXRsZSB3Y2UtZGVzY3JpcHRpb24iPgogIDx0aXRsZSBpZD0id2NlLXRpdGxlIj5XQ0UgbG9nbyDigJQgd2hpdGUgYmFja2dyb3VuZDwvdGl0bGU+CiAgPGRlc2MgaWQ9IndjZS1kZXNjcmlwdGlvbiI+TGVmdCBXZUNoYXQgZmFjZSBhbmQgYm90aCBvdXRlciBjb250b3VycyBwcmVzZXJ2ZWQgZnJvbSB0aGUgc3VwcGxpZWQgU3RyZWFtbGluZSBTVkc7IHJpZ2h0IGV5ZXMgcmVwbGFjZWQgYnkgYSBibGFjayBDaGF0R1BUIGtub3QuIFdlQ2hhdCBzb3VyY2U6IFN0cmVhbWxpbmUuIEtub3QgcmVmZXJlbmNlOiBodHRwczovL2JyYW5kbG9nb3Muc2dwMS5kaWdpdGFsb2NlYW5zcGFjZXMuY29tL3N2Zy9sb2dvcy9vcGVuYWkuc3ZnPC9kZXNjPgogIDxyZWN0IHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgZmlsbD0iI2ZmZiIgLz4KICA8ZyBpZD0id2VjaGF0LWxlZnQtb3JpZ2luYWwiPgogICAgPHBhdGggc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBkPSJNMTYuNSA5LjVjMCAtMy4zMTQgLTMuMzU4IC02IC03LjUgLTYgLTQuMTQyIDAgLTcuNSAyLjY4NiAtNy41IDYgMCAxLjg5MSAxLjA5NCAzLjU3OCAyLjgwMyA0LjY3OEw0IDE3bDMuMzAyIC0xLjY1NGE5LjM1IDkuMzUgMCAwIDAgMy4yODggMC4wMiIgc3Ryb2tlLXdpZHRoPSIxIiAvPgogICAgPHBhdGggc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBkPSJNNi41IDguNWEwLjUgMC41IDAgMCAxIDAgLTEiIHN0cm9rZS13aWR0aD0iMSIgLz4KICAgIDxwYXRoIHN0cm9rZT0iIzAwMDAwMCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgZD0iTTYuNSA4LjVhMC41IDAuNSAwIDAgMCAwIC0xIiBzdHJva2Utd2lkdGg9IjEiIC8+CiAgICA8cGF0aCBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGQ9Ik0xMS41IDguNWEwLjUgMC41IDAgMCAxIDAgLTEiIHN0cm9rZS13aWR0aD0iMSIgLz4KICAgIDxwYXRoIHN0cm9rZT0iIzAwMDAwMCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgZD0iTTExLjUgOC41YTAuNSAwLjUgMCAwIDAgMCAtMSIgc3Ryb2tlLXdpZHRoPSIxIiAvPgogIDwvZz4KICA8ZyBpZD0id2VjaGF0LXJpZ2h0LW9yaWdpbmFsLW91dGxpbmUiPgogICAgPHBhdGggc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBkPSJNMTAuNSAxNC41YzAgMi43NjEgMi42ODYgNSA2IDUgMC4zNCAwIDAuNjc1IC0wLjAyNCAxIC0wLjA3TDIxIDIxbC0wLjUgLTIuNzczYzEuMjI3IC0wLjkxNiAyIC0yLjI0NiAyIC0zLjcyNyAwIC0yLjc2MSAtMi42ODYgLTUgLTYgLTVzLTYgMi4yMzkgLTYgNVoiIHN0cm9rZS13aWR0aD0iMSIgLz4KICA8L2c+CiAgPHN2ZyBpZD0iY2hhdGdwdC1rbm90IiB4PSIxMi43NSIgeT0iMTAuNzUiIHdpZHRoPSI3LjUiIGhlaWdodD0iNy41IiB2aWV3Qm94PSIwIDAgMTI0LjMgMTI2IiBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJ4TWlkWU1pZCBtZWV0IiBmaWxsPSIjMDAwIj4KICAgIDxwYXRoIGQ9Ik0xMTYuMDg1IDUxLjU2MWEzMS4zNyAzMS4zNyAwIDAgMC0yLjY5NS0yNS43NzRhMzEuNzcgMzEuNzcgMCAwIDAtMzQuMTg0LTE1LjIyNEEzMS40IDMxLjQgMCAwIDAgNTUuNTM2LjAwMWEzMS43NCAzMS43NCAwIDAgMC0zMC4yNzggMjEuOTlBMzEuNCAzMS40IDAgMCAwIDQuMjgyIDM3LjIxM2EzMS43NyAzMS43NyAwIDAgMCAzLjkwNiAzNy4yMThhMzEuNCAzMS40IDAgMCAwIDIuNjk1IDI1Ljc0OGEzMS43NyAzMS43NyAwIDAgMCAzNC4yMSAxNS4yNTZhMzEuNCAzMS40IDAgMCAwIDIzLjY0NCAxMC41NjJhMzEuNzQgMzEuNzQgMCAwIDAgMzAuMjc4LTIxLjk5YTMxLjQgMzEuNCAwIDAgMCAyMC45Ny0xNS4yMjNhMzEuNzMgMzEuNzMgMCAwIDAtMy45LTM3LjIyNG0tNDcuMzQ4IDY2LjIyYTIzLjUyIDIzLjUyIDAgMCAxLTE1LjEwOC01LjQ3OGMuMTg2LS4xMDQuNTQ4LS4yODUuNzU2LS40MjJsMjUuMDktMTQuNDg0YTQuMDcgNC4wNyAwIDAgMCAyLjA2LTMuNTY3VjU4LjQ1M2wxMC42IDYuMTE5YS4zNy4zNyAwIDAgMSAuMjA4LjI5NnYyOS4yOGMwIDEzLjA0MS0xMC41NjQgMjMuNjE4LTIzLjYwNiAyMy42MzNNMTguMDE1IDk2LjEyYTIzLjU2IDIzLjU2IDAgMCAxLTIuODItMTUuODIxYy4xODUuMTE1LjUxNC4zMTIuNzQ0LjQ0M2wyNS4wOTYgMTQuNDlhNC4wOCA0LjA4IDAgMCAwIDQuMTIgMEw3NS43NyA3Ny41Mjh2MTIuMjM4YS4zNy4zNyAwIDAgMS0uMTQ4LjMyOEw1MC4yNiAxMDQuNzMyYy0xMS4yOTIgNi41MDItMjUuNzE2IDIuNjM3LTMyLjI0NS04LjY0em0tNi41NzMtNTQuNzgyYTIzLjUgMjMuNSAwIDAgMSAxMi4yODctMTAuMzU0djI5LjgyM2E0LjA4IDQuMDggMCAwIDAgMi4wNiAzLjU2N2wzMC42MjMgMTcuNjgzbC0xMC42MzkgNi4xNDFhLjM3LjM3IDAgMCAxLS4zNTYuMDMzTDIwLjA1OSA3My41ODljLTExLjI4Mi02LjUyNy0xNS4xNDgtMjAuOTU3LTguNjQtMzIuMjV6bTg3LjEwMiAyMC4yN0w2Ny45MiA0My45MjRsMTAuNTktNi4xMjVhLjM4LjM4IDAgMCAxIC4zNTUtLjAzM2wyNS4zNTkgMTQuNjQzYTIzLjYxIDIzLjYxIDAgMCAxLTMuNjQ5IDQyLjU5OFY2NS4xOTFhNC4wOCA0LjA4IDAgMCAwLTIuMDQ5LTMuNTgzek0xMDkuMSA0NS43MjFhMzAgMzAgMCAwIDAtLjc0NS0uNDQ0TDgzLjI2IDMwLjc4OGE0LjA4IDQuMDggMCAwIDAtNC4xMiAwTDQ4LjUxNyA0OC40NjZWMzYuMjMzYS40LjQgMCAwIDEgLjE1NC0uMzI4bDI1LjM1OC0xNC42MzhhMjMuNjEgMjMuNjEgMCAwIDEgMzUuMDYgMjQuNDZ6TTQyLjczOCA2Ny41NDZsLTEwLjYwNS02LjExOWEuNC40IDAgMCAxLS4yMDMtLjI5NVYzMS44NWEyMy42MDUgMjMuNjA1IDAgMCAxIDM4LjcxNC0xOC4xNTVjLS4xODYuMTA1LS41Mi4yODUtLjc1Ni40MjJsLTI1LjA5IDE0LjQ4NGE0LjA4IDQuMDggMCAwIDAtMi4wNiAzLjU2N3ptNS43NTgtMTIuNDE4bDEzLjY0LTcuODc4bDEzLjYzNSA3Ljg3OHYxNS43NDRsLTEzLjY0IDcuODc3bC0xMy42NC03Ljg3N3oiIC8+CiAgPC9zdmc+Cjwvc3ZnPg==",
+          "mimeType": "image/svg+xml",
+          "sizes": [
+            "any"
+          ]
+        }
+      ],
+      "current": [
+        {
+          "src": "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NDAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNjQwIDY0MCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsbGVkYnk9InRpdGxlIj48dGl0bGUgaWQ9InRpdGxlIj5PcGVuQWhveSBzeW1ib2wgY29sb3I8L3RpdGxlPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0zMTUgLTIyNSkiPjxwYXRoIGZpbGw9IiMwMjYzNjQiIGZpbGwtcnVsZT0iZXZlbm9kZCIgZD0iTSAzNTkuNDI5IDQ2OS40MjkgQyAzNjIuODYyIDQ0Ni45ODEgMzY1LjE4MyA0MjYuNDA0IDM3NC4zMjcgNDA1LjMyNyBDIDQwMC42MDggMzQ0Ljc0MiA0NjEuNTY2IDMwNi41NDggNTI3LjA2MSAzMDYuMDYxIEMgNTc5LjM3NCAzMDYuMDQxIDYzMS42ODcgMzA2LjAyMCA2ODQuMDAwIDMwNi4wMDAgQyA2OTEuNzcwIDMwNi4wNDggNzAxLjczOSAzMDcuODU4IDcwNC45MzkgMzE2LjA2MSBDIDcwNS4yMTggMzE3LjExNiA3MDUuNDk3IDMxOC4xNzAgNzA1Ljc3NiAzMTkuMjI0IEMgNzA1Ljg1MCAzMzYuNDgzIDcwNS45MjUgMzUzLjc0MSA3MDYuMDAwIDM3MS4wMDAgQyA3MDUuODM3IDM3Mi44MzcgNzA1LjY3MyAzNzQuNjczIDcwNS41MTAgMzc2LjUxMCBDIDcwMS44MTIgMzkzLjcyMCA2ODEuMzk1IDM5MC4wOTYgNjY5LjAwMCAzOTAuMDAwIEMgNjMxLjY2NyAzOTAuMDAwIDU5NC4zMzMgMzkwLjAwMCA1NTcuMDAwIDM5MC4wMDAgQyA1MzcuMjAzIDM5MC4xODggNTE1Ljg3MiAzOTUuMTY4IDQ5OS4yMDQgNDA2LjIwNCBDIDQ5My41NTggNDEwLjU1OCA0ODcuOTEyIDQxNC45MTIgNDgyLjI2NSA0MTkuMjY1IEMgNDYzLjEyMSA0MzcuNDEyIDQ1MC4zMjIgNDY1LjUxMSA0NTAuMDYxIDQ5Mi4wNjEgQyA0NTAuMDYxIDUzNC42ODcgNDUwLjA2MSA1NzcuMzEzIDQ1MC4wNjEgNjE5LjkzOSBDIDQ1MC42MzcgNjU1LjA0NyA0NzEuMTA4IDY4NS41NDAgNDk5LjIwNCA3MDQuNzk2IEMgNTEyLjg4NiA3MTQuMTczIDUzMi41NTAgNzE5Ljc1MiA1NDkuMDAwIDcyMC4wMDAgQyA1OTEuNjQ2IDcxOS45ODAgNjM0LjI5MyA3MTkuOTU5IDY3Ni45MzkgNzE5LjkzOSBDIDcwMi44ODcgNzE5LjY3MyA3MjguMTg4IDcwNi4wNDAgNzQ2LjAwMCA2ODguMDAwIEMgNzUzLjczNSA2ODAuMTY2IDc1OS43NDAgNjcwLjQ0MCA3NjQuNjczIDY2MC42NzMgQyA3NzAuNjcxIDY0OC44MDAgNzc0Ljg1NiA2MzMuMzc3IDc3NC45ODAgNjE5Ljk4MCBDIDc3NC45ODYgNTcyLjMyMCA3NzQuOTkzIDUyNC42NjAgNzc1LjAwMCA0NzcuMDAwIEMgNzc1LjA0OSA0NjIuNjI1IDc4Ni41NzYgNDU1LjExNCA4MDAuMDAwIDQ1NS4wMDAgQyA4MTUuMDAwIDQ1NS4wMDAgODMwLjAwMCA0NTUuMDAwIDg0NS4wMDAgNDU1LjAwMCBDIDg1OS45MTEgNDU1LjEyNiA4NzAuOTgxIDQ2Mi4yOTEgODcxLjAwMCA0NzguMDAwIEMgODcwLjk1OSA1MzIuNjI2IDg3MC45MTggNTg3LjI1MiA4NzAuODc4IDY0MS44NzggQyA4NzAuNDI1IDY2Ni43NDggODYyLjE4OSA2OTIuOTYwIDg1MS4wMDAgNzE1LjAwMCBDIDgyNS41OTYgNzY1LjAzNyA3NzAuMTY3IDgwMy42NTQgNzEzLjAwMCA4MDQuMDAwIEMgNjQ2LjY3MyA4MDMuOTkzIDU4MC4zNDcgODAzLjk4NiA1MTQuMDIwIDgwMy45ODAgQyA0ODcuODM3IDgwMy44MDMgNDU5LjYwMSA3OTIuOTgwIDQzNy44MTYgNzc5LjE4NCBDIDQyNC40OTUgNzcwLjc0NyA0MTcuOTIzIDc2NC44MDYgNDA3LjAwMCA3NTQuMDAwIEMgMzc3LjM1OSA3MjQuNjc2IDM1OS4zNTAgNjc5LjYxNiAzNTkuMDIwIDYzNy45ODAgQyAzNTkuMDE0IDU4My42NTMgMzU5LjAwNyA1MjkuMzI3IDM1OS4wMDAgNDc1LjAwMCBDIDM1OS4xNDMgNDczLjE0MyAzNTkuMjg2IDQ3MS4yODYgMzU5LjQyOSA0NjkuNDI5IFoiLz48cGF0aCBmaWxsPSIjRkM1QjRBIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGQ9Ik0gNzM0LjQyOSAzMTcuNDI5IEMgNzM1LjQyOSAzMTMuNzYyIDczNi40MjkgMzEwLjA5NSA3MzcuNDI5IDMwNi40MjkgQyA3NDIuODU1IDI5MS4xODQgNzYwLjQwMSAyODUuMzU1IDc3NS4wMDAgMjg1LjAwMCBDIDc5MC42NjcgMjg1LjAwMCA4MDYuMzMzIDI4NS4wMDAgODIyLjAwMCAyODUuMDAwIEMgODI2LjAwMCAyODUuMzMzIDgzMC4wMDAgMjg1LjY2NyA4MzQuMDAwIDI4Ni4wMDAgQyA4NTEuOTE1IDI4Ni44NDQgODMwLjg5MyAyODUuMDAwIDg1Mi4wMDAgMjg1LjAwMCBDIDg1NS45ODAgMjg1LjMxMyA4NTkuOTU5IDI4NS42MjYgODYzLjkzOSAyODUuOTM5IEMgODc3Ljk4MCAyODUuOTUxIDg3Mi42NjcgMjgzLjEzMyA4ODcuNTEwIDI4Ni40OTAgQyA5MDAuMTA2IDI4OS4zMzggOTExLjQ2OCAyOTkuNTAxIDkxMS43OTYgMzEzLjIwNCBDIDkxMS44NDQgMzM3Ljc4MiA5MTEuODkxIDM2Mi4zNjEgOTExLjkzOSAzODYuOTM5IEMgOTExLjg0NyAzOTIuODYyIDkxMC4zMzIgMzk4LjQzOCA5MDcuNjczIDQwMy42NzMgQyA5MDIuMDg1IDQxNC42ODIgODkwLjM2OSA0MjIuNTgwIDg3Ny43OTYgNDIyLjc5NiBDIDgzOS41MzcgNDIyLjg1NyA4MDEuMjc5IDQyMi45MTggNzYzLjAyMCA0MjIuOTgwIEMgNzUzLjQwNiA0MjIuODk3IDc0My42NTQgNDE4Ljk1NCA3MzguMjA0IDQxMC43OTYgQyA3MzYuMTM4IDQwNy43MDQgNzM0LjM4NiA0MDIuMTc0IDczNC4zMDYgMzk4LjY5NCBDIDczNC4yMDQgMzczLjQ2MyA3MzQuMTAyIDM0OC4yMzEgNzM0LjAwMCAzMjMuMDAwIEMgNzM0LjE0MyAzMjEuMTQzIDczNC4yODYgMzE5LjI4NiA3MzQuNDI5IDMxNy40MjkgWiIvPjwvZz48L3N2Zz4K",
+          "mimeType": "image/svg+xml",
+          "sizes": [
+            "any"
+          ],
+          "theme": "light"
+        },
+        {
+          "src": "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NDAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNjQwIDY0MCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsbGVkYnk9InRpdGxlIj48dGl0bGUgaWQ9InRpdGxlIj5PcGVuQWhveSBzeW1ib2wgaW52ZXJzZTwvdGl0bGU+PGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTMxNSAtMjI1KSI+PHBhdGggZmlsbD0iI0ZGRkZGRiIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNIDM1OS40MjkgNDY5LjQyOSBDIDM2Mi44NjIgNDQ2Ljk4MSAzNjUuMTgzIDQyNi40MDQgMzc0LjMyNyA0MDUuMzI3IEMgNDAwLjYwOCAzNDQuNzQyIDQ2MS41NjYgMzA2LjU0OCA1MjcuMDYxIDMwNi4wNjEgQyA1NzkuMzc0IDMwNi4wNDEgNjMxLjY4NyAzMDYuMDIwIDY4NC4wMDAgMzA2LjAwMCBDIDY5MS43NzAgMzA2LjA0OCA3MDEuNzM5IDMwNy44NTggNzA0LjkzOSAzMTYuMDYxIEMgNzA1LjIxOCAzMTcuMTE2IDcwNS40OTcgMzE4LjE3MCA3MDUuNzc2IDMxOS4yMjQgQyA3MDUuODUwIDMzNi40ODMgNzA1LjkyNSAzNTMuNzQxIDcwNi4wMDAgMzcxLjAwMCBDIDcwNS44MzcgMzcyLjgzNyA3MDUuNjczIDM3NC42NzMgNzA1LjUxMCAzNzYuNTEwIEMgNzAxLjgxMiAzOTMuNzIwIDY4MS4zOTUgMzkwLjA5NiA2NjkuMDAwIDM5MC4wMDAgQyA2MzEuNjY3IDM5MC4wMDAgNTk0LjMzMyAzOTAuMDAwIDU1Ny4wMDAgMzkwLjAwMCBDIDUzNy4yMDMgMzkwLjE4OCA1MTUuODcyIDM5NS4xNjggNDk5LjIwNCA0MDYuMjA0IEMgNDkzLjU1OCA0MTAuNTU4IDQ4Ny45MTIgNDE0LjkxMiA0ODIuMjY1IDQxOS4yNjUgQyA0NjMuMTIxIDQzNy40MTIgNDUwLjMyMiA0NjUuNTExIDQ1MC4wNjEgNDkyLjA2MSBDIDQ1MC4wNjEgNTM0LjY4NyA0NTAuMDYxIDU3Ny4zMTMgNDUwLjA2MSA2MTkuOTM5IEMgNDUwLjYzNyA2NTUuMDQ3IDQ3MS4xMDggNjg1LjU0MCA0OTkuMjA0IDcwNC43OTYgQyA1MTIuODg2IDcxNC4xNzMgNTMyLjU1MCA3MTkuNzUyIDU0OS4wMDAgNzIwLjAwMCBDIDU5MS42NDYgNzE5Ljk4MCA2MzQuMjkzIDcxOS45NTkgNjc2LjkzOSA3MTkuOTM5IEMgNzAyLjg4NyA3MTkuNjczIDcyOC4xODggNzA2LjA0MCA3NDYuMDAwIDY4OC4wMDAgQyA3NTMuNzM1IDY4MC4xNjYgNzU5Ljc0MCA2NzAuNDQwIDc2NC42NzMgNjYwLjY3MyBDIDc3MC42NzEgNjQ4LjgwMCA3NzQuODU2IDYzMy4zNzcgNzc0Ljk4MCA2MTkuOTgwIEMgNzc0Ljk4NiA1NzIuMzIwIDc3NC45OTMgNTI0LjY2MCA3NzUuMDAwIDQ3Ny4wMDAgQyA3NzUuMDQ5IDQ2Mi42MjUgNzg2LjU3NiA0NTUuMTE0IDgwMC4wMDAgNDU1LjAwMCBDIDgxNS4wMDAgNDU1LjAwMCA4MzAuMDAwIDQ1NS4wMDAgODQ1LjAwMCA0NTUuMDAwIEMgODU5LjkxMSA0NTUuMTI2IDg3MC45ODEgNDYyLjI5MSA4NzEuMDAwIDQ3OC4wMDAgQyA4NzAuOTU5IDUzMi42MjYgODcwLjkxOCA1ODcuMjUyIDg3MC44NzggNjQxLjg3OCBDIDg3MC40MjUgNjY2Ljc0OCA4NjIuMTg5IDY5Mi45NjAgODUxLjAwMCA3MTUuMDAwIEMgODI1LjU5NiA3NjUuMDM3IDc3MC4xNjcgODAzLjY1NCA3MTMuMDAwIDgwNC4wMDAgQyA2NDYuNjczIDgwMy45OTMgNTgwLjM0NyA4MDMuOTg2IDUxNC4wMjAgODAzLjk4MCBDIDQ4Ny44MzcgODAzLjgwMyA0NTkuNjAxIDc5Mi45ODAgNDM3LjgxNiA3NzkuMTg0IEMgNDI0LjQ5NSA3NzAuNzQ3IDQxNy45MjMgNzY0LjgwNiA0MDcuMDAwIDc1NC4wMDAgQyAzNzcuMzU5IDcyNC42NzYgMzU5LjM1MCA2NzkuNjE2IDM1OS4wMjAgNjM3Ljk4MCBDIDM1OS4wMTQgNTgzLjY1MyAzNTkuMDA3IDUyOS4zMjcgMzU5LjAwMCA0NzUuMDAwIEMgMzU5LjE0MyA0NzMuMTQzIDM1OS4yODYgNDcxLjI4NiAzNTkuNDI5IDQ2OS40MjkgWiIvPjxwYXRoIGZpbGw9IiNGQzVCNEEiIGZpbGwtcnVsZT0iZXZlbm9kZCIgZD0iTSA3MzQuNDI5IDMxNy40MjkgQyA3MzUuNDI5IDMxMy43NjIgNzM2LjQyOSAzMTAuMDk1IDczNy40MjkgMzA2LjQyOSBDIDc0Mi44NTUgMjkxLjE4NCA3NjAuNDAxIDI4NS4zNTUgNzc1LjAwMCAyODUuMDAwIEMgNzkwLjY2NyAyODUuMDAwIDgwNi4zMzMgMjg1LjAwMCA4MjIuMDAwIDI4NS4wMDAgQyA4MjYuMDAwIDI4NS4zMzMgODMwLjAwMCAyODUuNjY3IDgzNC4wMDAgMjg2LjAwMCBDIDg1MS45MTUgMjg2Ljg0NCA4MzAuODkzIDI4NS4wMDAgODUyLjAwMCAyODUuMDAwIEMgODU1Ljk4MCAyODUuMzEzIDg1OS45NTkgMjg1LjYyNiA4NjMuOTM5IDI4NS45MzkgQyA4NzcuOTgwIDI4NS45NTEgODcyLjY2NyAyODMuMTMzIDg4Ny41MTAgMjg2LjQ5MCBDIDkwMC4xMDYgMjg5LjMzOCA5MTEuNDY4IDI5OS41MDEgOTExLjc5NiAzMTMuMjA0IEMgOTExLjg0NCAzMzcuNzgyIDkxMS44OTEgMzYyLjM2MSA5MTEuOTM5IDM4Ni45MzkgQyA5MTEuODQ3IDM5Mi44NjIgOTEwLjMzMiAzOTguNDM4IDkwNy42NzMgNDAzLjY3MyBDIDkwMi4wODUgNDE0LjY4MiA4OTAuMzY5IDQyMi41ODAgODc3Ljc5NiA0MjIuNzk2IEMgODM5LjUzNyA0MjIuODU3IDgwMS4yNzkgNDIyLjkxOCA3NjMuMDIwIDQyMi45ODAgQyA3NTMuNDA2IDQyMi44OTcgNzQzLjY1NCA0MTguOTU0IDczOC4yMDQgNDEwLjc5NiBDIDczNi4xMzggNDA3LjcwNCA3MzQuMzg2IDQwMi4xNzQgNzM0LjMwNiAzOTguNjk0IEMgNzM0LjIwNCAzNzMuNDYzIDczNC4xMDIgMzQ4LjIzMSA3MzQuMDAwIDMyMy4wMDAgQyA3MzQuMTQzIDMyMS4xNDMgNzM0LjI4NiAzMTkuMjg2IDczNC40MjkgMzE3LjQyOSBaIi8+PC9nPjwvc3ZnPgo=",
+          "mimeType": "image/svg+xml",
+          "sizes": [
+            "any"
+          ],
+          "theme": "dark"
+        }
+      ]
+    }
+  }
+}

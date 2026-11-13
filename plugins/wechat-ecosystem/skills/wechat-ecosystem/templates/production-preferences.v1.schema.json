@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpenAhoy production preferences v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "schema_version",
+    "platform",
+    "account_name",
+    "fields"
+  ],
+  "properties": {
+    "format": {
+      "const": "openahoy.production-preferences"
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "platform": {
+      "const": "wechat_official_account"
+    },
+    "account_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "audience_topics",
+        "author",
+        "voice",
+        "image_preferences",
+        "visual_layout",
+        "content_qa",
+        "delivery_publication",
+        "additional_notes"
+      ],
+      "properties": {
+        "audience_topics": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "voice": {
+          "type": "string"
+        },
+        "image_preferences": {
+          "type": "string"
+        },
+        "visual_layout": {
+          "type": "string"
+        },
+        "content_qa": {
+          "type": "string"
+        },
+        "delivery_publication": {
+          "type": "string"
+        },
+        "additional_notes": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

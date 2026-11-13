@@ -1,0 +1,23 @@
+{
+  "title": "一页笔记如何长成一篇文章",
+  "demonstration": true,
+  "news": false,
+  "author": null,
+  "viewport_width": 390,
+  "cover": "assets/cover.jpg",
+  "square_crop": "left square, width equals image height",
+  "assets": [
+    {
+      "file": "assets/cover.jpg",
+      "mime": "image/jpeg",
+      "width": 1921,
+      "height": 819
+    },
+    {
+      "file": "assets/process.jpg",
+      "mime": "image/jpeg",
+      "width": 1659,
+      "height": 948
+    }
+  ]
+}

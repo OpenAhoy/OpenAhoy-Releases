@@ -1,0 +1,50 @@
+{
+  "format": "openahoy.x-operating",
+  "schema_version": 1,
+  "platform": "x",
+  "account_name": "",
+  "profile": {
+    "positioning": {
+      "topics": "城市自然观察",
+      "readers": "喜欢身边植物和日常记录的人",
+      "language": "由用户选择",
+      "background": "",
+      "allowed": "",
+      "excluded": "",
+      "voice": "具体、自然，不虚构亲历",
+      "facts": ""
+    },
+    "growth": {
+      "methods": [
+        "专业知识",
+        "作品展示"
+      ],
+      "reason": "能用上的小知识和实际作品",
+      "custom": "邀请读者分享同城观察",
+      "cta": "适合时提出一个具体问题，不强求每帖提问"
+    },
+    "timezone": "UTC",
+    "columns": [
+      {
+        "time": "09:00",
+        "name": "今日观察",
+        "purpose": "分享可验证的身边发现",
+        "format": "auto",
+        "selection": "实际观察或可靠资料",
+        "missing": "缺材料跳过或另选普通主题",
+        "assets": "用户自行选择"
+      }
+    ],
+    "images": {
+      "subject": "",
+      "characters": "",
+      "style": "",
+      "aspect_ratio": "",
+      "color": "",
+      "text_brand": "",
+      "method": "先确定内容要传达的信息、主体关系、场景动作、具体细节和构图，再写生图提示。区分真实资料与概念图，不伪造截图或实测。生成后实际查看成图和发布裁切，核对主题、文字可读性、形体结构、细节、风格和内容关系；不符时在制作阶段修正，避免空白、装饰堆砌和泛化抽象。"
+    },
+    "materials": "",
+    "notes": ""
+  }
+}

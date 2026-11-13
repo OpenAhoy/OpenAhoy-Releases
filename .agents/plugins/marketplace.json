@@ -1,0 +1,20 @@
+{
+  "name": "openahoy-distribution",
+  "interface": {
+    "displayName": "OpenAhoy"
+  },
+  "plugins": [
+    {
+      "name": "wechat-ecosystem",
+      "category": "Productivity",
+      "source": {
+        "source": "local",
+        "path": "./plugins/wechat-ecosystem"
+      },
+      "policy": {
+        "authentication": "ON_USE",
+        "installation": "AVAILABLE"
+      }
+    }
+  ]
+}

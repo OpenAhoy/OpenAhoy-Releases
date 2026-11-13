@@ -1,0 +1,16 @@
+{
+  "format": "openahoy.production-preferences",
+  "schema_version": 1,
+  "platform": "wechat_official_account",
+  "account_name": "示例公众号",
+  "fields": {
+    "audience_topics": "面向希望了解本主题的读者。请替换成你的领域、参考信源和排除主题。",
+    "author": "示例作者",
+    "voice": "表达自然清晰，按内容决定结构和篇幅；可继续自定义。",
+    "image_preferences": "使用有权使用的素材，按需要注明来源；图片类型由用户选择。",
+    "visual_layout": "以阅读舒适为目标；配色、字号、间距和图片比例可自行指定。",
+    "content_qa": "写作后核对关键事实、出处及图文一致性。",
+    "delivery_publication": "交付完整含图 HTML；是否普通发表遵循本次有效委托。",
+    "additional_notes": "本示例为虚构配置；不包含账号绑定、密钥、权限或定时任务。"
+  }
+}

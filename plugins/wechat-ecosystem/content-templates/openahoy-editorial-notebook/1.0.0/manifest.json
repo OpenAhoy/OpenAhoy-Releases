@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "id": "openahoy-editorial-notebook",
+  "version": "1.0.0",
+  "name": "灵感手记",
+  "publisher": "OpenAhoy",
+  "description": "从具体问题出发，配原创水彩插画，用清晰的手机排版呈现想法。",
+  "changelog": [
+    "首版：完整写作方法、可填充生图提示词、同源HTML/CSS、演示文章与两张新配图。"
+  ],
+  "read_order": [
+    "SKILL.md",
+    "references/WRITING.md",
+    "references/IMAGE_PROMPTS.md",
+    "references/FORMATTING.md",
+    "references/EXAMPLE_PROMPTS.md",
+    "example/article.md",
+    "example/source.html",
+    "example/article.css",
+    "example/metadata.json",
+    "LICENSE.md"
+  ],
+  "assets": [
+    {
+      "file": "assets/cover.jpg",
+      "mime": "image/jpeg",
+      "width": 1921,
+      "height": 819
+    },
+    {
+      "file": "assets/process.jpg",
+      "mime": "image/jpeg",
+      "width": 1659,
+      "height": 948
+    }
+  ],
+  "files": {
+    "LICENSE.md": {
+      "sha256": "200d4a21bd66ceb7e7210bb263fdcd1b10744d7251aa5d12df5bbfe2676b650d",
+      "bytes": 646,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "SKILL.md": {
+      "sha256": "7608db337225a0e683176c9ccc51796c13b1d3d9bfd45f9d5315d1bef1fed51a",
+      "bytes": 1252,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "assets/cover.jpg": {
+      "sha256": "b6e88eb9b69a4dfa98b90718c7b110998eebeea5c8e14171bf492b12f2f1b91a",
+      "bytes": 468019,
+      "chunks": 10,
+      "mime": "image/jpeg"
+    },
+    "assets/process.jpg": {
+      "sha256": "a0e82c4a65ca5670b108497411500245fa5598a588fb7423b148bcdb59ac51a0",
+      "bytes": 383735,
+      "chunks": 8,
+      "mime": "image/jpeg"
+    },
+    "example/article.css": {
+      "sha256": "0e6c4064cbf89017e971b6c718db2005eb103c8379255f7e490b95850c9cde50",
+      "bytes": 529,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "example/article.md": {
+      "sha256": "2e30d787fac04e543f3aec931bf3fd7a6e4bfc14fa358c06d2ba5652af1c96c8",
+      "bytes": 1166,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "example/metadata.json": {
+      "sha256": "b043031e6cfa730700ecf606a340cfa9923e32c2daad0ab2ca41121e8670c220",
+      "bytes": 480,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "example/source.html": {
+      "sha256": "010c61ddd37cc2711e0653758451bf086e80560ab5d2c3444663b9e0e6a8805c",
+      "bytes": 3037,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "references/EXAMPLE_PROMPTS.md": {
+      "sha256": "56b1a231e073a85fef079707b8b5b502d4ac30b0806fa31fb9a163d254ab2e33",
+      "bytes": 3157,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "references/FORMATTING.md": {
+      "sha256": "f21b67d864834c56812f8e079bab52e2e0d79829fd7b03741cdf5ae97d77bfbe",
+      "bytes": 1184,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "references/IMAGE_PROMPTS.md": {
+      "sha256": "27ded652baa496b69ff4d773996dafb62a3c58140b7326d3f9038a900d3c2ff5",
+      "bytes": 2132,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "references/WRITING.md": {
+      "sha256": "53d7a35a0f222b72a8c247d748ff3f585b98d0d989f5c94c05b1b446b3d63d4f",
+      "bytes": 1099,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    }
+  },
+  "supplements": {
+    "voice": "可选创作模板「灵感手记」：围绕具体问题、用事实和例子展开，语言自然，区分结论与推断；已有自定义要求优先。",
+    "image_preferences": "可选模板配图：暖纸质水彩/水粉、深青绿与珊瑚橙；中文短标题默认准确呈现，文字和主体留在宽封面最左1:1安全区。每篇按内容独立生成，实际提示词和参考见模板包；已有偏好优先。",
+    "visual_layout": "可选模板排版：16px正文、1.8行高、0.5px字距、18px段距、16px侧边距；26px独立主旨、20px小标题、图片随宽度自适应。以本号已有要求优先，具体HTML/CSS见所选模板。"
+  }
+}

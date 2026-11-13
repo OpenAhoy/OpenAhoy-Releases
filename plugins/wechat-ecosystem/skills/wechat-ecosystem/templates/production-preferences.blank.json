@@ -1,0 +1,16 @@
+{
+  "format": "openahoy.production-preferences",
+  "schema_version": 1,
+  "platform": "wechat_official_account",
+  "account_name": "",
+  "fields": {
+    "audience_topics": "",
+    "author": "",
+    "voice": "",
+    "image_preferences": "",
+    "visual_layout": "",
+    "content_qa": "",
+    "delivery_publication": "",
+    "additional_notes": ""
+  }
+}

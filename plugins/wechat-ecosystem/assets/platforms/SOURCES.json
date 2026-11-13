@@ -1,0 +1,42 @@
+{
+  "verified_at": "2026-11-09",
+  "files": {
+    "official-account.svg": {
+      "sha256": "fdce45e8fef87ba68fd1c029a45727cfeb375a2807b7641acfb653edc3af375e",
+      "page": "https://mp.weixin.qq.com/",
+      "source": "https://res.wx.qq.com/mpres/zh_CN/htmledition/pages/login/loginpage/loginpage.08768898.css",
+      "css_sha256": "66cd27dd0952e58de196520cc983c8bef94b691fc19895947a9e6cac0cb7345e",
+      "selector": ".mp-app_bd .mp-app_logo",
+      "extraction": "Exact URL-decoded inline SVG; no path/fill/viewBox edits",
+      "width": 37,
+      "height": 36,
+      "background": "#07c160 from official --weuiDesktop_themeColor",
+      "not_used": "Official favicon/header use WeChat chat bubbles; explicitly excluded."
+    },
+    "x-black.png": {
+      "sha256": "391a3a86f40e253b584defa5f284c7402a2175a705ebb2b4b9460112fc92dc77",
+      "page": "https://about.x.com/en/who-we-are/brand-toolkit",
+      "source": "https://cdn.sanity.io/files/kjy2lb0k/production/3bb3c110d1f6fc7c759ea7fafa18c4d7e21f380c.zip?dl=x-logo.zip",
+      "entry": "logo-black.png",
+      "extraction": "Exact official ZIP entry"
+    },
+    "x-white.svg": {
+      "sha256": "dd46f96b6f47fcd33683b79ddfaf3daca1d4f8aeba3c0f2bde1584c69cc699d4",
+      "page": "https://about.x.com/en/who-we-are/brand-toolkit",
+      "source": "https://cdn.sanity.io/files/kjy2lb0k/production/3bb3c110d1f6fc7c759ea7fafa18c4d7e21f380c.zip?dl=x-logo.zip",
+      "entry": "logo.svg",
+      "width": 1200,
+      "height": 1227,
+      "extraction": "Exact official ZIP entry"
+    },
+    "xiaohongshu.ico": {
+      "sha256": "33b25a8e2b0a67d2fc58eb6739a608211af9e62b3fdd935e7ce7e1ce12963372",
+      "page": "https://www.xiaohongshu.com/",
+      "source": "https://www.xiaohongshu.com/favicon.ico",
+      "resolved": "https://www.xiaohongshu.com/favicon.ico",
+      "verified_at": "2026-11-13",
+      "extraction": "Exact official favicon bytes, no edits"
+    }
+  },
+  "display": "contain; symmetric 5px padding in 30px tile; no invented official numeric minimum/clear-space rule; host light/dark chooses matching official X variant, no global theme/layout redesign"
+}

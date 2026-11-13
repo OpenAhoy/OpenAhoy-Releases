@@ -1,0 +1,37 @@
+{
+  "format": "openahoy.x-operating",
+  "schema_version": 1,
+  "platform": "x",
+  "account_name": "",
+  "profile": {
+    "positioning": {
+      "topics": "",
+      "readers": "",
+      "language": "",
+      "background": "",
+      "allowed": "",
+      "excluded": "",
+      "voice": "",
+      "facts": ""
+    },
+    "growth": {
+      "methods": [],
+      "reason": "",
+      "custom": "",
+      "cta": ""
+    },
+    "timezone": "UTC",
+    "columns": [],
+    "images": {
+      "subject": "",
+      "characters": "",
+      "style": "",
+      "aspect_ratio": "",
+      "color": "",
+      "text_brand": "",
+      "method": "先确定内容要传达的信息、主体关系、场景动作、具体细节和构图，再写生图提示。区分真实资料与概念图，不伪造截图或实测。生成后实际查看成图和发布裁切，核对主题、文字可读性、形体结构、细节、风格和内容关系；不符时在制作阶段修正，避免空白、装饰堆砌和泛化抽象。"
+    },
+    "materials": "",
+    "notes": ""
+  }
+}

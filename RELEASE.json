@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "product": "OpenAhoy",
+  "version": "0.6.28",
+  "tag": "v0.6.28",
+  "repository": "OpenAhoy/OpenAhoy-Releases",
+  "platform": "macos-arm64",
+  "marketplace": "openahoy-distribution",
+  "plugin": "wechat-ecosystem",
+  "marketplace_source": "https://github.com/OpenAhoy/OpenAhoy-Releases.git",
+  "plugin_path": "./plugins/wechat-ecosystem",
+  "asset": "openahoy-0.6.28-macos-arm64.zip",
+  "asset_url": "https://github.com/OpenAhoy/OpenAhoy-Releases/releases/download/v0.6.28/openahoy-0.6.28-macos-arm64.zip",
+  "sha256": "507048f2385c3fc06e585c5f092f64b467d7f61d1ec9d74f630ebfdb050c8aab",
+  "size": 3728475,
+  "package_manifest_sha256": "907b7b6962861984e29feb4bee4ee1bd5314d9af992a0008b1d570838a39eb88",
+  "payload_count": 496,
+  "contains_user_accounts": false,
+  "codex_install_source": "Git marketplace; release ZIP is supplementary"
+}

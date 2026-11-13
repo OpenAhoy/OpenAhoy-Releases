@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "templates": [
+    {
+      "id": "openahoy-editorial-notebook",
+      "version": "1.0.1",
+      "name": "灵感手记",
+      "description": "从文章的问题与依据出发，设计清楚的主体关系、变化和完整画面，再选择适合的视觉表达。",
+      "manifest_sha256": "274ab349848c04dc3cf0c677da3d1b9b8dac5a0f13e27e350e008692994af928"
+    }
+  ],
+  "archived_templates": [
+    {
+      "id": "openahoy-editorial-notebook",
+      "version": "1.0.0",
+      "name": "灵感手记",
+      "description": "从具体问题出发，配原创水彩插画，用清晰的手机排版呈现想法。",
+      "manifest_sha256": "5efb78ab3d42f0d31d0b7e30a19601b1f7eea4d29e770528be134b1306abb0c4"
+    }
+  ]
+}

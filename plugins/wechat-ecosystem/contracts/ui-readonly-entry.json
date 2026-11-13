@@ -1,0 +1,95 @@
+{
+  "account_data_output": false,
+  "full_descriptor_sha256": "d4f1972ff9153480faa015de8eca5c921bd8d180ca2879ec356c6fd4da8a3cd7",
+  "model_visible_tools": 28,
+  "normal_actual_descriptor_sha256": "d2292a55e79dd29eb1444abe317d49f908c1858b608e4f03c577f0ccd0b56b92",
+  "normal_authority_descriptor_sha256": "d2292a55e79dd29eb1444abe317d49f908c1858b608e4f03c577f0ccd0b56b92",
+  "normal_contract_sha256": "0100b6b73d2a5998af742a06c8de17ab33f5a9c013608ba8788cbf3767e19203",
+  "platform_authority": false,
+  "profile": "WCE_READONLY_UI_ENTRIES_V1",
+  "schema": 1,
+  "tools": [
+    {
+      "_meta": {
+        "ui": {
+          "resourceUri": "ui://wechat-ecosystem/settings.html",
+          "visibility": [
+            "model"
+          ]
+        }
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Prepare the existing management view only. Returns a fixed non-account marker; no credentials, URLs, connection actions or platform writes. Host controls placement.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "wce.ui.show_management",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "const": "MANAGEMENT_VIEW_READY"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "title": "在当前聊天打开公众号管理"
+    },
+    {
+      "_meta": {
+        "openai/ui": {
+          "entrypoints": [
+            {
+              "type": "global"
+            }
+          ]
+        },
+        "ui": {
+          "resourceUri": "ui://wechat-ecosystem/settings.html",
+          "visibility": [
+            "app"
+          ]
+        }
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Prepare the existing management view only. Returns a fixed non-account marker; no credentials, URLs, connection actions or platform writes. Host controls placement.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "wce.ui.open_management_page",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "const": "MANAGEMENT_VIEW_READY"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "title": "WeChat Ecosystem · 独立管理页"
+    }
+  ],
+  "total_tools": 37
+}

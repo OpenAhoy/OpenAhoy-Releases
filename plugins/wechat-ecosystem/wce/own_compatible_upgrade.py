@@ -1,0 +1,102 @@
+"""Private legacy-case implementation is not distributed. No recovery grant."""
+from .contracts import WCEError
+def _unavailable(*args, **kwargs):
+    raise WCEError("LEGACY_CASE_NOT_DISTRIBUTED")
+PLUGIN = None
+SELECTED_CIDS = None
+INITIALIZATION_MESSAGE = None
+RIGHTS = None
+LIMIT = None
+ORIGINS = None
+class TrustedInstallerPins:
+    def __init__(self, *args, **kwargs):
+        _unavailable()
+class TrustedReceiptRecoveryTarget:
+    def __init__(self, *args, **kwargs):
+        _unavailable()
+def _authority_budget(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def _authority_reader(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def _source_bytes(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def fail(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def exact(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def hash_value(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def identifier(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def pin(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def timestamp(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def record_bytes(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def read_record(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def put(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def directory(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def operation_path(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def authority_path(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def freeze_pins(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def validate_base(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def anchor_shape(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def source_authority(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def _source_authority_legacy(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def package_inventory(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def verify_installer(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def verify_installed(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def verify_attestation(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def _verify_attestation_body(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def account_seals(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def build_plan(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def _build_plan(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def check_pending(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def prepare_metadata_upgrade(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def validate_plan(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def initial_operation(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def validate_operation(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def observe(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def current_relations(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def finish(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def query_metadata_upgrade(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def commit_metadata_upgrade(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def _commit_metadata_under_replacement_gate(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def reconcile_metadata_upgrade(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def _reconcile_metadata_under_replacement_gate(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def finalize_committed_metadata_upgrade(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
+def _receipt_current_source(*args, **kwargs):
+    return _unavailable(*args, **kwargs)
