@@ -7,13 +7,17 @@ from .tools import schema
 from .x_api import PLATFORM
 from .x_platform import XPlatform
 from .x_discovery import DISCOVERY_TYPES
+from .x_setup_draft import SetupDrafts
 
 TEXT = {'type': 'string', 'minLength': 1, 'maxLength': 65536, 'x-wce-maxUtf8Bytes': 262144}
 ID = {'type': 'string', 'minLength': 1, 'maxLength': 128, 'pattern': r'[A-Za-z0-9_-]+'}
 CID = {'type': 'string', 'minLength': 3, 'maxLength': 21, 'pattern': r'x-[0-9]{1,19}'}
 POST = {'type': 'string', 'minLength': 1, 'maxLength': 19, 'pattern': r'[0-9]{1,19}'}
+AI_LABEL = {'made_with_ai': {'type': 'boolean'}}
 POST_FIELDS = {'connection_id': CID, 'attempt_id': ID, 'text': TEXT}
 CLIENT = {'type': 'string', 'minLength': 1, 'maxLength': 4096, 'pattern': r'[A-Za-z0-9._~+/=-]+'}
+APP_NAME = {'type': 'string', 'minLength': 1, 'maxLength': 80}
+APP_SELECTION = {'type': 'string', 'pattern': '[a-f0-9]{64}', 'minLength': 64, 'maxLength': 64}
 SEARCH = {'type': 'string', 'minLength': 1, 'maxLength': 4096, 'x-wce-maxUtf8Bytes': 16384}
 SEARCH_OPTIONS = {
     'max_results': {'type': 'integer', 'minimum': 10, 'maximum': 100},
@@ -22,10 +26,22 @@ SEARCH_OPTIONS = {
     'sort_order': {'type': 'string', 'enum': ['recency', 'relevancy']},
 }
 UI = 'x.ui.action'
+SETUP = 'x.setup.draft.submit'
+SETUP_KEY = {'type': 'string', 'minLength': 48, 'maxLength': 48, 'pattern': '^[a-f0-9]{48}$'}
+SETUP_NAME = dict(APP_NAME, maxLength=32)
 UI_SPEC = {'oneOf': [schema({'operation': {'type': 'string', 'const': op},
                             'arguments': args}) for op, args in (
     ('READ', schema({}, {'authorization_handle':{'type':'string','pattern':'^x-auth-[a-f0-9]{48}$'}})), ('CONFIGURE', schema({'client_id': CLIENT})),
-    ('AUTHORIZE', schema({}, {'expected_connection_id':CID})), ('CANCEL', schema({'authorization_handle':{'type':'string','pattern':'^x-auth-[a-f0-9]{48}$'}})))]}
+    ('AUTHORIZE', schema({}, {'expected_connection_id':CID, 'expected_user_id':POST, 'client_id':CLIENT, 'application_name':APP_NAME})),
+    ('APP_DRAFT_READ', schema({}, {'connection_id': CID})),
+    ('APP_DRAFT_SAVE', schema({'application_name': APP_NAME, 'client_id': CLIENT},
+                              {'connection_id': CID, 'expected_user_id': POST})),
+    ('APP_DRAFT_AUTHORIZE', schema({'revision': APP_SELECTION}, {'connection_id': CID})),
+    ('SETUP_BEGIN', schema({}, {'connection_id': CID})),
+    ('SETUP_READ', schema({'panel_key': SETUP_KEY}, {'connection_id': CID})),
+    ('SETUP_CANCEL', schema({'panel_key': SETUP_KEY})),
+    ('BILLING', schema({'connection_id': CID, 'expected_application': APP_SELECTION})),
+    ('CANCEL', schema({'authorization_handle':{'type':'string','pattern':'^x-auth-[a-f0-9]{48}$'}})))]}
 SPECS = {
     'x.connections.list': schema({}),
     'x.profile.read': schema({'connection_id': CID}),
@@ -41,13 +57,14 @@ SPECS = {
     'x.media.upload': schema({'connection_id': CID, 'attempt_id': ID,
                               'image_path': {'type': 'string', 'minLength': 1, 'maxLength': 4096}}),
     'x.posts.create': {'type': 'object', 'oneOf': [
-        schema(POST_FIELDS | {'upload_attempt_id': ID}),
+        schema(POST_FIELDS | {'upload_attempt_id': ID}, AI_LABEL),
         schema(POST_FIELDS | {'upload_attempt_ids': {
-            'type': 'array', 'items': ID, 'minItems': 1, 'maxItems': 4, 'uniqueItems': True}}),
+            'type': 'array', 'items': ID, 'minItems': 1, 'maxItems': 4, 'uniqueItems': True}}, AI_LABEL),
     ]},
     'x.attempt.status': schema({'connection_id': CID, 'kind': {'type': 'string', 'enum': ['upload', 'post', 'reply']},
                                 'attempt_id': ID}, {'poll_media':{'type':'boolean'}}),
     'x.posts.readback': schema({'connection_id': CID, 'attempt_id': ID}),
+    SETUP: schema({'handoff': SETUP_KEY, 'user_id': POST, 'application_name': SETUP_NAME, 'client_id': CLIENT}),
     UI: UI_SPEC,
 }
 
@@ -64,17 +81,18 @@ def descriptors():
         'x.posts.reply': 'Send one currently authorized reply to the exact parent post. Official self-serve requires the author to mention or quote this account; no unattended AI bot without actual X qualification. One account/parent intent across categories and keys; UNKNOWN original readback only.',
         'x.replies.readback': 'Independently GET the original reply and verify this account, text and direct replied_to parent. UNKNOWN reconciles the original account timeline; never resend.',
         'x.media.upload': 'Upload one selected PNG, JPEG, WebP, GIF or supported video to this X account. image_path is the legacy path name. Animated GIF and video use v2 chunked upload. Continue UPLOADING with the original attempt/path; check PROCESSING or FINALIZE_UNKNOWN using status with poll_media=true. Platform limits and entitlements apply.',
-        'x.posts.create': 'Publish authorized text with 1–4 photos in upload_attempt_ids order, or with one GIF or video. The legacy upload_attempt_id also accepts one attachment. Supply exactly one of these parameters. All uploads must be ready on the same account. Send once per original attempt_id; use original readback for UNKNOWN.',
+        'x.posts.create': 'Publish authorized text with 1–4 photos in upload_attempt_ids order, or with one GIF or video. The legacy upload_attempt_id also accepts one attachment. Supply exactly one of these parameters. All uploads must be ready on the same account. Set made_with_ai=true explicitly to request the X AI-media label. Send once per original attempt_id; use original readback for UNKNOWN.',
         'x.attempt.status': 'Read the original upload/post/reply receipt. Default is local only; poll_media=true may GET processing status for the original known media, respecting check_after_secs and expiry, and may refresh this account token. Never upload bytes, retry an unknown write or create a post.',
         'x.posts.readback': 'Independently GET the original X post and verify account, text and media. For UNKNOWN, reconcile the original account timeline without reposting.',
+        SETUP: 'Put a verified public OAuth 2.0 Client ID and app name into the one-time OpenAhoy setup handoff from this chat. Draft only; cannot change a binding or start OAuth. Never send secrets.',
         UI: 'App-only public Client ID settings and official OAuth launch. No model credential or consent entry.',
     }
-    writes = {'x.media.upload', 'x.posts.create', 'x.posts.reply', UI}
+    writes = {'x.media.upload', 'x.posts.create', 'x.posts.reply', UI, SETUP}
     rows = []
     for name, spec in SPECS.items():
         row = {'name': name, 'description': descriptions[name], 'inputSchema': deepcopy(spec),
                'annotations': {'readOnlyHint': name not in writes, 'destructiveHint': False,
-                               'idempotentHint': name not in writes, 'openWorldHint': name!='x.connections.list'}}
+                               'idempotentHint': name not in writes, 'openWorldHint': name not in {'x.connections.list', SETUP}}}
         if name == UI:
             row['_meta'] = {'ui': {'visibility': ['app']}}
         rows.append(row)
@@ -85,6 +103,7 @@ class XPlatformRouter:
     def __init__(self, inner, platform=None):
         self.inner = inner
         self.x = platform or XPlatform()
+        self.setup = SetupDrafts()
         self._x_call = False
 
     def __getattr__(self, name):
@@ -117,13 +136,38 @@ class XPlatformRouter:
                 value['connections'].extend(self.x.overview())
             return value
         strict_validate(args, SPECS[name])
+        if name == SETUP:
+            return self.setup.submit(**args)
         if name == UI:
             op, a = args['operation'], args['arguments']
             if op == 'READ':
                 return self.x.settings(a.get('authorization_handle'))
             if op == 'CONFIGURE':
                 return self.x.configure(a['client_id'])
-            return self.x.begin(a.get('expected_connection_id')) if op == 'AUTHORIZE' else self.x.cancel(a['authorization_handle'])
+            if op == 'BILLING':
+                return self.x.billing(a['connection_id'], a['expected_application'])
+            if op == 'SETUP_BEGIN':
+                cid = a.get('connection_id')
+                if cid and not any(row['connection_id'] == cid for row in self.x.overview()):
+                    raise WCEError('X_CONNECTION_NOT_FOUND')
+                return self.setup.begin(cid)
+            if op == 'SETUP_READ':
+                return self.setup.read(a['panel_key'], a.get('connection_id'))
+            if op == 'SETUP_CANCEL':
+                return self.setup.cancel(a['panel_key'])
+            if op == 'APP_DRAFT_READ':
+                return self.x.application_draft(a.get('connection_id'))
+            if op == 'APP_DRAFT_SAVE':
+                return self.x.save_application_draft(a['application_name'], a['client_id'],
+                                                     a.get('connection_id'), a.get('expected_user_id'))
+            if op == 'APP_DRAFT_AUTHORIZE':
+                return self.x.authorize_saved_application(a['revision'], a.get('connection_id'))
+            if op == 'AUTHORIZE':
+                if ('client_id' in a) != ('application_name' in a) or ('client_id' not in a and 'expected_connection_id' not in a):
+                    raise WCEError('X_OWN_CLIENT_ID_REQUIRED')
+                return self.x.begin(a.get('expected_connection_id'), client_id=a.get('client_id'),
+                                    application_name=a.get('application_name'), expected_user_id=a.get('expected_user_id'))
+            return self.x.cancel(a['authorization_handle'])
         if name == 'x.connections.list':
             return {'connections': self.x.overview()}
         cid = args['connection_id']
@@ -147,9 +191,9 @@ class XPlatformRouter:
         if name == 'x.media.upload':
             return self.x.upload(cid, args['attempt_id'], args['image_path'])
         if name == 'x.posts.create':
+            options = {key: args[key] for key in ('upload_attempt_ids', 'made_with_ai') if key in args}
             if 'upload_attempt_id' in args:
-                return self.x.create(cid, args['attempt_id'], args['text'], args['upload_attempt_id'])
-            return self.x.create(cid, args['attempt_id'], args['text'],
-                                 upload_attempt_ids=args['upload_attempt_ids'])
+                return self.x.create(cid, args['attempt_id'], args['text'], args['upload_attempt_id'], **options)
+            return self.x.create(cid, args['attempt_id'], args['text'], **options)
         return self.x.status(cid, args.get('kind', 'post'), args['attempt_id'],
                              readback=name == 'x.posts.readback', poll_media=args.get('poll_media',False))

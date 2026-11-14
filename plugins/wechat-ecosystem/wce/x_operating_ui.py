@@ -11,7 +11,7 @@ HTML = '<section id="xOperatingPanel" class="oa-x-config" aria-label="X 运营�
  '<p id="xConfigTarget" class="help"></p>' + starter_entry('xConfig') + '<nav id="xConfigTabs" class="actions" aria-label="X 配置分类" hidden></nav><div id="xConfigSections"></div><details id="xConfigConflicts" hidden><summary>并发修改：核对冲突字段</summary><pre id="xConfigConflictText" class="x-config-skill"></pre></details>',
  '<p id="xConfigStatus" class="notice" role="status"></p><button id="xConfigSave" class="primary">保存并应用</button><button id="xConfigQuery" hidden>查询原保存结果</button>',
  '<details class="oa-task-menu"><summary>导入 / 下载</summary><div class="actions"><button id="xConfigImport">加载配置</button><button id="xConfigExport">下载配置</button><button id="xConfigSkillExport">下载 Skill</button><button id="xConfigReload">读取已保存配置</button><button id="xConfigNew">新建空白配置</button></div></details><button id="xConfigPreview">查看完整 Skill</button>',
- '<p class="help">保存配置不会启用定时或自动互动。</p><button type="button" data-workspace-project>项目与 Skills</button><button type="button" id="xWorkspaceTools">生产、定时与账号</button>'
+ '<p class="help">保存配置不会启用定时或自动互动。</p><button type="button" data-workspace-project>项目与 Skills</button><button type="button" id="xWorkspaceTools">生产、定时与账号</button><button type="button" id="xWorkspaceBilling">账单与余额</button><button type="button" id="xConnectOwnApplication" hidden>连接自己的 X 开发者应用</button>'
 ) + '<input type="file" id="xConfigFile" accept=".json,application/json" hidden></section>'
 
 STYLE = r'''

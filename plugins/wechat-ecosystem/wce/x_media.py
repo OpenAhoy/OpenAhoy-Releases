@@ -171,7 +171,7 @@ def poll(x,cid,path,row):
     if known['expires_at']<=x.clock():return save(path,row|{'state':'EXPIRED','error':'X_MEDIA_EXPIRED'})
     if x.clock()<row.get('next_check_at',0):return row
     try:
-        value=x.api.media_status(x._access(x._load(),cid),known['media_id'])
+        value=x.api.media_status(x._access(x._load(),cid,row),known['media_id'])
         # Missing processing_info cannot prove an unacknowledged FINALIZE was
         # accepted. Only explicit processing progress/terminal state reconciles.
         data=value.get('data')if type(value)is dict else None
@@ -187,7 +187,7 @@ def advance(x,cid,path,row,artifact):
     if row['state']in {'SUCCEEDED','REJECTED','EXPIRED','RESULT_UNKNOWN'}:
         return poll(x,cid,path,row)if row.get('phase')=='FINALIZE_UNKNOWN'else row
     if row['state']=='PROCESSING':return poll(x,cid,path,row)
-    token=x._access(x._load(),cid)
+    token=x._access(x._load(),cid,row)
     deadline=time.monotonic()+TRANSFER_SECONDS
     if row['phase']=='PREPARED':
         row.update(state='RESULT_UNKNOWN',phase='INIT_UNKNOWN');save(path,row)
@@ -258,7 +258,7 @@ def upload(x,cid,attempt_id,path):
             return x._write_once(cid,'upload',attempt_id,content,send)
     finally:stream.close()
     with locked(x.root/'connection.lock'):
-        x._connection(cid);receipt_path,old=x._receipt(cid,'upload',attempt_id)
+        connection=x._connection(cid);receipt_path,old=x._receipt(cid,'upload',attempt_id)
         source_key = sha256(os.fsencode(source)).hexdigest()
         if (old and old.get('source_key') == source_key and
                 old.get('original_source_state') == list(file_state(source.stat(follow_symlinks=False)))):
@@ -273,7 +273,8 @@ def upload(x,cid,attempt_id,path):
         else:
             row={'connection_id':cid,'kind':'upload','attempt_id':attempt_id,'fingerprint':x_fingerprint(content),
                 'state':'UPLOADING','created_at':x.clock(),'input':content,'media_protocol':'X_V2_CHUNKED',
-                'phase':'PREPARED','media_type':mime,'media_category':category,'source_state':pin}
+                'phase':'PREPARED','media_type':mime,'media_category':category,'source_state':pin,
+                'application_scope':connection['credential_scope']}
         row.update(source_key=source_key,original_source_state=original_pin)
         save(receipt_path,row)
         return advance(x,cid,receipt_path,row,artifact)

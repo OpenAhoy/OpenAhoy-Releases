@@ -1,0 +1,4 @@
+interface:
+  display_name: "X Developer App Setup"
+  short_description: "Set up your X Developer Native App for OpenAhoy"
+  default_prompt: "Use $wechat-ecosystem:x-developer-app-setup to help me set up my X Developer Native App in the Codex browser."

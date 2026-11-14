@@ -27,6 +27,14 @@ def fingerprint(value):
     return sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
 
+def valid_client_id(value):
+    return type(value) is str and re.fullmatch(r'[A-Za-z0-9._~+/=-]{1,4096}', value) is not None
+
+
+def valid_application_name(value):
+    return type(value) is str and 1 <= len(value) <= 80 and value.isprintable() and value == value.strip()
+
+
 def credential(value, old_refresh=None):
     if (type(value) is not dict or value.get('token_type', '').lower() != 'bearer'
             or type(value.get('access_token')) is not str or not value['access_token']
@@ -73,17 +81,36 @@ class XPlatform:
             c=value['connection']
             if c is not None and (type(c)is not dict or type(c.get('connection_id'))is not str):raise WCEError('X_CONNECTION_INVALID')
             value={'schema':2,'client_id':value['client_id'],'connections':{} if c is None else {c['connection_id']:c}}
-        if set(value)!={'schema','client_id','connections'} or value['schema']!=2 or type(value['connections'])is not dict:
+        fields = {'schema','client_id','connections'}
+        if value.get('schema') == 3:
+            fields.add('retired')
+        if set(value) != fields or value['schema'] not in {2, 3} or type(value['connections']) is not dict:
             raise WCEError('X_CONNECTION_INVALID')
-        if type(value['client_id'])is not str or (value['client_id'] and re.fullmatch(r'[A-Za-z0-9._~+/=-]+',value['client_id'])is None):
+        if value['client_id'] != '' and not valid_client_id(value['client_id']):
             raise WCEError('X_CLIENT_ID_INVALID')
-        for cid,c in value['connections'].items():
-            if type(c)is not dict or set(c)!={'connection_id','profile','scope','expires_at','state','credential_scope'} or type(c['profile'])is not dict:
+        def check(cid, c):
+            base = {'connection_id','profile','scope','expires_at','state','credential_scope'}
+            if type(c) is not dict or set(c) not in (base, base | {'client_id', 'application_name'}) or type(c['profile']) is not dict:
+                raise WCEError('X_CONNECTION_INVALID')
+            if 'client_id' in c and (value['schema'] != 3 or not valid_client_id(c['client_id'])
+                                     or c['client_id'] == CLIENT_ID or not valid_application_name(c['application_name'])):
                 raise WCEError('X_CONNECTION_INVALID')
             user=identifier(c['profile'].get('id'))
-            scope=fingerprint(['x',value['client_id'],user])
+            scope=fingerprint(['x',c.get('client_id', value['client_id']),user])
             if cid!='x-'+user or c['connection_id']!=cid or c['credential_scope']!=scope or c['scope']!=list(SCOPES):
                 raise WCEError('X_CONNECTION_INVALID')
+        for cid, c in value['connections'].items():
+            check(cid, c)
+        retired = value.get('retired', {})
+        if type(retired) is not dict or not retired.keys() <= value['connections'].keys():
+            raise WCEError('X_CONNECTION_INVALID')
+        for cid, grants in retired.items():
+            if type(grants) is not dict:
+                raise WCEError('X_CONNECTION_INVALID')
+            for scope, grant in grants.items():
+                check(cid, grant)
+                if scope != grant['credential_scope'] or scope == value['connections'][cid]['credential_scope']:
+                    raise WCEError('X_CONNECTION_INVALID')
         return value
 
     def _save(self,value):
@@ -94,6 +121,10 @@ class XPlatform:
         if type(old)is dict and old.get('schema')==1:
             backup=self.root/'connection.schema1.before-multi.json'
             if not os.path.lexists(backup):atomic_write(backup,old,maximum=None)
+        if type(old) is dict and old.get('schema') in {1, 2} and value['schema'] == 3:
+            backup = self.root / 'connection.before-applications.json'
+            if not os.path.lexists(backup):
+                atomic_write(backup, old, maximum=None)
         atomic_write(path,value,maximum=None)
 
     def overview(self):
@@ -104,7 +135,9 @@ class XPlatform:
                 rows.append({'platform_id':'x','connection_id':c['connection_id'],'account_id':profile['id'],
                     'state':'BOUND_IDLE' if c['state']=='BOUND' else 'ACTION_REQUIRED',
                     'presentation':{'display_name':profile['name'],'avatar':None},
-                    'username':profile['username'],'profile_image_url':profile.get('profile_image_url')})
+                    'username':profile['username'],'profile_image_url':profile.get('profile_image_url'),
+                    'own_application': 'CONNECTED' if 'client_id' in c and c['state']=='BOUND'
+                    else 'NEEDS_AUTHORIZATION' if 'client_id' in c else 'UNCONFIGURED'})
             return rows
         except WCEError:
             return [{'platform_id':'x','connection_id':'x-unavailable','state':'ACTION_REQUIRED',
@@ -113,11 +146,18 @@ class XPlatform:
     def settings(self,authorization_handle=None):
         value=self._load()
         authorization=self.flow.snapshot() if self.flow and authorization_handle==self.flow_handle else {'state':'NOT_STARTED','result':None}
-        return {'client_id':value['client_id'],'callback_uri':CALLBACK,'required_scopes':list(SCOPES),
-                'connections':deepcopy(list(value['connections'].values())),'authorization':authorization}
+        connections = []
+        for c in value['connections'].values():
+            client = c.get('client_id', value['client_id'])
+            connections.append({'connection_id': c['connection_id'], 'profile': deepcopy(c['profile']),
+                'state': c['state'], 'application': {'mode': 'OWN_APP' if 'client_id' in c else 'LEGACY_APP',
+                    'name': c.get('application_name'), 'client_id_suffix': client[-6:],
+                    'selection': c['credential_scope']}})
+        return {'callback_uri':CALLBACK,'required_scopes':list(SCOPES),
+                'connections':connections,'authorization':authorization}
 
     def configure(self, client_id):
-        if type(client_id) is not str or re.fullmatch(r'[A-Za-z0-9._~+/=-]{1,4096}', client_id) is None:
+        if not valid_client_id(client_id):
             raise WCEError('X_CLIENT_ID_INVALID')
         self._prepare()
         if self.flow and self.flow.snapshot()['state'] in {'AWAITING_AUTHORIZATION', 'EXCHANGING'}:
@@ -130,52 +170,150 @@ class XPlatform:
             self._save(value)
         return {'state': 'X_APPLICATION_CONFIGURED', 'callback_uri': CALLBACK}
 
-    def begin(self, expected_connection_id=None):
-        value = self._load()
-        if not value['client_id']:
-            raise WCEError('X_APPLICATION_REQUIRED')
-        if expected_connection_id is not None and expected_connection_id not in value['connections']:
+    def _saved_application(self, cid):
+        if cid is not None and not re.fullmatch(r'x-[0-9]{1,19}', cid):
             raise WCEError('X_CONNECTION_NOT_FOUND')
+        if cid is not None and cid not in self._load()['connections']:
+            raise WCEError('X_CONNECTION_NOT_FOUND')
+        path = self.root / ('application-draft-' + (cid or 'new') + '.json')
+        draft = read_metadata(path) if self.root.exists() else None
+        if draft is not None and (
+            type(draft) is not dict or set(draft) != {'application_name', 'client_id', 'expected_user_id'}
+            or not valid_application_name(draft['application_name']) or not valid_client_id(draft['client_id'])
+            or draft['client_id'] == CLIENT_ID
+            or (draft['expected_user_id'] is not None
+                and (type(draft['expected_user_id']) is not str
+                     or not re.fullmatch(r'[0-9]{1,19}', draft['expected_user_id'])
+                     or (cid is not None and cid != 'x-' + draft['expected_user_id'])))
+        ):
+            raise WCEError('X_APPLICATION_DRAFT_INVALID')
+        return path, draft
+
+    def application_draft(self, cid=None):
+        _, draft = self._saved_application(cid)
+        return {'draft': draft, 'revision': fingerprint(draft) if draft else None}
+
+    def save_application_draft(self, application_name, client_id, cid=None, expected_user_id=None):
+        if not valid_application_name(application_name):
+            raise WCEError('X_APPLICATION_NAME_INVALID')
+        if not valid_client_id(client_id) or client_id == CLIENT_ID:
+            raise WCEError('X_OWN_CLIENT_ID_REQUIRED')
+        if expected_user_id is not None:
+            identifier(expected_user_id)
+            if cid is not None and cid != 'x-' + expected_user_id:
+                raise WCEError('X_AUTHORIZATION_ACCOUNT_MISMATCH')
+        self._prepare()
+        with locked(self.root / 'connection.lock'):
+            path, _ = self._saved_application(cid)
+            draft = {'application_name': application_name, 'client_id': client_id, 'expected_user_id': expected_user_id}
+            atomic_write(path, draft)
+            result = self.application_draft(cid)
+            if result['draft'] != draft:
+                raise WCEError('X_APPLICATION_SAVE_UNCONFIRMED')
+            return result
+
+    def authorize_saved_application(self, revision, cid=None):
+        saved = self.application_draft(cid)
+        if not saved['draft'] or saved['revision'] != revision:
+            raise WCEError('X_APPLICATION_DRAFT_CHANGED')
+        return self.begin(cid, **saved['draft'])
+
+    def begin(self, expected_connection_id=None, *, client_id=None, application_name=None, expected_user_id=None):
+        value = self._load()
+        own_app = client_id is not None
+        prior = value['connections'].get(expected_connection_id)
+        if own_app and (not valid_client_id(client_id) or client_id == CLIENT_ID):
+            raise WCEError('X_OWN_CLIENT_ID_REQUIRED')
+        if own_app and not valid_application_name(application_name):
+            raise WCEError('X_APPLICATION_NAME_INVALID')
+        if not own_app and expected_connection_id is not None and prior:
+            client_id = prior.get('client_id', value['client_id'])
+            application_name = prior.get('application_name')
+        elif not own_app:
+            client_id = value['client_id']
+        if not client_id:
+            raise WCEError('X_APPLICATION_REQUIRED')
+        if expected_connection_id is not None and prior is None:
+            raise WCEError('X_CONNECTION_NOT_FOUND')
+        if expected_user_id is not None:
+            identifier(expected_user_id)
+            if expected_connection_id is not None and expected_connection_id != 'x-' + expected_user_id:
+                raise WCEError('X_AUTHORIZATION_ACCOUNT_MISMATCH')
         # All host processes share this OS lock for the fixed callback listener.
         if self.flow:
             if self.flow.snapshot()['state'] in {'AWAITING_AUTHORIZATION', 'EXCHANGING'}:
                 raise WCEError('X_AUTHORIZATION_IN_PROGRESS')
             self.flow.close()
+        def finish(client, tokens, guard=nullcontext):
+            return self._finish(client, tokens, guard, expected_connection_id=expected_connection_id,
+                                application_name=application_name, expected_scope=prior['credential_scope'] if prior else None,
+                                expected_user_id=expected_user_id)
+        self.flow = self.flow_factory(client_id, self.api, finish)
         self.flow_handle='x-auth-'+secrets.token_hex(24)
-        finish=lambda client,tokens,guard=nullcontext:self._finish(client,tokens,guard,expected_connection_id=expected_connection_id)
-        self.flow = self.flow_factory(value['client_id'], self.api, finish)
         return {'state': 'AWAITING_AUTHORIZATION', 'authorization_handle':self.flow_handle, 'authorization_url': self.flow.authorization_url()}
 
-    def _finish(self, client_id, token_value, guard=nullcontext, *, expected_connection_id=None):
+    def billing(self, cid, expected_application):
+        self._connection(cid)
+        with locked(self.root / 'connection.lock'):
+            value = self._load()
+            c = self._connection(cid, value)
+            if 'client_id' not in c:
+                return {'state': 'LEGACY_APP', 'connection_id': cid}
+            if c['credential_scope'] != expected_application:
+                raise WCEError('X_APPLICATION_CHANGED')
+            credits = self.api.credits(self._access(value, cid))
+            return {'state': 'AVAILABLE', 'connection_id': cid, 'application': expected_application,
+                    'currency': 'USD', 'source': 'X_API', 'checked_at': self.clock(), **credits}
+
+    def _finish(self, client_id, token_value, guard=nullcontext, *, expected_connection_id=None,
+                application_name=None, expected_scope=None, expected_user_id=None):
         secret = credential(token_value)
         tokens = json.loads(secret.reveal_for_adapter())
         profile = self.api.profile(Secret(tokens['access_token']))
         self._prepare()
-        with guard(), locked(self.root / 'connection.lock'):
+        with locked(self.root / 'connection.lock'), guard():
             value = self._load()
-            if value['client_id'] != client_id:
+            if application_name is None and value['client_id'] != client_id:
                 raise WCEError('X_APPLICATION_CHANGED')
-            cid='x-'+profile['id']
+            cid='x-'+identifier(profile['id'])
+            if expected_user_id is not None and profile['id'] != expected_user_id:
+                raise WCEError('X_AUTHORIZATION_ACCOUNT_MISMATCH')
             if expected_connection_id is not None and (expected_connection_id not in value['connections'] or cid!=expected_connection_id):
                 raise WCEError('X_AUTHORIZATION_ACCOUNT_MISMATCH')
+            previous = value['connections'].get(cid)
+            if expected_scope is not None and previous['credential_scope'] != expected_scope:
+                raise WCEError('X_APPLICATION_CHANGED')
+            if previous and expected_connection_id is None and (application_name is not None or 'client_id' in previous):
+                raise WCEError('X_SELECT_EXISTING_ACCOUNT')
+            if application_name is not None and (not valid_client_id(client_id) or client_id == CLIENT_ID
+                                                  or not valid_application_name(application_name)):
+                raise WCEError('X_OWN_CLIENT_ID_REQUIRED')
             scope = fingerprint(['x', client_id, profile['id']])
-            # Save a reauthorization marker before touching a rotating credential.
-            # A crash cannot turn uncommitted new credentials into an active grant.
             c = {'connection_id': 'x-' + profile['id'], 'profile': profile, 'scope': list(SCOPES),
                  'expires_at': self.clock() + token_value['expires_in'],
-                 'state': 'CREDENTIAL_COMMIT_PENDING', 'credential_scope': scope}
-            value['connections'][c['connection_id']] = c
-            self._save(value)
+                 'state': 'BOUND', 'credential_scope': scope}
+            if application_name is not None:
+                value['schema'] = 3
+                retired = value.setdefault('retired', {}).setdefault(cid, {})
+                retired.pop(scope, None)
+                if previous and previous['credential_scope'] != scope:
+                    retired[previous['credential_scope']] = previous
+                c.update(client_id=client_id, application_name=application_name)
+            # A different scope can be made durable before changing its live pointer.
+            # Keep the historical marker for callers of the original shared-app path.
+            elif previous is None or previous['credential_scope'] == scope:
+                value['connections'][cid] = c | {'state': 'CREDENTIAL_COMMIT_PENDING'}
+                self._save(value)
             self.keychain.put(scope, secret)
-            c['state'] = 'BOUND'
+            value['connections'][cid] = c
             self._save(value)
         return {'connection_id': c['connection_id'], 'profile': profile, 'scopes': list(SCOPES), 'state': 'BOUND'}
 
     def cancel(self, authorization_handle):
         if not self.flow or authorization_handle!=self.flow_handle:
             raise WCEError('X_AUTHORIZATION_SESSION_MISMATCH')
-        self.flow.close()
-        return {'state': 'CANCELLED'}
+        state = self.flow.close()
+        return {'state': state or 'CANCELLED'}
 
     def close(self):
         if self.flow:
@@ -189,8 +327,22 @@ class XPlatform:
             raise WCEError('X_REAUTHORIZATION_REQUIRED')
         return c
 
-    def _access(self, value, cid):
-        c = self._connection(cid,value)
+    def _receipt_scope(self, value, cid, receipt):
+        # All receipts without an application marker predate per-account grants.
+        return receipt.get('application_scope', fingerprint(['x', value['client_id'], cid[2:]]))
+
+    def _access(self, value, cid, receipt=None):
+        c = value['connections'].get(cid)
+        if not c:
+            raise WCEError('X_CONNECTION_NOT_FOUND')
+        if receipt is not None:
+            scope = self._receipt_scope(value, cid, receipt)
+            if scope != c['credential_scope']:
+                c = value.get('retired', {}).get(cid, {}).get(scope)
+                if c is None:
+                    raise WCEError('X_ORIGINAL_APPLICATION_UNAVAILABLE')
+        if c['state'] != 'BOUND':
+            raise WCEError('X_REAUTHORIZATION_REQUIRED')
         stored = self.keychain.load(c['credential_scope'])
         if stored is None:
             raise WCEError('X_REAUTHORIZATION_REQUIRED')
@@ -198,7 +350,7 @@ class XPlatform:
         if c['expires_at'] <= self.clock() + 30:
             c['state'] = 'REFRESH_UNKNOWN'
             self._save(value)
-            updated = self.api.refresh(value['client_id'], Secret(tokens['refresh_token']))
+            updated = self.api.refresh(c.get('client_id', value['client_id']), Secret(tokens['refresh_token']))
             secret = credential(updated, tokens['refresh_token'])
             self.keychain.put(c['credential_scope'], secret)
             c['expires_at'], c['state'] = self.clock() + updated['expires_in'], 'BOUND'
@@ -299,7 +451,8 @@ class XPlatform:
             state = self._load()
             token = self._access(state,cid)
             receipt = {'connection_id': cid, 'kind': kind, 'attempt_id': attempt_id, 'fingerprint': digest,
-                       'state': 'RESULT_UNKNOWN', 'created_at': self.clock(), 'input': content}
+                       'state': 'RESULT_UNKNOWN', 'created_at': self.clock(), 'input': content,
+                       'application_scope': state['connections'][cid]['credential_scope']}
             atomic_write(path, receipt, maximum=None)
             return self._send_receipt(path, receipt, send, token)
 
@@ -343,7 +496,10 @@ class XPlatform:
                     return {'state': 'ALREADY_HANDLED', 'connection_id': cid, 'parent_id': parent_id,
                             'original_attempt_id': intent['attempt_id'],
                             'original': original or {'state': 'RESULT_UNKNOWN', 'error': 'X_REPLY_RECEIPT_MISSING'}}
-            token = self._access(self._load(),cid)
+            value = self._load()
+            if old and self._receipt_scope(value, cid, old) != c['credential_scope']:
+                raise WCEError('X_ORIGINAL_APPLICATION_CHANGED')
+            token = self._access(value, cid)
             parent_result = self.api.context(token, parent_id)
             parent = post_data(parent_result, parent_id)
             refs = references(parent)
@@ -366,7 +522,7 @@ class XPlatform:
             require(identity['id'] == c['profile']['id'], 'X_IDENTITY_CHANGED')
             receipt = {'connection_id': cid, 'kind': 'reply', 'attempt_id': attempt_id,
                        'fingerprint': digest, 'state': 'NOT_SUBMITTED', 'created_at': self.clock(),
-                       'input': content, 'summon_evidence': evidence}
+                       'input': content, 'summon_evidence': evidence, 'application_scope': c['credential_scope']}
             # A pre-POST crash must remain queryable through the original
             # attempt. NOT_SUBMITTED is persisted before claiming the parent;
             # POST is impossible until the subsequent UNKNOWN write succeeds.
@@ -381,9 +537,11 @@ class XPlatform:
             return self._send_receipt(path, receipt, send, token)
 
     def reply_status(self, cid, attempt_id, *, readback=False):
-        self._connection(cid)
+        if cid not in self._load()['connections']:
+            raise WCEError('X_CONNECTION_NOT_FOUND')
         with locked(self.root / 'connection.lock'):
-            c = self._connection(cid)
+            value = self._load()
+            c = value['connections'][cid]
             path, receipt = self._receipt(cid, 'reply', attempt_id)
             if receipt is None:
                 return {'state': 'NOT_FOUND', 'attempt_id': attempt_id, 'connection_id': cid}
@@ -391,7 +549,7 @@ class XPlatform:
                 return receipt | {'state': 'NOT_EXECUTED', 'reason': 'X_REPLY_NOT_SUBMITTED'}
             if not readback or receipt['state'] == 'REJECTED':
                 return receipt
-            token = self._access(self._load(),cid)
+            token = self._access(value, cid, receipt)
             if receipt['state'] == 'RESULT_UNKNOWN':
                 start = datetime.fromtimestamp(receipt['created_at'] - 10, timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
                 cursor, seen, matches = None, set(), {}
@@ -425,7 +583,8 @@ class XPlatform:
         from .x_media import upload
         return upload(self,cid,attempt_id,path)
 
-    def create(self, cid, attempt_id, text, upload_attempt=None, *, upload_attempt_ids=None):
+    def create(self, cid, attempt_id, text, upload_attempt=None, *, upload_attempt_ids=None, made_with_ai=None):
+        require(made_with_ai is None or type(made_with_ai) is bool, 'INVALID_TOOL_ARGUMENTS')
         require((upload_attempt is None) != (upload_attempt_ids is None), 'INVALID_TOOL_ARGUMENTS')
         attempts = [upload_attempt] if upload_attempt_ids is None else upload_attempt_ids
         require(type(attempts) is list and 1 <= len(attempts) <= 4
@@ -433,7 +592,8 @@ class XPlatform:
                 and len(set(attempts)) == len(attempts), 'INVALID_TOOL_ARGUMENTS')
         self._connection(cid)
         with locked(self.root / 'connection.lock'):
-            self._connection(cid)
+            value = self._load()
+            c = self._connection(cid, value)
             uploads = [self._receipt(cid, 'upload', item)[1] for item in attempts]
             require(all(row and row['state'] == 'SUCCEEDED' for row in uploads), 'X_MEDIA_NOT_AVAILABLE')
             require(len(uploads) == 1 or all(row.get('media_category', 'tweet_image') == 'tweet_image'
@@ -447,21 +607,26 @@ class XPlatform:
                 content = {'text': text, 'media_id': media_ids[0], 'media_key': media_keys[0]}
             else:
                 content = {'text': text, 'media_ids': media_ids, 'media_keys': media_keys}
+            if made_with_ai is not None:
+                content['made_with_ai'] = made_with_ai
             path, original = self._receipt(cid, 'post', attempt_id)
             digest = fingerprint(content)
             if original:
                 require(original['fingerprint'] == digest, 'X_ATTEMPT_CONFLICT')
                 return original
-            token = self._access(self._load(), cid)
+            require(all(self._receipt_scope(value, cid, row) == c['credential_scope'] for row in uploads),
+                    'X_MEDIA_APPLICATION_MISMATCH')
             require(all(row['result']['expires_at'] > self.clock() for row in uploads),
                     'X_MEDIA_NOT_AVAILABLE')
+            token = self._access(value, cid)
             receipt = {'connection_id': cid, 'kind': 'post', 'attempt_id': attempt_id,
                        'fingerprint': digest, 'state': 'RESULT_UNKNOWN', 'created_at': self.clock(),
-                       'input': content}
+                       'input': content, 'application_scope': c['credential_scope']}
             atomic_write(path, receipt, maximum=None)
 
             def send(access):
-                data = self.api.create(access, text, media_ids)['data']
+                options = {} if made_with_ai is None else {'made_with_ai': made_with_ai}
+                data = self.api.create(access, text, media_ids, **options)['data']
                 return {'post_id': identifier(data.get('id'))}
 
             return self._send_receipt(path, receipt, send, token)
@@ -502,9 +667,11 @@ class XPlatform:
                 post.get('attachments', {}).get('media_keys') == XPlatform._media_keys(receipt))
 
     def status(self, cid, kind, attempt_id, *, readback=False, poll_media=False):
-        self._connection(cid)
+        if cid not in self._load()['connections']:
+            raise WCEError('X_CONNECTION_NOT_FOUND')
         with locked(self.root / 'connection.lock'):
-            c = self._connection(cid)
+            value = self._load()
+            c = value['connections'][cid]
             path, receipt = self._receipt(cid, kind, attempt_id)
             if receipt is None:
                 return {'state': 'NOT_FOUND', 'attempt_id': attempt_id, 'connection_id': cid}
@@ -513,7 +680,7 @@ class XPlatform:
                 return poll(self,cid,path,receipt)
             if kind != 'post' or not readback or receipt['state'] == 'REJECTED':
                 return receipt
-            token = self._access(self._load(),cid)
+            token = self._access(value, cid, receipt)
             if receipt['state'] == 'RESULT_UNKNOWN':
                 start = datetime.fromtimestamp(receipt['created_at'] - 10, timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
                 cursor, seen, matches = None, set(), []

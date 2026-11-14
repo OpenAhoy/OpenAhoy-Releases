@@ -12,13 +12,8 @@ from .own_bootstrap_security import FLAGS, load_config
 from .own_contracts import list_tools, validate
 
 
-INSTRUCTIONS = ('Follow packaged OpenAhoy Skill; read account-effective AGENTS/Skills and rules. '
-                'Bind account/version/original IDs. UNKNOWN: query, never resend. '
-                'Authorized effects only; no secrets or model app-only calls. '
-                'At first actual business use in this chat, attempt the existing empty-input '
-                'wce.ui.show_management once unless already attempted/shown here. UI failure '
-                'must not block business; no repeated rendering on polls or later data calls. '
-                'Only the host controls actual mounting and placement.')
+INSTRUCTIONS = ('Follow OpenAhoy Skill and account rules. Use authorized tools only. '
+                'UNKNOWN: query original, never resend. Keep credentials private.')
 
 
 def _mcp_tools(catalog):
@@ -30,6 +25,10 @@ def _mcp_tools(catalog):
     """
     rows = deepcopy(catalog)
     for row in rows:
+        if row['name'] == 'wce.ui.show_management':
+            # Keep the legacy model tool as plain status, with UI reserved for
+            # the explicit native thread and global entrypoints.
+            row.get('_meta', {}).get('ui', {}).pop('resourceUri', None)
         spec = row.get('inputSchema', {})
         if 'type' not in spec and spec.get('oneOf'):
             if not all(branch.get('type') == 'object' for branch in spec['oneOf']):
@@ -170,10 +169,11 @@ class PersonalStdioServer(OperatorStdioServer):
         from .content_templates_protocol import TemplateRouter
         from .support_protocol import SupportRouter, LOCAL_ONLY_TOOLS
         from .current_draft_management_protocol import DraftManagementRouter
+        from .video_protocol import VideoRouter
         self._inline_open_lock = threading.Lock()
         self._last_tools_list_observation = {'state': 'NOT_OBSERVED_IN_THIS_SERVER'}
         support=SupportRouter(TemplateRouter(ProjectContextRouter(UpdateRouter(XHSRouter(XPlatformRouter(SettingsRouter(router, settings_manager)))), registry=router.registry), registry=router.registry), registry=router.registry, instrument=False)
-        managed=DraftManagementRouter(support, registry=router.registry, launcher=router.launcher)
+        managed=DraftManagementRouter(VideoRouter(support, router.registry), registry=router.registry, launcher=router.launcher)
         self._tool_observer=support
         rows=managed.list_tools()
         support.tool_names=frozenset(t['name']for t in rows)
@@ -182,6 +182,10 @@ class PersonalStdioServer(OperatorStdioServer):
 
     def tool_result(self,name,arguments):
         # One hook surrounds every formal tool and its MCP representation.
+        from .video_protocol import WORKSPACE
+        if name == WORKSPACE and arguments.get('action') in {'playback', 'preview_frames', 'intro_frames'}:
+            value = self.router.call(name, arguments)
+            return {'content': [], 'structuredContent': value, 'isError': False}
         return self._tool_observer.observe(name,lambda:super(PersonalStdioServer,self).tool_result(name,arguments),protocol_result=True)
 
     def resource(self, method, params):
@@ -200,6 +204,7 @@ class PersonalStdioServer(OperatorStdioServer):
             super().serve(source, destination)
         finally:
             try:
+                self.router.video_credential.close()
                 self.router.x.close()
                 self.router.binding.close()
                 self.router.manager.close()

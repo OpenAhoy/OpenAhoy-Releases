@@ -81,6 +81,8 @@ class SupportRouter:
             raise
         finally:
             # This best-effort hook never sees argument values/raw responses.
+            if code=='X_HTTP_402':
+                http_status=402
             try:
                 self.support.logs.emit('mcp','TOOL_CALL',state,
                     tool=name if name in self.tool_names else None,code=code,
@@ -114,6 +116,8 @@ class SupportRouter:
 def outcome(value):
     """Classify fixed result states without copying business fields."""
     state=value.get('state')
+    if state in ('REJECTED','FAILED') and value.get('error')=='X_HTTP_402':
+        return 'TOOL_ERROR','X_HTTP_402'
     if value.get('media_protocol')=='X_V2_CHUNKED':
         code=value.get('error')or value.get('query_error')
         safe_code=code if type(code)is str and code in CODES else None

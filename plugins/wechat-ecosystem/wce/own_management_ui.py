@@ -57,22 +57,60 @@ def icon(name):
         'accounts':'<path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/>',
         'settings':'<path d="M3 6h5m4 0h9M3 12h11m4 0h3M3 18h2m4 0h12"/><circle cx="10" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="7" cy="18" r="2"/>',
         'wechat':'<path d="M17 9a7 6 0 0 0-14 0c0 2 1 3.5 3 4.5L5 16l3-1.5h2"/><path d="M21 15c0-3-2.5-5-6-5s-6 2-6 5 2.5 5 6 5h2l3 1-.7-2.5c1.1-1 1.7-2 1.7-3.5Z"/><path d="M7 8h.01M12 8h.01M13 14h.01M17 14h.01"/>',
-        'arrow':'<path d="m9 5 7 7-7 7"/>'}
+        'arrow':'<path d="m9 5 7 7-7 7"/>',
+        'video':'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m10 9 5 3-5 3z"/>'}
     return '<svg class="oa-icon" viewBox="0 0 24 24" aria-hidden="true">'+paths[name]+'</svg>'
 
 
 def platform_sidebar(logo, navigation, *, localized=False):
-    return '<aside class="oa-sidebar"><div class="oa-brand">'+brand_header(logo)+('<button type="button" id="oaLocale">English</button>' if localized else '')+'''</div>
+    brand = brand_header(logo)
+    if localized:
+        brand = ('<button id="openHome" type="button" aria-label="OpenAhoy 首页" aria-current="page">'
+                 + brand + '</button><button type="button" id="oaLocale">English</button>')
+    return '<aside class="oa-sidebar"><div class="oa-brand">'+brand+'''</div>
 <div id="softwareUpdateSlot"></div>
-<div><p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
+<div>'''+('<nav class="oa-nav"><button id="openVideoWorkspace" type="button">'+icon('video')+'<span>视频生成</span></button></nav>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
 
 
 def native_page_body(logo, platform_settings):
     """Single native workspace; secret input has its own view in this resource."""
     from .own_inline_binding_ui import HTML as binding_html
+    from .video_workspace_ui import HTML as video_html
+    from .own_branding import icons
+    from .video_jobs import PROMO_DIR
+    from base64 import b64encode
+    cover = PROMO_DIR / 'openahoy-intro-cover.jpg'
+    promo = ('<section id="homeIntro" aria-labelledby="homeIntroTitle"><h2 id="homeIntroTitle">OpenAhoy 宣传片</h2>'
+             '<div id="homeIntroPlayer" class="oa-frame-player" data-poster="data:image/jpeg;base64,'
+             + b64encode(cover.read_bytes()).decode('ascii') + '"></div>'
+             '<p id="homeIntroStatus" role="status"></p></section>') if cover.is_file() else ''
+    home = '''<section id="openAhoyHome" aria-labelledby="homeTitle">
+<header class="oa-home-hero">
+<h1 id="homeTitle" tabindex="-1">OpenAhoy</h1>
+<p>在 Codex 管理创作账号，制作视频，准备和发布内容。</p>
+<span class="oa-home-mark"><img src="'''+icons()[0]['src']+'''" alt="" width="104" height="104">
+<img src="'''+icons()[1]['src']+'''" alt="" width="104" height="104"></span>
+</header>
+<section class="oa-home-features" aria-labelledby="homeFeaturesTitle">
+<h2 id="homeFeaturesTitle">开始使用</h2>
+<div class="oa-home-grid" id="homeFeatures">
+<button id="homeVideo" type="button" class="oa-home-card" disabled><span class="oa-home-card-title">'''+icon('video')+'''<span>视频生成</span></span><span class="oa-home-card-description">生成视频、对比版本，并下载项目成片。</span>'''+icon('arrow')+'''</button>
+</div></section>'''+promo+'''
+<section id="homeRecommendations" aria-labelledby="homeRecommendationsTitle" hidden>
+<h2 id="homeRecommendationsTitle">推荐插件</h2><div class="oa-home-grid"></div>
+</section>
+<p id="homeStatus" class="help" role="status">正在连接管理工具…</p>
+</section>'''
+    credential = '''<details id="videoModel" class="panel"><summary>视频模型</summary><h2>火山方舟</h2>
+<p id="videoModelState" role="status" aria-live="polite"></p>
+<div id="videoCredentialForm">
+<label for="videoCredential">API Key</label>
+<input id="videoCredential" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" required disabled>
+<button id="videoCredentialSave" type="button" class="primary" disabled>保存 API Key</button>
+</div></details>'''
     return '''<body class="oa-management oa-platform-workspace oa-native"><div class="oa-shell">
 '''+platform_sidebar(logo, '<p class="help">正在读取平台…</p>', localized=True)+'''
-<main class="oa-content"><div id="nativeWorkspace"><header class="oa-account-header">
+<main class="oa-content">'''+home+'''<div id="nativeWorkspace" hidden><header class="oa-account-header">
 <div class="oa-heading"><h1 id="pageTitle">选择平台</h1></div>
 <section id="accountPanel" class="oa-account-cards" aria-label="平台账号"><span id="accountCurrent" hidden></span>
 <div class="oa-account-cards-body"><div class="oa-list-head"><span>已绑定账号</span><span id="accountCount" class="count">—</span></div><div id="accounts" class="oa-account-options"></div>
@@ -82,7 +120,52 @@ def native_page_body(logo, platform_settings):
 <section id="settingsPanel" class="oa-platform-settings" aria-label="平台设置"><h2 id="platformTitle">平台设置</h2><p id="platformHelp" class="help"></p>
 <div class="actions oa-context-tabs" role="tablist" aria-label="工作区设置"><button id="platformSettingsTab" role="tab" aria-selected="true">平台设置</button><button id="contextSettingsTab" role="tab" aria-selected="false">项目与 Skills</button></div>
 <p id="unsupportedSettings" class="empty" hidden>当前平台暂不支持这些设置，未调用其他平台工具。</p>'''+platform_settings+'''</section>
-<footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div>'''+binding_html+'''</main></div>'''
+<footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div>'''+video_html.replace('__CREDENTIAL__', credential)+binding_html+'''</main></div>'''
+
+
+HOME_STYLE = '''
+.oa-management #openHome{width:fit-content;min-height:32px;padding:0;background:transparent;border:0;box-shadow:none}
+.oa-management #openHome .oa-brand-logo{display:block}
+.oa-management #openHome:hover:not(:disabled){background:transparent;opacity:.8}
+.oa-management #openHome:focus-visible{outline-offset:4px}
+#openAhoyHome{width:100%;max-width:1080px;overflow:auto;align-self:center;padding:6px 2px 14px}
+#openAhoyHome[hidden],#openAhoyHome [hidden],.oa-management #nativeWorkspace[hidden]{display:none!important}
+.oa-home-hero{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:20px;padding:clamp(22px,5vw,52px);
+ border-radius:20px;background:linear-gradient(124deg,#eef5f2 0%,#f6f8f5 58%,#fcedea 100%);color:#172522}
+.oa-home-hero h1{font-size:clamp(32px,5vw,54px);letter-spacing:-.055em;line-height:1.1;align-self:end}
+.oa-home-hero p{grid-column:1;max-width:34ch;margin-top:9px;font-size:clamp(13px,1.7vw,17px);color:#45534f;align-self:start}
+.oa-home-mark{grid-column:2;grid-row:1/3}
+.oa-home-hero img{display:block;width:clamp(52px,12vw,105px);height:auto}
+.oa-home-mark img+img{display:none}
+.oa-home-features,#homeRecommendations{margin-top:20px}
+.oa-home-features h2,#homeRecommendations h2{margin:0 0 9px;font-size:15px}
+.oa-home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,218px),1fr));gap:10px}
+.oa-management button.oa-home-card{display:grid;grid-template-columns:minmax(0,1fr) 16px;justify-items:start;align-items:center;gap:4px 8px;text-align:start;
+ white-space:normal;padding:12px 13px;min-height:78px;border:0;border-radius:12px;background:var(--oa-fill,var(--soft));box-shadow:var(--raised,0 2px 8px #0001)}
+.oa-management button.oa-home-card:hover:not(:disabled){transform:translateY(-1px);background:var(--tint)}
+.oa-home-card-title{display:flex;align-items:center;gap:8px;min-width:0;font-weight:650;font-size:14px}
+.oa-home-card-title .oa-platform-mark{width:22px;height:22px}
+.oa-home-card-description{grid-column:1;font-size:12px;color:var(--muted);line-height:1.4;font-weight:400}
+.oa-home-card>.oa-icon{grid-column:2;grid-row:1/3;justify-self:end;color:var(--muted);width:14px}
+#homeStatus{margin-top:12px}#homeStatus:empty{display:none}
+.oa-management[data-color-scheme="dark"] .oa-home-hero{background:linear-gradient(124deg,#21332d 0%,#282d29 60%,#382829 100%);color:#f3f6f4}
+.oa-management[data-color-scheme="dark"] .oa-home-hero p{color:#c9d5cf}
+.oa-management[data-color-scheme="dark"] .oa-home-mark img:first-child{display:none}
+.oa-management[data-color-scheme="dark"] .oa-home-mark img+img{display:block}
+.oa-management[data-color-scheme="dark"] button.oa-home-card{background:#2b2b2f;color:#f3f4f5}
+.oa-management[data-color-scheme="dark"] button.oa-home-card:hover:not(:disabled){background:#38383e}
+.oa-management[data-color-scheme="dark"] .oa-home-card :is(.oa-home-card-description,svg){color:#c1c2c8}
+@media(prefers-color-scheme:dark){
+ .oa-management:not([data-color-scheme]) .oa-home-hero{background:linear-gradient(124deg,#21332d 0%,#282d29 60%,#382829 100%);color:#f3f6f4}
+ .oa-management:not([data-color-scheme]) .oa-home-hero p{color:#c9d5cf}
+ .oa-management:not([data-color-scheme]) .oa-home-mark img:first-child{display:none}
+ .oa-management:not([data-color-scheme]) .oa-home-mark img+img{display:block}
+ .oa-management:not([data-color-scheme]) button.oa-home-card{background:#2b2b2f;color:#f3f4f5}
+ .oa-management:not([data-color-scheme]) button.oa-home-card:hover:not(:disabled){background:#38383e}
+ .oa-management:not([data-color-scheme]) .oa-home-card :is(.oa-home-card-description,svg){color:#c1c2c8}
+}
+@media(max-width:480px){.oa-home-hero{column-gap:10px}.oa-home-features,#homeRecommendations{margin-top:14px}}
+'''
 
 
 def page_body(logo, rules_html, technical_html, routes_html):

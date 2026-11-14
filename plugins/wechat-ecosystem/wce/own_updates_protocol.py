@@ -3,8 +3,10 @@ from copy import deepcopy
 
 from .contracts import WCEError
 from .own_updates import check
+from .own_update_install import UpdateInstaller
 
 CHECK = 'wce.ui.updates.check'
+INSTALL = 'wce.ui.updates.install'
 RESOURCE = 'ui://wechat-ecosystem/management-updates-v1.html'
 
 
@@ -18,14 +20,30 @@ def descriptor():
         '_meta': {'ui': {'visibility': ['app']}}}
 
 
+def install_descriptor():
+    from .tools import schema
+    return {'name': INSTALL, 'title': '立即升级 OpenAhoy',
+            'description': 'App-only stable update explicitly initiated by the user in the OpenAhoy panel.',
+            'inputSchema': {'type': 'object', 'oneOf': [
+                schema({'action': {'type': 'string', 'const': 'status'}}),
+                schema({'action': {'type': 'string', 'const': 'start'},
+                        'version': {'type': 'string', 'maxLength': 29},
+                        'revision': {'type': 'string', 'pattern': '^[0-9a-f]{40}([0-9a-f]{24})?$'}}),
+            ]}, 'outputSchema': {'type': 'object'},
+            'annotations': {'readOnlyHint': False, 'destructiveHint': False,
+                            'openWorldHint': True, 'idempotentHint': True},
+            '_meta': {'ui': {'visibility': ['app']}}}
+
+
 class UpdateRouter:
-    def __init__(self, inner, *, installed_version=None, checker=None):
+    def __init__(self, inner, *, installed_version=None, checker=None, installer=None):
         self.inner = inner
         if installed_version is None:
             from .own_plugin import _server_info
             installed_version = _server_info()['version']
         self.installed_version = installed_version
         self.checker = checker or check
+        self.installer = installer
 
     def __getattr__(self, name):
         return getattr(self.inner, name)
@@ -44,9 +62,17 @@ class UpdateRouter:
         for row in rows:
             if row.get('_meta', {}).get('ui', {}).get('resourceUri') == previous:
                 row['_meta']['ui']['resourceUri'] = RESOURCE
-        return rows + [descriptor()]
+        return rows + [descriptor(), install_descriptor()]
 
     def call(self, name, arguments):
+        if name == INSTALL:
+            from .prepared_contracts import strict_validate
+            strict_validate(arguments, install_descriptor()['inputSchema'])
+            installer = self.installer or UpdateInstaller(self.installed_version, getattr(self.inner, 'registry', None),
+                                                         checker=self.checker)
+            if arguments['action'] == 'status':
+                return installer.status()
+            return installer.start(arguments['version'], arguments['revision'])
         if name != CHECK:
             return self.inner.call(name, arguments)
         if type(arguments) is not dict or arguments:

@@ -12,7 +12,7 @@ STYLE = '''
 @media(max-width:799px),(max-height:599px){.oa-sidebar{display:grid;grid-template-columns:112px minmax(0,1fr);align-items:start}.oa-sidebar #softwareUpdateSlot{width:100%}.oa-sidebar>div:last-child{grid-column:1/-1}.oa-software-update{padding:8px 0}.oa-update-actions{flex-direction:row;flex-wrap:wrap}.oa-update-actions button{width:auto}}
 '''
 
-UPDATE_HTML = '''<div class="oa-update-copy"><span class="oa-update-version"></span><span class="oa-update-status" role="status" aria-live="polite">正在连接更新检查…</span></div><div class="oa-update-actions"><button type="button" class="oa-update-check" disabled>检查更新</button><button type="button" class="oa-update-start" hidden disabled>发起升级</button></div>'''
+UPDATE_HTML = '''<div class="oa-update-copy"><span class="oa-update-version"></span><span class="oa-update-status" role="status" aria-live="polite">正在连接更新检查…</span></div><div class="oa-update-actions"><button type="button" class="oa-update-check" disabled>检查更新</button><button type="button" class="oa-update-start" hidden disabled>立即升级</button></div>'''
 
 SCRIPT = FALLBACK + r'''
 window.OASoftwareUpdates={mount(rpc,installed){
@@ -24,9 +24,16 @@ window.OASoftwareUpdates={mount(rpc,installed){
  const slot=document.getElementById('softwareUpdateSlot');if(!slot)throw new Error('UPDATE_VIEW_UNAVAILABLE');slot.append(box);ui.scan?.(box);
  const version=box.querySelector('.oa-update-version'),status=box.querySelector('.oa-update-status'),checkButton=box.querySelector('.oa-update-check'),startButton=box.querySelector('.oa-update-start');
  version.textContent='OpenAhoy '+installed;
- let ready=false,closed=false,checking=false,messageText=false,sendState='NOT_SENT',latest=null;
+ let ready=false,closed=false,checking=false,starting=false,latest=null,job='IDLE',pollTimer;
+ const active=new Set(['CHECKING','DOWNLOADING','VERIFYING','WAITING_FOR_IDLE','INSTALLING']);
+ const terminal=new Set(['INSTALLED_RELOAD_REQUIRED','INSTALL_UNKNOWN']);
  const compare=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<3;i++){if(x[i]!==y[i])return x[i]>y[i]?1:-1;}return 0;};
- function buttons(){checkButton.disabled=!ready||closed||checking||sendState==='SENDING';startButton.hidden=!latest;startButton.disabled=!ready||closed||checking||!latest||!messageText||sendState!=='NOT_SENT';}
+ function buttons(){
+  const busy=starting||active.has(job);
+  checkButton.disabled=!ready||closed||checking||busy;
+  startButton.hidden=!latest||busy||terminal.has(job);
+  startButton.disabled=!ready||closed||checking||startButton.hidden;
+ }
  function say(text,state,...values){ui.set(status,text,...values);box.dataset.state=state;buttons();}
  function valid(value){
   if(!value||typeof value!=='object'||Array.isArray(value)||value.repository!==repository||value.installed_version!==installed)return false;
@@ -35,43 +42,78 @@ window.OASoftwareUpdates={mount(rpc,installed){
   const order=compare(value.latest_version,installed),expected=order>0?'UPDATE_AVAILABLE':order===0?'UP_TO_DATE':'DEVELOPMENT_AHEAD';return value.state===expected;
  }
  async function check(){
-  if(!ready||closed||checking||sendState==='SENDING')return;checking=true;buttons();
-  if(sendState==='NOT_SENT')say('正在检查稳定版本…','CHECKING');
+  if(!ready||closed||checking||starting||active.has(job))return;checking=true;buttons();
+  if(!terminal.has(job))say('正在检查稳定版本…','CHECKING');
   try{
    const reply=await rpc('tools/call',{name:'wce.ui.updates.check',arguments:{}});if(closed)return;
    const value=reply?.structuredContent;if(reply?.isError||!valid(value))throw new Error('UPDATE_CHECK_FAILED');
    latest=value.state==='UPDATE_AVAILABLE'?value:null;
-   if(sendState!=='NOT_SENT')return;
-   if(value.state==='UPDATE_AVAILABLE')say(messageText?'新版本 {0} 可用':'新版本 {0} 可用；当前宿主未提供聊天消息能力，暂不能一键发起。','UPDATE_AVAILABLE',value.latest_version);
+   if(terminal.has(job))return;
+   if(value.state==='UPDATE_AVAILABLE')say('新版本 {0} 可用','UPDATE_AVAILABLE',value.latest_version);
    else if(value.state==='UP_TO_DATE')say('已是最新稳定版','UP_TO_DATE');
    else if(value.state==='DEVELOPMENT_AHEAD')say('当前版本高于稳定版 '+value.latest_version+'，不会降级。','DEVELOPMENT_AHEAD');
    else {const codes={SOURCE_REWRITTEN:'Git 配置改变了更新源地址',NETWORK_TIMEOUT:'连接更新源超时',NETWORK_DNS:'更新源域名解析失败',NETWORK_CONNECT:'无法连接更新源',AUTH_REQUIRED:'当前 Git 访问需要登录',ACCESS_UNAVAILABLE:'当前 Git 身份无法访问更新源',TLS_FAILED:'更新源证书校验失败',REDIRECT_REFUSED:'更新源已重定向，需切换到官方新地址',NO_STABLE_TAGS:'未读到稳定版本标签',INVALID_TAG_RESPONSE:'版本标签响应不完整',GIT_UNAVAILABLE:'本机 Git 不可用',GIT_FAILED:'Git 更新查询失败',CARRIER_LIMIT:'更新响应过大',INVALID_VERSION:'已安装版本信息无效',PROCESS_TIMEOUT:'本机更新查询超时',LOCAL_PROCESS_ERROR:'本机更新进程不可用',UNAVAILABLE:'更新查询暂不可用'};const code=value.diagnostic?.code;say((Object.hasOwn(codes,code)?codes[code]+'（'+code+'）':'暂时无法检查更新')+'。可在“诊断日志”查看安全记录。','CHECK_UNAVAILABLE');}
-  }catch(_){if(!closed){latest=null;if(sendState==='NOT_SENT')say('暂时无法检查更新，请稍后重试。','CHECK_UNAVAILABLE');}}
+  }catch(_){if(!closed){latest=null;if(!terminal.has(job))say('暂时无法检查更新，请稍后重试。','CHECK_UNAVAILABLE');}}
   finally{checking=false;if(!closed)buttons();}
  }
- function request(value){
-  return '请将本机 OpenAhoy 升级到公开发行仓库 '+repository+' 的稳定标签 '+value.tag+'。这是用户从 OpenAhoy 内嵌页面发起的本插件软件升级请求。先使用本机已有授权核对原分发源和该标签实际指向的 commit（本次版本广告 revision：'+value.advertised_revision+'），读取该固定标签的 UPDATE_PROMPT.md、RELEASE.json 和 package-manifest.json 并核验；不一致则说明具体问题，不切换其他来源。按本机实际支持的 Codex 官方插件命令完成升级，核对已安装版本和本聊天实际原生加载。保留全部既有账号绑定、系统钥匙串、个人配置、历史及原稿/UNKNOWN任务，只在业务安全点更新；不重绑、不覆盖资料、不卸载插件或手改供应商缓存，不借升级生产、上传或发表文章。使用原有权限，不索取任何 Secret；只有确需重开 Codex 且没有单插件刷新能力时，才集中提示用户一次。完成后报告实际安装、加载和账号/配置保全结果。';
+ const messages={
+  CHECKING:'正在核对已选版本…',DOWNLOADING:'正在下载更新…',VERIFYING:'正在校验更新文件…',
+  WAITING_FOR_IDLE:'正在等待 OpenAhoy 业务空闲…',INSTALLING:'正在通过 Codex 安装…',
+  INSTALLED_RELOAD_REQUIRED:'已安装 {0}。请在当前工作结束后重新打开 Codex。',
+  LOADED:'已加载 OpenAhoy {0}',
+  INSTALL_UNKNOWN:'安装结果待核实（{0}）。',
+  INTERRUPTED:'升级已中断，可重新检查版本。',
+  BUSY:'OpenAhoy 正在执行任务，请在任务结束后点击升级。',
+  FAILED:'升级未完成（{0}）。'
+ };
+ function renderJob(value){
+  if(!value||typeof value.state!=='string')throw new Error('UPDATE_STATUS_INVALID');
+  job=value.state;
+  if(job==='IDLE'){buttons();return;}
+  if(job==='DOWNLOADING'&&Number.isSafeInteger(value.total)&&value.total>0&&
+     Number.isSafeInteger(value.downloaded)&&value.downloaded>=0&&value.downloaded<=value.total){
+   say('正在下载更新 {0}%',job,Math.floor(value.downloaded*100/value.total));
+  }else if(Object.hasOwn(messages,job)){
+   const detail=value.version||installed;
+   const code=/^UPDATE_[A-Z_]+$/.test(value.code)?value.code:'UPDATE_STATUS_UNAVAILABLE';
+   say(messages[job],job,job==='FAILED'||job==='INSTALL_UNKNOWN'?code:detail);
+  }else throw new Error('UPDATE_STATUS_INVALID');
  }
- async function start(){
-  if(!ready||closed||checking||!latest||!messageText||sendState!=='NOT_SENT')return;
-  const chosen=latest;sendState='SENDING';say('正在向当前聊天发起升级…','SENDING');
+ function schedule(){clearTimeout(pollTimer);if(!closed)pollTimer=setTimeout(()=>void statusPoll(),650);}
+ async function statusPoll(initial=false){
   try{
-   const result=await rpc('ui/message',{role:'user',content:[{type:'text',text:request(chosen)}]});if(closed)return;
-   if(!result||typeof result!=='object'||Array.isArray(result)||(result.isError!==undefined&&typeof result.isError!=='boolean'))throw new Error('UPDATE_MESSAGE_UNKNOWN');
-   if(result.isError){sendState='REJECTED';say('宿主未接受升级请求；未确认执行安装。','REJECTED');return;}
-   sendState='SENT';say('升级请求已发送到当前聊天，请查看 Codex 的执行结果。','SENT');
-  }catch(error){
+   const result=await rpc('tools/call',{name:'wce.ui.updates.install',arguments:{action:'status'}});
    if(closed)return;
-   if(error.message==='HOST_ERROR'){sendState='REJECTED';say('宿主未接受升级请求；未确认执行安装。','REJECTED');}
-   else{sendState='UNKNOWN';say('发送结果未知，请先查看当前聊天；本页不会重复发起。','UNKNOWN');}
-  }finally{if(!closed)buttons();}
+   if(result?.isError)throw new Error('UPDATE_STATUS_UNAVAILABLE');
+   renderJob(result?.structuredContent);
+   if(active.has(job))schedule();
+   else if(initial&&!terminal.has(job)&&(job==='IDLE'||job==='LOADED'))await check();
+  }catch(_){
+   if(closed)return;
+   say('暂时无法读取升级进度。','STATUS_UNAVAILABLE');
+   if(starting||active.has(job))schedule();
+   else if(initial)await check();
+  }
+ }
+ async function start(event){
+  if(!event.isTrusted||!ready||closed||checkButton.disabled||!latest||terminal.has(job))return;
+  const chosen=latest;starting=true;job='CHECKING';say(messages.CHECKING,job);
+  try{
+   const result=await rpc('tools/call',{name:'wce.ui.updates.install',arguments:{
+    action:'start',version:chosen.latest_version,revision:chosen.advertised_revision}});
+   if(closed)return;
+   if(result?.isError){renderJob({state:'FAILED', code:result.content?.[0]?.text});return;}
+   renderJob(result?.structuredContent);
+   if(active.has(job))schedule();
+  }catch(_){if(!closed)schedule();}
+  finally{starting=false;if(!closed)buttons();}
  }
  checkButton.addEventListener('click',check);startButton.addEventListener('click',start);
- return {ready(capabilities){
-   if(closed)return;const message=capabilities?.message;
-   messageText=!!message&&typeof message==='object'&&!Array.isArray(message)&&!!message.text&&typeof message.text==='object'&&!Array.isArray(message.text);
-   ready=true;buttons();void check();
-  },dispose(){closed=true;ready=false;buttons();}};
+ return {ready(){
+   if(closed)return;
+   ready=true;buttons();void statusPoll(true);
+  },dispose(){closed=true;ready=false;clearTimeout(pollTimer);buttons();}};
+
 }};
 '''
 

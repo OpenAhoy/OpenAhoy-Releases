@@ -1,8 +1,10 @@
 """Small official X v2 transport. No retries, credentials in URLs, or redirects."""
 import base64
 import json
+import math
 import re
 import uuid
+from datetime import datetime
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -32,7 +34,7 @@ class XHTTP:
         self.opener = build_opener(NoRedirect())
 
     def request(self, method, path, *, token=None, body=None, query=None, form=False, multipart=None):
-        if (method not in {'GET', 'POST'} or re.fullmatch(
+        if (method, path) != ('GET', '/2/usage/credits') and (method not in {'GET', 'POST'} or re.fullmatch(
                 r'/2/(oauth2/token|users/me|users/by/username/[A-Za-z0-9_]{1,15}|users/[0-9]{1,19}/tweets|tweets/search/recent|tweets(?:/[0-9]{1,19})?|media/upload(?:/initialize|/[0-9]{1,19}/(?:append|finalize))?)', path) is None):
             raise WCEError('X_ENDPOINT_UNSUPPORTED')
         url = 'https://api.x.com' + path
@@ -82,6 +84,31 @@ class XHTTP:
         return self.request('POST', '/2/oauth2/token', form=True, body={
             'grant_type': 'refresh_token', 'client_id': client_id,
             'refresh_token': refresh_token.reveal_for_adapter()})
+
+    def credits(self, token):
+        value = self.request('GET', '/2/usage/credits', token=token).get('data')
+        def amount(number, *, signed=False):
+            if (type(number) not in {int, float} or (type(number) is float and not math.isfinite(number))
+                    or (not signed and number < 0)):
+                raise WCEError('X_CREDITS_RESPONSE_INVALID')
+            return number
+        if type(value) is not dict or type(value.get('free_grants')) is not list:
+            raise WCEError('X_CREDITS_RESPONSE_INVALID')
+        grants = []
+        for grant in value['free_grants']:
+            if type(grant) is not dict:
+                raise WCEError('X_CREDITS_RESPONSE_INVALID')
+            expires = grant.get('expires_at')
+            try:
+                if 'expires_at' in grant and (type(expires) is not str or 'T' not in expires
+                        or datetime.fromisoformat(expires.replace('Z', '+00:00')).utcoffset() is None):
+                    raise ValueError()
+            except ValueError:
+                raise WCEError('X_CREDITS_RESPONSE_INVALID') from None
+            grants.append({'amount': amount(grant.get('amount')), 'expires_at': expires})
+        return {'total_balance': amount(value.get('total_balance')),
+                'prepaid_balance': amount(value.get('prepaid_balance'), signed=True),
+                'free_balance': amount(value.get('free_balance')), 'free_grants': grants}
 
     def profile(self, token):
         data = self.request('GET', '/2/users/me', token=token,
@@ -162,6 +189,8 @@ class XHTTP:
     def media_status(self, token, media_id):
         return self.request('GET','/2/media/upload',token=token,query={'media_id':identifier(media_id),'command':'STATUS'})
 
-    def create(self, token, text, media_ids):
-        return self.request('POST', '/2/tweets', token=token,
-                            body={'text': text, 'media': {'media_ids': media_ids}})
+    def create(self, token, text, media_ids, *, made_with_ai=None):
+        body = {'text': text, 'media': {'media_ids': media_ids}}
+        if made_with_ai is not None:
+            body['made_with_ai'] = made_with_ai
+        return self.request('POST', '/2/tweets', token=token, body=body)

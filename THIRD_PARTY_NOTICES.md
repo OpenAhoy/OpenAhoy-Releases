@@ -8,4 +8,6 @@
 - Python 3.11+, Node.js, Playwright and Google Chrome are target-local runtime dependencies, not bundled or silently installed. Their own licenses apply. The XHS adapter locates the Codex-managed Node/Playwright runtime when available.
 - The included macOS-arm64 inline-binding-crypto helper is built from OpenAhoy-owned Swift source against Apple's system CryptoKit; no private user certificate, signing identity or standalone Apple library is bundled. Native hash and source hash are recorded in native/manifest.json.
 
+- The included macOS-arm64 OpenAhoy video inspector targets macOS 13+ and uses Apple system AVFoundation and ImageIO. No separate media codec or framework binary is distributed.
+
 OpenAhoy-owned Python/JavaScript/HTML/CSS and runtime helper are distributed for use with this plugin under LICENSE.md. Public availability is not an open-source license grant.

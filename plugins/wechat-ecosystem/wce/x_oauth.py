@@ -24,6 +24,7 @@ class OAuthFlow:
         self._state = secrets.token_urlsafe(32)
         self._stop = threading.Event()
         self._terminal_at = None
+        self._committed = False
         flow = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -124,6 +125,7 @@ class OAuthFlow:
             if self.state != 'EXCHANGING' or self._stop.is_set() or self.clock() >= self.expires:
                 raise WCEError('X_AUTHORIZATION_CANCELLED_OR_EXPIRED')
             yield
+            self._committed = True
 
     def snapshot(self):
         with self.lock:
@@ -146,9 +148,10 @@ class OAuthFlow:
     def close(self):
         # Fence only the short credential commit, not the outbound HTTP exchange.
         with self.lock:
-            if self.state in {'AWAITING_AUTHORIZATION', 'EXCHANGING'}:
+            if not self._committed and self.state in {'AWAITING_AUTHORIZATION', 'EXCHANGING'}:
                 self.state = 'CANCELLED'
             self._verifier = self._state = ''
             self._stop.set()
         if threading.current_thread() is not self.thread:
             self.thread.join(timeout=1)
+        return self.snapshot()['state']

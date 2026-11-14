@@ -10,6 +10,8 @@ SERVICE = 'com.readysteadyscience.openahoy.x.oauth2.v1'
 
 
 class XKeychain(NativeKeychain):
+    service = SERVICE
+    label = 'OpenAhoy X OAuth connection'
     @contextmanager
     def query(self, scope, value=None, reading=False, deleting=False):
         if type(scope) is not str or re.fullmatch('[a-f0-9]{64}', scope) is None:
@@ -24,7 +26,7 @@ class XKeychain(NativeKeychain):
                 allocated.append(ptr)
                 return ptr
             pairs = [('kSecClass', self.constant('kSecClassGenericPassword')),
-                     ('kSecAttrService', string(SERVICE)), ('kSecAttrAccount', string(scope))]
+                     ('kSecAttrService', string(self.service)), ('kSecAttrAccount', string(scope))]
             default = c.c_void_p()
             status = self.sec.SecKeychainCopyDefault(c.byref(default))
             if status or not default.value:
@@ -48,7 +50,7 @@ class XKeychain(NativeKeychain):
                 if not ptr:
                     raise WCEError('X_KEYCHAIN_UNAVAILABLE')
                 allocated.append(ptr)
-                pairs += [('kSecValueData', ptr), ('kSecAttrLabel', string('OpenAhoy X OAuth connection'))]
+                pairs += [('kSecValueData', ptr), ('kSecAttrLabel', string(self.label))]
             keys = (c.c_void_p * len(pairs))(*(self.constant(k) for k, _ in pairs))
             values = (c.c_void_p * len(pairs))(*(v for _, v in pairs))
             query = self.cf.CFDictionaryCreate(None, keys, values, len(pairs),

@@ -13,7 +13,25 @@ HTML = '''<section id="inlineBinding" class="oa-binding panel" hidden aria-label
 <p id="bindingNotice" class="notice" role="status" aria-live="polite"></p>
 </form></section>'''
 
-SCRIPT = FALLBACK + r'''
+SEAL_SCRIPT = r'''
+const OASealCredential = (() => {
+  const b64=bytes=>{let s='';for(const v of new Uint8Array(bytes))s+=String.fromCharCode(v);return btoa(s).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');};
+  return async function seal(challenge,appid,secret){
+   const enc=new TextEncoder(),head=b64(enc.encode(JSON.stringify({alg:'RSA-OAEP-256',enc:'A256GCM',kid:challenge.kid,typ:'openahoy-binding+jwe'})));
+   const der=Uint8Array.from(atob(challenge.publicSPKI.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+   const rsa=await crypto.subtle.importKey('spki',der,{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']);
+   const aes=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt']),iv=crypto.getRandomValues(new Uint8Array(12));
+   const key=await crypto.subtle.exportKey('raw',aes),plain=enc.encode(JSON.stringify({appid,intent:challenge.intent,nonce:challenge.nonce,secret}));
+   try{
+    const wrapped=await crypto.subtle.encrypt({name:'RSA-OAEP'},rsa,key);
+    const raw=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:enc.encode(head),tagLength:128},aes,plain));
+    return [head,b64(wrapped),b64(iv),b64(raw.slice(0,-16)),b64(raw.slice(-16))].join('.');
+   }finally{plain.fill(0);new Uint8Array(key).fill(0);}
+  };
+})();
+'''
+
+SCRIPT = FALLBACK + SEAL_SCRIPT + r'''
 const OAInlineBinding = {
  mount(call,{enter,leave,complete}){
   const $=id=>document.getElementById(id);let view='',operation='',generation=0,busy=false,timer=null,visible=false,checked=false,revalidating=false,mayRevalidate=false,pendingBindings=[],selectionLocked=false;
@@ -27,19 +45,6 @@ const OAInlineBinding = {
    $('bindingRetry').disabled=!mayRevalidate||!view||!checked||!supported();
    ui.set($('bindingSubmit'),revalidating?'重新验证并继续绑定':'绑定公众号');
    $('bindingPending').disabled=selectionLocked||revalidating;
-  }
-  const b64=bytes=>{let s='';for(const v of new Uint8Array(bytes))s+=String.fromCharCode(v);return btoa(s).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');};
-  async function seal(challenge,appid,secret){
-   const enc=new TextEncoder(),head=b64(enc.encode(JSON.stringify({alg:'RSA-OAEP-256',enc:'A256GCM',kid:challenge.kid,typ:'openahoy-binding+jwe'})));
-   const der=Uint8Array.from(atob(challenge.publicSPKI.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
-   const rsa=await crypto.subtle.importKey('spki',der,{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']);
-   const aes=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt']),iv=crypto.getRandomValues(new Uint8Array(12));
-   const key=await crypto.subtle.exportKey('raw',aes),plain=enc.encode(JSON.stringify({appid,intent:challenge.intent,nonce:challenge.nonce,secret}));
-   try{
-    const wrapped=await crypto.subtle.encrypt({name:'RSA-OAEP'},rsa,key);
-    const raw=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:enc.encode(head),tagLength:128},aes,plain));
-    return [head,b64(wrapped),b64(iv),b64(raw.slice(0,-16)),b64(raw.slice(-16))].join('.');
-   }finally{plain.fill(0);new Uint8Array(key).fill(0);}
   }
   async function status(epoch=generation){
    if(!visible||!view||!operation||epoch!==generation)return;
@@ -96,7 +101,7 @@ const OAInlineBinding = {
     if(ready.operation)operation=ready.operation;
     if(epoch!==generation){if(ready.operation)await call('BINDING_CANCEL',{view:originalView,operation:ready.operation});return;}
     if(ready.state!=='READY'){await display(ready,epoch);return;}
-    const jwe=await seal(ready.challenge,appid,secret);secret='';
+    const jwe=await OASealCredential(ready.challenge,appid,secret);secret='';
     if(epoch!==generation){await call('BINDING_CANCEL',{view:originalView,operation:ready.operation});return;}
     await display(await call('BINDING_SUBMIT',{view:originalView,operation:ready.operation,jwe}),epoch);
    }catch(_){
@@ -147,7 +152,7 @@ const OAInlineBinding = {
      const ready=await call('BINDING_CHECK',{view:activeView});
      if(epoch!==generation)return;
      if(ready.state!=='BINDING_CHANNEL_READY')throw new Error('NO_CHANNEL_CHALLENGE');
-     const jwe=await seal(ready.challenge,'wx0000000000000000','OPENAHOY_PUBLIC_CHANNEL_CHECK_V1');
+     const jwe=await OASealCredential(ready.challenge,'wx0000000000000000','OPENAHOY_PUBLIC_CHANNEL_CHECK_V1');
      if(epoch!==generation)return;
      const expected=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(jwe)))].map(v=>v.toString(16).padStart(2,'0')).join('');
      if(epoch!==generation)return;
