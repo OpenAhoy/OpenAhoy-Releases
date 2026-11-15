@@ -12,7 +12,7 @@ STYLE = '''
 @media(max-width:799px),(max-height:599px){.oa-sidebar{display:grid;grid-template-columns:112px minmax(0,1fr);align-items:start}.oa-sidebar #softwareUpdateSlot{width:100%}.oa-sidebar>div:last-child{grid-column:1/-1}.oa-software-update{padding:8px 0}.oa-update-actions{flex-direction:row;flex-wrap:wrap}.oa-update-actions button{width:auto}}
 '''
 
-UPDATE_HTML = '''<div class="oa-update-copy"><span class="oa-update-version"></span><span class="oa-update-status" role="status" aria-live="polite">正在连接更新检查…</span></div><div class="oa-update-actions"><button type="button" class="oa-update-check" disabled>检查更新</button><button type="button" class="oa-update-start" hidden disabled>立即升级</button><button type="button" class="oa-update-help" hidden>查看升级与恢复方法</button></div>'''
+UPDATE_HTML = '''<div class="oa-update-copy"><span class="oa-update-version"></span><span class="oa-update-status" role="status" aria-live="polite">正在连接更新检查…</span><details class="oa-update-history" hidden><summary>更新历史</summary><span></span></details></div><div class="oa-update-actions"><button type="button" class="oa-update-check" disabled>检查更新</button><button type="button" class="oa-update-start" hidden disabled>立即升级</button><button type="button" class="oa-update-help" hidden>查看升级与恢复方法</button></div>'''
 
 SCRIPT = FALLBACK + r'''
 window.OASoftwareUpdates={mount(rpc,installed){
@@ -25,6 +25,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
  const version=box.querySelector('.oa-update-version'),status=box.querySelector('.oa-update-status'),checkButton=box.querySelector('.oa-update-check'),startButton=box.querySelector('.oa-update-start');
  version.textContent='OpenAhoy '+installed;
  const helpButton=box.querySelector('.oa-update-help');
+ const history=box.querySelector('.oa-update-history');
  const pendingKey='OpenAhoy.softwareUpdate.pending.'+installed;
  const requestPattern=/^[0-9a-f]{32}$/;
  let ready=false,closed=false,checking=false,starting=false,reading=false,latest=null,job='STATUS_UNAVAILABLE',pollTimer;
@@ -91,6 +92,9 @@ window.OASoftwareUpdates={mount(rpc,installed){
      (!versionPattern.test(value.version)||compare(value.version,installed)<=0))throw new Error('UPDATE_STATUS_INVALID');
   job=value.state;
   helpButton.hidden=true;
+  const old=value.history;
+  history.hidden=job!=='LOADED'||old?.code!=='CONNECTION_NOT_COMMITTED'||!versionPattern.test(old.version);
+  if(!history.hidden)ui.set(history.querySelector('span'),'{0} 的一次升级曾因公众号绑定检查停止。',old.version);
   ui.set(checkButton,terminal.has(job)?'查看升级状态':'检查更新');
   if(job==='IDLE'){buttons();return;}
   const code=typeof value.code==='string'&&/^(UPDATE|CONNECTION)_[A-Z0-9_]{1,65}$/.test(value.code)

@@ -57,6 +57,7 @@ SPECS = {
     'x.media.upload': schema({'connection_id': CID, 'attempt_id': ID,
                               'image_path': {'type': 'string', 'minLength': 1, 'maxLength': 4096}}),
     'x.posts.create': {'type': 'object', 'oneOf': [
+        schema(POST_FIELDS | {'text': dict(TEXT, pattern=r'[\s\S]*\S[\s\S]*')}),
         schema(POST_FIELDS | {'upload_attempt_id': ID}, AI_LABEL),
         schema(POST_FIELDS | {'upload_attempt_ids': {
             'type': 'array', 'items': ID, 'minItems': 1, 'maxItems': 4, 'uniqueItems': True}}, AI_LABEL),
@@ -81,9 +82,9 @@ def descriptors():
         'x.posts.reply': 'Send one currently authorized reply to the exact parent post. Official self-serve requires the author to mention or quote this account; no unattended AI bot without actual X qualification. One account/parent intent across categories and keys; UNKNOWN original readback only.',
         'x.replies.readback': 'Independently GET the original reply and verify this account, text and direct replied_to parent. UNKNOWN reconciles the original account timeline; never resend.',
         'x.media.upload': 'Upload one selected PNG, JPEG, WebP, GIF or supported video to this X account. image_path is the legacy path name. Animated GIF and video use v2 chunked upload. Continue UPLOADING with the original attempt/path; check PROCESSING or FINALIZE_UNKNOWN using status with poll_media=true. Platform limits and entitlements apply.',
-        'x.posts.create': 'Publish authorized text with 1–4 photos in upload_attempt_ids order, or with one GIF or video. The legacy upload_attempt_id also accepts one attachment. Supply exactly one of these parameters. All uploads must be ready on the same account. Set made_with_ai=true explicitly to request the X AI-media label. Send once per original attempt_id; use original readback for UNKNOWN.',
+        'x.posts.create': 'Publish authorized text. Omit both upload parameters for a text-only post, or supply one of them for 1–4 ordered photos or one GIF/video. All uploads must be ready on the same account. Set made_with_ai=true only for an attached-media post. Send once per original attempt_id; use original readback for UNKNOWN.',
         'x.attempt.status': 'Read the original upload/post/reply receipt. Default is local only; poll_media=true may GET processing status for the original known media, respecting check_after_secs and expiry, and may refresh this account token. Never upload bytes, retry an unknown write or create a post.',
-        'x.posts.readback': 'Independently GET the original X post and verify account, text and media. For UNKNOWN, reconcile the original account timeline without reposting.',
+        'x.posts.readback': 'Independently GET the original X post and verify account, text and media. For UNKNOWN media posts, reconcile the original account timeline without reposting. Text-only posts with no original post ID remain UNKNOWN.',
         SETUP: 'Put a verified public OAuth 2.0 Client ID and app name into the one-time OpenAhoy setup handoff from this chat. Draft only; cannot change a binding or start OAuth. Never send secrets.',
         UI: 'App-only public Client ID settings and official OAuth launch. No model credential or consent entry.',
     }

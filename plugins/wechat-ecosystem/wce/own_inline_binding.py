@@ -14,7 +14,7 @@ from .own_bootstrap_security import path_check, CheckedTokenRejected
 from .own_connection_policy import registry_path, locked
 from .own_connection_registry import (APPID, OWNER, container, metadata, prepare_default_registry,
     write, digest, snapshot, check_snapshot)
-from .own_connection_enrollment import exclusive
+from .own_connection_enrollment import PendingIdentity, exclusive
 from .own_enrollment_checked import (propose_checked, enroll_checked, validate_record,
     resume_checked_publication, prepare_revalidation)
 
@@ -56,13 +56,16 @@ class InlineBinding:
             if self.closed:raise WCEError('INLINE_BINDING_VIEW_CLOSED')
             view=secrets.token_hex(32)
             self.views[_hash(view)]={'registry':str(self.registry),'pin':None}
-            pending=[];pending_unavailable=False
+            pending=[];pending_unavailable=False;storage_changed=False
             directory=self.registry.parent/'inline-bindings'
             if os.path.lexists(directory):
                 path_check(directory,True)
                 for path in sorted(directory.glob('wx*.json')):
                     try:row=self._read(path)
-                    except (WCEError,OSError,ValueError):pending_unavailable=True;continue
+                    except (WCEError,OSError,ValueError) as error:
+                        pending_unavailable=True
+                        storage_changed |= getattr(error,'code',None)=='INLINE_BINDING_STORAGE_IDENTITY_CHANGED'
+                        continue
                     if row is None:continue
                     # Public metadata only. Don't adopt another view, reconnect,
                     # read credentials or prepare a new validation on open.
@@ -76,7 +79,7 @@ class InlineBinding:
                     if state in {'UNKNOWN','NOT_SENT','STORED','STORAGE_UNKNOWN','IP_DENIED'}:
                         pending.append({'appid':row['appid'],'label':row['label'],'state':state})
             return {'state':'INLINE_BINDING_VIEW','view':view,'pending_bindings':pending,
-                'pending_unavailable':pending_unavailable}
+                'pending_unavailable':pending_unavailable,'pending_storage_changed':storage_changed}
 
     def _view(self, view):
         if self.closed or type(view) is not str or re.fullmatch('[a-f0-9]{64}',view) is None or _hash(view) not in self.views:
@@ -170,7 +173,8 @@ class InlineBinding:
                 or type(value['appid']) is not str or APPID.fullmatch(value['appid']) is None
                 or path.name!=value['appid']+'.json' or type(value['revision']) is not int
                 or value['revision']<1 or type(value['cancelled']) is not bool
-                or value['parent']!=list(path_check(path.parent,True))):
+                or type(value['parent']) is not list or len(value['parent'])!=2
+                or any(type(part) is not int for part in value['parent'])):
             raise WCEError('INLINE_BINDING_JOURNAL_HOLD')
         if (type(value['label']) is not str or not 1<=len(value['label'])<=64
                 or type(value['view']) is not str or re.fullmatch('[a-f0-9]{64}',value['view']) is None
@@ -185,6 +189,8 @@ class InlineBinding:
             raise WCEError('INLINE_BINDING_JOURNAL_HOLD')
         owner=metadata(self.registry.parent/OWNER)
         if owner is not None and value['owner']!=digest(owner):raise WCEError('INLINE_BINDING_OWNER_CHANGED')
+        if value['parent']!=list(path_check(path.parent,True)):
+            raise WCEError('INLINE_BINDING_STORAGE_IDENTITY_CHANGED')
         return value
 
     def _write(self,path,old,new):
@@ -241,15 +247,21 @@ class InlineBinding:
         result={'state':state,'operation':row['operation'],'appid':row['appid'],'cancel_requested':row['cancelled']}
         if row['error']:result['error']=row['error']
         try:
-            _,original=self._pending(row)
+            enrollment_path,original=self._pending(row)
             if original is not None:
                 result['validation_attempts']=len(original['attempts'])
                 result['credential_stored']=original['attempts'][-1]['credential']=='STORED'
                 result['binding_committed']=original['attempts'][-1]['binding']=='COMMITTED'
                 # An indication only; BEGIN rechecks full pins/current registry
                 # while actually holding the run/setup locks before appending.
-                result['can_revalidate']=(state=='UNKNOWN' and
-                    original['attempts'][-1]['state']=='SPENT_RESULT_UNKNOWN')
+                result['can_revalidate']=False
+                if state=='UNKNOWN' and original['attempts'][-1]['state']=='SPENT_RESULT_UNKNOWN':
+                    try:
+                        pins=PendingIdentity(original['attempts'][-1]['review']).pins()
+                        result['can_revalidate']=(original['pins']==pins and
+                            original['parent']==list(path_check(enrollment_path.parent,True)))
+                    except (WCEError,OSError):pass
+                    if not result['can_revalidate']:result['pending_storage_changed']=True
         except Exception:pass
         # Separate diagnostic carrier leaves the authority journal and old
         # readers byte/schema compatible. Missing/invalid diagnostics never

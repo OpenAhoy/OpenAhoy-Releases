@@ -179,8 +179,10 @@ def replace_market(path, original, raw):
 
 @contextmanager
 def maintenance(registry):
-    from .own_connection_broker import STARTUP_SECONDS, _replace_idle_software_owner, _startup_gate, _startup_has_owner
-    from .own_connection_registry import revoked
+    from .own_connection_broker import (RUNTIME, SOCKET, STARTUP_SECONDS, _replace_idle_software_owner,
+                                       _startup_gate, _startup_has_owner)
+    from .own_connection_policy import load_policy
+    from .own_connection_registry import MembershipProofError, inspect_storage_binding, revoked
 
     base = registry.parent
     paths = [base / name for name in ('connection-setup.lock', 'x-platform/connection.lock', 'project-context.lock',
@@ -193,7 +195,39 @@ def maintenance(registry):
                     held.enter_context(locked(path, nonblocking=True))
 
         take(paths)
-        policies = [resolve(cid, registry, active=False) for cid in sorted(read_registry(registry)['connections'])]
+        entries = read_registry(registry)['connections']
+        policies, unavailable = [], []
+        for cid, path in sorted(entries.items()):
+            try:
+                policies.append(resolve(cid, registry, active=False))
+            except MembershipProofError as error:
+                if error.check not in {'JOURNAL_DIRECTORY', 'ACCOUNT_ROOT', 'IMAGE_DIRECTORY', 'DATABASE'}:
+                    raise
+                if inspect_storage_binding(registry, cid) == 'PROOF_INCOMPLETE':
+                    raise
+                policy = load_policy(path, active=False)
+                require(policy.data['connection_id'] == cid and policy.value['registry_path'] == str(registry),
+                        'UPDATE_ACCOUNT_IDENTITY_CHANGED')
+                unavailable.append(policy)
+
+        # A displaced account cannot start or drain its broker. Hold its existing
+        # exclusions directly for the software-only switch and demand quiescence.
+        for policy in unavailable:
+            root = policy.root
+            for name in ('connection-start.lock', 'connection.lock', 'connection-policy.lock'):
+                held.enter_context(locked(root / name, nonblocking=True, existing=True))
+            for name in ('connection-import.lock', 'connection-token.lock', 'cover-read-authority.lock',
+                         'presentation.lock', 'publication-settings-ops.lock', 'publication-dispatch.lock',
+                         'draft-revision-journal.lock'):
+                if os.path.lexists(root / name):
+                    held.enter_context(locked(root / name, nonblocking=True, existing=True))
+            require(not any(os.path.lexists(root / name) for name in (
+                RUNTIME, SOCKET, 'runtime.json', 'operator.sock')), 'UPDATE_BUSINESS_BUSY')
+            require(not any(os.path.lexists(str(root / db) + ext)
+                            for db in ('state.sqlite3', 'draft-revisions/revision.sqlite3',
+                                       'current-draft-management/operations.sqlite3')
+                            for ext in ('-wal', '-shm', '-journal')), 'UPDATE_BUSINESS_BUSY')
+            require(load_policy(policy.path, active=False) == policy, 'UPDATE_ACCOUNT_IDENTITY_CHANGED')
         for policy in policies:
             if policy.value['enabled'] and not (policy.value['schema'] == 2 and revoked(policy)):
                 deadline = time.monotonic() + STARTUP_SECONDS
@@ -396,6 +430,53 @@ class UpdateInstaller:
             atomic_write(self.root / 'status.json', verified)
         return verified
 
+    def _historical_binding_failure(self, value):
+        target = value.get('version')
+        if (value.get('state') != 'FAILED' or value.get('code') != 'CONNECTION_NOT_COMMITTED'
+                or not isinstance(target, str) or not VERSION.fullmatch(target)
+                or _version(self.version) < _version(target)):
+            return value
+        try:
+            home = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex')))
+            settings = tomllib.loads(read_market(home / 'config.toml')[0].decode())['plugins']
+            selectors = [key for key, row in settings.items()
+                         if SELECTOR.fullmatch(key) and row.get('enabled') is True]
+            require(len(selectors) == 1, 'UPDATE_INSTALL_READBACK_FAILED')
+            selector = selectors[0]
+            marketplace = SELECTOR.fullmatch(selector)[1]
+            package = home / 'plugins/cache' / marketplace / PLUGIN / self.version
+            require(Path(__file__).resolve().parent.parent == package, 'UPDATE_INSTALL_READBACK_FAILED')
+            manifest = sha256((package / 'package-manifest.json').read_bytes()).hexdigest()
+            self.readback(self.version, selector, manifest, self.run('list', '--marketplace', marketplace, timeout=12))
+            require(self._receipt() == value, 'UPDATE_INSTALL_RECEIPT_CHANGED')
+        except (WCEError, OSError, ValueError, KeyError, IndexError, TypeError, subprocess.SubprocessError):
+            return value
+        return {'state': 'LOADED', 'version': self.version,
+                'request_id': value.get('request_id'),
+                'history': {'version': target, 'code': value['code']}}
+
+    def _loaded_history(self, value):
+        from .own_connection_policy import private_read
+
+        records = []
+        for item in self.root.glob('failed-*.json'):
+            try:
+                pin = SHA.fullmatch(item.name.removeprefix('failed-').removesuffix('.json'))
+                if pin is None:
+                    continue
+                raw = private_read(item)[0]
+                archived = json.loads(raw)
+                target = archived.get('version')
+                if (sha256(raw).hexdigest() == pin[0] and archived.get('state') == 'FAILED'
+                        and archived.get('code') == 'CONNECTION_NOT_COMMITTED' and isinstance(target, str)
+                        and VERSION.fullmatch(target) and _version(target) <= _version(self.version)):
+                    records.append(target)
+            except (WCEError, OSError, ValueError, TypeError, AttributeError):
+                continue
+        if not records:
+            return value
+        return dict(value, history={'version': max(records, key=_version), 'code': 'CONNECTION_NOT_COMMITTED'})
+
     def status(self):
         if not self.root.exists():
             return {'state': 'IDLE'}
@@ -418,8 +499,8 @@ class UpdateInstaller:
                 if value['state'] == 'INSTALLED_RELOAD_REQUIRED':
                     value = dict(value, state='INSTALLING')
         if value['state'] == 'INSTALLED_RELOAD_REQUIRED' and value.get('version') == self.version:
-            return dict(value, state='LOADED')
-        return value
+            return self._loaded_history(dict(value, state='LOADED'))
+        return self._historical_binding_failure(value)
 
     def start(self, version, revision, request_id=None):
         require(type(version) is str and VERSION.fullmatch(version) and type(revision) is str and OID.fullmatch(revision)
@@ -447,6 +528,15 @@ class UpdateInstaller:
                 if request_id is not None:
                     intent['request_id'] = request_id
                 row = dict(intent, state='CHECKING')
+                if prior.get('state') == 'FAILED' and prior.get('code') == 'CONNECTION_NOT_COMMITTED':
+                    from .own_connection_policy import private_read
+                    from .own_identity_recovery import atomic_raw
+                    original = private_read(self.root / 'status.json')[0]
+                    backup = self.root / ('failed-' + sha256(original).hexdigest() + '.json')
+                    if os.path.lexists(backup):
+                        require(private_read(backup)[0] == original, 'UPDATE_HISTORY_CHANGED')
+                    else:
+                        atomic_raw(backup, original, None, exclusive=True)
                 atomic_write(self.root / 'status.json', row)
                 keeper = os.dup(fd)
                 try:
@@ -460,6 +550,10 @@ class UpdateInstaller:
             if error.code != 'CONNECTION_BUSY':
                 raise
             current = self._receipt()
+            if request_id is not None and current.get('request_id') == request_id:
+                require(current.get('version') == version and current.get('revision') == revision,
+                        'UPDATE_TARGET_INVALID')
+                return current
             if current['state'] in ACTIVE | {'INSTALLED_RELOAD_REQUIRED', 'INSTALL_UNKNOWN'}:
                 return current
             return {'state': 'BUSY', 'code': 'UPDATE_BUSINESS_BUSY'}

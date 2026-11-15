@@ -20,7 +20,7 @@
 1. 核对这是该原生任务的实际到点触发，不使用“立即生产”或手动运行冒定时。读取本号 own.schedules.read、本号最新 own.projects.read effective 及全部适用来源，完整采用effective.x_configuration.configuration与skill.text的本号创作方法。临时测试槽不改日常栏目、不强套为相同整点栏目。时段/文本不是新增平台权限。
 2. 使用宿主实际提供的稳定 occurrence 标识。只有原触发 turn ID 可用时，以实际原触发 turn ID 保存并在恢复中沿用；不能拿恢复新 turn ID 代替原轮次，不能宣称这种后备保证跨新 turn 重试严格去重。缺少可核的原轮次时报告具体缺口，不猜键补发。
 3. `own.schedules.update {operation:"RUN_BEGIN",connection_id,automation_id,occurrence_id,expected_revision}` 原子登记本轮并返回 run_id/upload_attempt_id/post_attempt_id。同轮重入沿原 ID 查询；有原 RUNNING/UNKNOWN 先恢复其实际 X attempt，不新开下一轮来掩盖未知。不把启用请求 ID 固定复用全部轮次。
-4. 当前 Codex 自主写本轮新文、用已有生图工具实际生成并检查新图，沿返回同号原 attempts `x.media.upload → x.posts.create → x.posts.readback`。不索模型 API Key，不复用旧成功、不加 QA 许可，不执行互动或公众号写入。
+4. 当前 Codex 按本轮栏目形式写新文。纯文字沿原 post_attempt_id 调用 `x.posts.create → x.posts.readback`，省略上传参数。带图时实际生成并检查新图，沿同号原 attempts `x.media.upload → x.posts.create → x.posts.readback`。不索模型 API Key，不复用旧成功、不加 QA 许可，不执行互动或公众号写入。
 5. 独立 MATCHED 后 `own.schedules.update {operation:"RUN_RESULT",connection_id,run_id,state:"MATCHED",note,expected_revision}`；插件只从该原 X 持久 readback 取得 URL/关系，不接收模型自报 URL 代替。未知记 UNKNOWN 并查原 X 任务；真正未发表失败可记 FAILED，保留说明。页面 last_run 表示实际运行和链接，计划时间不冒真实发帖时间。
 6. 单次测试不续日常运营。该轮完成或真实阻断后，用正式工具暂停自己的确切测试任务并核对；用 CONTROL_REQUEST pause 和 HOST_RESULT PAUSED 回存。COUNT=1 的实际终态也须核，不能只从“一次”文字推断。测试最多一条，保留原成功/未知帖子，不为了验收再发。
 

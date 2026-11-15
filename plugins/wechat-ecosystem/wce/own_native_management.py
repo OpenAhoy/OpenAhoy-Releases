@@ -9,7 +9,20 @@ SCRIPT = r'''
 (() => {
  'use strict';
  const $=id=>document.getElementById(id),bridge=window.parent,pending=new Map();
- const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','wce.ui.video.credential','wce.ui.video.workspace']);
+ const floatingMenus='details.oa-more-settings[open],details.oa-account-menu[open],details.oa-task-menu[open]';
+ function closeFloatingMenus(except=null){
+   for(const menu of document.querySelectorAll(floatingMenus))if(menu!==except)menu.open=false;
+ }
+ document.addEventListener('click',event=>{
+   const path=event.composedPath();
+   for(const menu of document.querySelectorAll(floatingMenus))if(!path.includes(menu))menu.open=false;
+ },true);
+ document.addEventListener('keydown',event=>{
+   if(event.key!=='Escape'||event.defaultPrevented||document.querySelector('dialog[open]'))return;
+   const menu=document.querySelector(floatingMenus);if(!menu)return;
+   event.preventDefault();closeFloatingMenus();menu.querySelector(':scope > summary')?.focus();
+ });
+ const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','wce.ui.video.credential','wce.ui.video.workspace']);
 
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
  let view='home',initialView='',explicitNavigation=false;
@@ -178,6 +191,37 @@ SCRIPT = r'''
  }
  let removalTarget=null, removing=false;
  const removalDialog=$('accountRemoveDialog');
+ const nameDialog=$('accountNameDialog'),displayName=$('accountDisplayName'),saveName=$('accountNameSave');
+ let nameTarget=null;
+ function canEditName(row){
+   return row.platform_id==='wechat_official_account'&&['BOUND_IDLE','BUSY','CONNECTED'].includes(row.state)
+     &&['MISSING','SAVED'].includes(row.presentation?.state)&&Number.isSafeInteger(row.presentation.revision);
+ }
+ function currentNameTarget(row){
+   return !closed&&ready&&view==='platform'&&activePlatform===row.platform_id&&rows.some(item=>
+     key(item)===key(row)&&item.account_id===row.account_id&&item.binding_revision===row.binding_revision&&canEditName(item));
+ }
+ $('accountNameCancel').onclick=()=>nameDialog.close();
+ nameDialog.addEventListener('close',()=>{if(!nameDialog.open)nameTarget=null;});
+ $('accountNameForm').onsubmit=async event=>{
+   event.preventDefault();const row=nameTarget,desired=displayName.value.trim();
+   if(!event.isTrusted||saveName.disabled||!row||!currentNameTarget(row))return;
+   if(!desired){OAUI.set($('accountNameStatus'),'请输入显示名称。');return;}
+   saveName.disabled=true;displayName.disabled=true;
+   let observed;
+   try{
+     await tool('wce.ui.management.save_display_name',{connection_id:row.connection_id,
+       account_id:row.account_id,binding_revision:row.binding_revision,
+       expected_revision:row.presentation.revision,display_name:desired});
+   }catch(_){/* Read back the scoped account after a lost or failed response. */}
+   try{observed=await refresh();}catch(_){}
+   if(closed||nameTarget!==row||!nameDialog.open)return;
+   const found=observed?.find(item=>key(item)===key(row)&&item.account_id===row.account_id&&item.binding_revision===row.binding_revision);
+   if(found?.presentation?.display_name===desired&&found.presentation.revision>row.presentation.revision){
+     nameDialog.close();notice('已保存显示名称。');return;
+   }
+   OAUI.set($('accountNameStatus'),'名称未能确认。请关闭并重新打开此账号的编辑窗口，查看当前名称。');
+ };
  const recoveryDialog=$('accountRecoveryDialog');
  let recoveryTarget=null;
  function recoveryAction(row){
@@ -239,6 +283,16 @@ SCRIPT = r'''
      await openXAuthorization(true);
      if(current()&&key(current())===key(row))await xManagement.reauthorize();
    };
+   if(canEditName(row)){
+     const edit=document.createElement('button');edit.type='button';OAUI.set(edit,'编辑显示名称');
+     edit.onclick=event=>{
+       if(!event.isTrusted||refreshing||!currentNameTarget(row))return;
+       closeFloatingMenus();nameTarget=row;displayName.value=name(row);
+       displayName.disabled=false;saveName.disabled=false;OAUI.set($('accountNameStatus'),'');
+       nameDialog.showModal();displayName.select();
+     };
+     actions.append(edit);
+   }
    actions.append(rebind,remove);menu.append(toggle,actions);return menu;
  }
  $('accountRemoveCancel').onclick=()=>removalDialog.close();
@@ -510,6 +564,7 @@ SCRIPT = r'''
    $('openVideoWorkspace').setAttribute('aria-current',view==='video'?'page':'false');
  }
  async function openView(target,{user=false,focus=false}={}){
+   closeFloatingMenus();
    if(closed||!ready||!$('inlineBinding').hidden)return;
    if(user){explicitNavigation=true;rememberView(target);}
    if(target==='home'||target==='video'){

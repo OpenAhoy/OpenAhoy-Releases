@@ -3,12 +3,17 @@ from copy import deepcopy
 import threading
 
 from .contracts import WCEError
-from .prepared_contracts import strict_validate
+from .prepared_contracts import ID, strict_validate
 from .tools import schema
 
 URI = 'ui://wechat-ecosystem/settings.html'
 MIME = 'text/html;profile=mcp-app'
 PREFIX = 'wce.settings.'
+SAVE_NAME = 'wce.ui.management.save_display_name'
+NAME_SPEC = schema({'connection_id': ID, 'account_id': {'type': 'string', 'pattern': '^wx[a-f0-9]{16}$'},
+                    'binding_revision': {'type': 'string', 'pattern': '^[a-f0-9]{64}$'},
+                    'expected_revision': {'type': 'integer', 'minimum': 0, 'maximum': 2**53 - 2},
+                    'display_name': {'type': 'string', 'minLength': 1, 'maxLength': 64}})
 SPECS = {
     PREFIX + 'read': schema({}),
     PREFIX + 'update': schema({'set': schema({})}),
@@ -294,6 +299,49 @@ class SettingsManager:
                 if fresh:
                     session.close()
                 raise
+
+
+class DisplayNameRouter:
+    """Add a scoped app-only write outside the frozen settings catalog."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def __getattr__(self, key):
+        return getattr(self.inner, key)
+
+    def list_tools(self):
+        return self.inner.list_tools() + [{
+            'name': SAVE_NAME, 'title': '编辑公众号显示名称',
+            'description': 'App-only. Updates only the local name of the specified bound WeChat account.',
+            'inputSchema': deepcopy(NAME_SPEC), 'outputSchema': schema({
+                'state': {'const': 'PRESENTATION_SAVED'}, 'connection_id': ID,
+                'revision': {'type': 'integer', 'minimum': 1}}),
+            'annotations': {'readOnlyHint': False, 'destructiveHint': False,
+                            'openWorldHint': False, 'idempotentHint': False},
+            '_meta': {'ui': {'visibility': ['app']}}}]
+
+    def call(self, name, arguments):
+        if name == SAVE_NAME:
+            from .own_presentation import context, save
+            from .own_connection_registry import revoked
+            strict_validate(arguments, NAME_SPEC)
+            registry = self.inner.original.registry
+            cid = arguments['connection_id']
+
+            def check_binding():
+                policy, _, entry = context(cid, registry)
+                if (entry is None or not policy.value['enabled'] or revoked(policy)
+                        or policy.data['appid'] != arguments['account_id']
+                        or policy.fingerprint != arguments['binding_revision']):
+                    raise WCEError('PRESENTATION_IDENTITY_CHANGED')
+
+            result = save({'connection_id': cid, 'expected_revision': arguments['expected_revision'],
+                           'display_name': arguments['display_name'], 'avatar_png': None},
+                          registry, check_binding)
+            return {'state': result['state'], 'connection_id': cid,
+                    'revision': result['presentation']['revision']}
+        return self.inner.call(name, arguments)
 
 
 class SettingsRouter:

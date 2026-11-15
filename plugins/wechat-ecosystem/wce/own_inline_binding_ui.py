@@ -85,6 +85,7 @@ const OAInlineBinding = {
     },kinds={TIMEOUT:'校验连接超时。',TLS_ERROR:'校验 TLS 连接失败。',DNS_ERROR:'校验域名解析失败。',CONNECTION_ERROR:'校验连接失败。'};
     const detail=reasons[result.diagnostic?.reason]||reasons[result.error]||kinds[result.diagnostic?.kind]||'具体失败原因未记录，无法还原上次校验结果。';
     busy=true;note('未能确认原绑定结果。'+detail+' 原记录已保留；查询不会重新发送或重新绑定。');$('bindingQuery').hidden=false;
+    if(result.pending_storage_changed===true)note('原绑定结果仍未知。本机存储身份无法核对，请先修复原记录，再继续验证。');
     if(result.can_revalidate===true){mayRevalidate=true;$('bindingRetry').hidden=false;note($('bindingNotice').textContent+' 密钥未保存；可选择重新验证，需本人在本页重新输入一次，旧未知记录不会改写。');}
    }
    controls();
@@ -176,7 +177,7 @@ const OAInlineBinding = {
       if(pendingBindings.length===1){select.value=pendingBindings[0].appid;await choosePending(select.value,epoch);return;}
      }
      if(target){note('仅重新验证当前公众号的 AppSecret。');controls();$('bindingSecret').focus();return;}
-     note(value.pending_unavailable?'安全连接已就绪，但部分历史绑定记录暂不可读；它们不会自动重发。可填写新的账号，原账号请先检查诊断。':'安全连接已就绪。填写后点击一次“绑定公众号”即可。');controls();$('bindingAppID').focus();
+     note(value.pending_storage_changed?'安全连接已就绪。部分原绑定记录的本机存储身份已变化，请先修复原记录，再继续验证。':value.pending_unavailable?'安全连接已就绪，但部分历史绑定记录暂不可读；它们不会自动重发。可填写新的账号，原账号请先检查诊断。':'安全连接已就绪。填写后点击一次“绑定公众号”即可。');controls();$('bindingAppID').focus();
     }catch(_){
      if(epoch===generation){checked=false;view='';note('本机安全连接暂不可用，未接收密钥；现有账号不受影响。');controls();}
      if(checkingView)try{await call('BINDING_CANCEL',{view:checkingView,operation:checkingView});}catch(_){/* Owner timer bounds a lost cancellation. */}

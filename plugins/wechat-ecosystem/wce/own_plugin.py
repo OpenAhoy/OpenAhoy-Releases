@@ -161,7 +161,7 @@ class PersonalStdioServer(OperatorStdioServer):
         return None
 
     def __init__(self, router, *args, settings_manager=None, **kwargs):
-        from .own_settings_protocol import SettingsRouter
+        from .own_settings_protocol import DisplayNameRouter, SettingsRouter
         from .x_protocol import XPlatformRouter
         from .xhs_protocol import XHSRouter
         from .own_updates_protocol import UpdateRouter
@@ -173,7 +173,7 @@ class PersonalStdioServer(OperatorStdioServer):
         self._inline_open_lock = threading.Lock()
         self._last_tools_list_observation = {'state': 'NOT_OBSERVED_IN_THIS_SERVER'}
         self._management_resources = {}
-        support=SupportRouter(TemplateRouter(ProjectContextRouter(UpdateRouter(XHSRouter(XPlatformRouter(SettingsRouter(router, settings_manager)))), registry=router.registry), registry=router.registry), registry=router.registry, instrument=False)
+        support=SupportRouter(TemplateRouter(ProjectContextRouter(UpdateRouter(XHSRouter(XPlatformRouter(DisplayNameRouter(SettingsRouter(router, settings_manager))))), registry=router.registry), registry=router.registry), registry=router.registry, instrument=False)
         managed=DraftManagementRouter(VideoRouter(support, router.registry), registry=router.registry, launcher=router.launcher)
         self._tool_observer=support
         rows=managed.list_tools()

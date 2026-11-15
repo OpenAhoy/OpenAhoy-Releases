@@ -624,6 +624,14 @@ class XPlatform:
 
     def create(self, cid, attempt_id, text, upload_attempt=None, *, upload_attempt_ids=None, made_with_ai=None):
         require(made_with_ai is None or type(made_with_ai) is bool, 'INVALID_TOOL_ARGUMENTS')
+        if upload_attempt is None and upload_attempt_ids is None:
+            require(made_with_ai is None and type(text) is str and bool(text.strip()), 'INVALID_TOOL_ARGUMENTS')
+
+            def send_text(access):
+                data = self.api.create(access, text, [])['data']
+                return {'post_id': identifier(data.get('id'))}
+
+            return self._write_once(cid, 'post', attempt_id, {'text': text}, send_text)
         require((upload_attempt is None) != (upload_attempt_ids is None), 'INVALID_TOOL_ARGUMENTS')
         attempts = [upload_attempt] if upload_attempt_ids is None else upload_attempt_ids
         require(type(attempts) is list and 1 <= len(attempts) <= 4
@@ -676,14 +684,18 @@ class XPlatform:
         text = post.get('text')
         if type(text) is not str:
             return None
-        for entity in post.get('entities', {}).get('urls', []):
+        entities = post.get('entities', {})
+        urls = entities.get('urls', []) if type(entities) is dict else []
+        if type(urls) is not list or any(type(entity) is not dict for entity in urls):
+            return None
+        for entity in urls:
             url, expanded = entity.get('url'), entity.get('expanded_url')
             if (type(url) is str and re.fullmatch(r'https://t\.co/[A-Za-z0-9]+', url)
                     and type(expanded) is str and re.fullmatch(
                         r'https://(?:x\.com|twitter\.com)/[A-Za-z0-9_]+/status/' + re.escape(str(post.get('id'))) + r'/(?:photo|video)/1', expanded)
                     and text.endswith(' ' + url)):
                 text = text[:-len(url)-1]
-        for entity in post.get('entities', {}).get('urls', []):
+        for entity in urls:
             url, expanded = entity.get('url'), entity.get('expanded_url')
             if (type(url) is str and re.fullmatch(r'https://t\.co/[A-Za-z0-9]+', url)
                     and type(expanded) is str and re.fullmatch(r'https?://[^\s]+', expanded)):
@@ -691,19 +703,59 @@ class XPlatform:
         return text
 
     @staticmethod
+    def _plain_text_with_expanded_urls(post):
+        text = post.get('text')
+        entities = post.get('entities', {})
+        urls = entities.get('urls', []) if type(entities) is dict else None
+        if type(text) is not str or type(urls) is not list:
+            return None
+        replacements = []
+        for entity in urls:
+            if type(entity) is not dict:
+                return None
+            url, expanded = entity.get('url'), entity.get('expanded_url')
+            start, end = entity.get('start'), entity.get('end')
+            if (type(start) is not int or type(end) is not int or not 0 <= start < end <= len(text)
+                    or type(url) is not str or not re.fullmatch(r'https://t\.co/[A-Za-z0-9]+', url)
+                    or text[start:end] != url or type(expanded) is not str
+                    or not re.fullmatch(r'https?://[^\s]+', expanded)):
+                return None
+            replacements.append((start, end, expanded))
+        boundary = len(text)
+        for start, end, expanded in sorted(replacements, reverse=True):
+            if end > boundary:
+                return None
+            text = text[:start] + expanded + text[end:]
+            boundary = start
+        return text
+
+    @staticmethod
     def _media_keys(receipt):
         content = receipt['input']
+        if set(content) == {'text'}:
+            return []
         return content['media_keys'] if 'media_keys' in content else [content['media_key']]
 
     @staticmethod
     def _matches(post, c, receipt):
-        if type(post) is not dict or type(post.get('attachments')) is not dict:
+        if type(post) is not dict or post.get('author_id') != c['profile']['id']:
             return False
         content = receipt['input']
-        representations = [post.get('text'), XPlatform._text(post)]
-        representations += [html.unescape(text) for text in representations if type(text) is str]
-        return (post.get('author_id') == c['profile']['id'] and content['text'] in representations and
-                post.get('attachments', {}).get('media_keys') == XPlatform._media_keys(receipt))
+        keys = XPlatform._media_keys(receipt)
+        attachments = post.get('attachments', {})
+        if type(attachments) is not dict:
+            return False
+        if keys:
+            if attachments.get('media_keys') != keys:
+                return False
+        elif (set(attachments) - {'media_keys'} or attachments.get('media_keys', []) != []
+                or post.get('referenced_posts', []) != []):
+            return False
+        normalized = XPlatform._text(post) if keys else XPlatform._plain_text_with_expanded_urls(post)
+        representations = [post.get('text'), normalized]
+        if keys:
+            representations += [html.unescape(text) for text in representations if type(text) is str]
+        return content['text'] in representations
 
     def status(self, cid, kind, attempt_id, *, readback=False, poll_media=False):
         if cid not in self._load()['connections']:
@@ -719,6 +771,10 @@ class XPlatform:
                 return poll(self,cid,path,receipt)
             if kind != 'post' or not readback or receipt['state'] == 'REJECTED':
                 return receipt
+            text_only = not self._media_keys(receipt)
+            if receipt['state'] == 'RESULT_UNKNOWN' and text_only:
+                # An identical timeline post can belong to another client or attempt.
+                return receipt | {'readback_state': 'NO_UNIQUE_MATCH'}
             token = self._access(value, cid, receipt)
             if receipt['state'] == 'RESULT_UNKNOWN':
                 start = datetime.fromtimestamp(receipt['created_at'] - 10, timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
@@ -746,10 +802,13 @@ class XPlatform:
             media_keys = [row.get('media_key') for row in media if type(row) is dict] if type(media) is list else []
             if (type(result) is not dict or result.get('errors') or not self._matches(post, c, receipt)
                     or post.get('id') != receipt['result']['post_id']
+                    or (text_only and ((includes is not None and type(includes) is not dict)
+                                       or (type(includes) is dict and 'media' in includes and media != [])))
                     or any(media_keys.count(key) != 1 for key in self._media_keys(receipt))):
                 return receipt | {'readback_state': 'MISMATCH', 'actual': result}
             receipt['state'], receipt['readback_state'] = 'SUCCEEDED', 'MATCHED'
-            receipt['text_comparison'] = 'EXACT_RAW_OR_EVIDENCED_X_URL_AND_HTML_REPRESENTATION'
+            receipt['text_comparison'] = ('EXACT_RAW_OR_EVIDENCED_X_URL_REPRESENTATION' if text_only else
+                                          'EXACT_RAW_OR_EVIDENCED_X_URL_AND_HTML_REPRESENTATION')
             receipt['actual'] = result
             receipt['url'] = 'https://x.com/' + c['profile']['username'] + '/status/' + identifier(post['id'])
             atomic_write(path, receipt, maximum=None)

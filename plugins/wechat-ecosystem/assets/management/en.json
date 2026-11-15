@@ -1,4 +1,11 @@
 {
+  "编辑显示名称": "Edit display name",
+  "显示名称": "Display name",
+  "请输入显示名称。": "Enter a display name.",
+  "已保存显示名称。": "Display name saved.",
+  "名称未能确认。请关闭并重新打开此账号的编辑窗口，查看当前名称。": "The name could not be confirmed. Reopen this account’s editor to see the current name.",
+  "原绑定结果仍未知。本机存储身份无法核对，请先修复原记录，再继续验证。": "The original binding result is still unknown. Repair the original record before verifying again.",
+  "安全连接已就绪。部分原绑定记录的本机存储身份已变化，请先修复原记录，再继续验证。": "The secure connection is ready. Repair the affected local binding records before verifying again.",
   "查看恢复方法": "View recovery steps",
   "恢复本机绑定": "Restore local binding",
   "在 Codex 中检查": "Check in Codex",

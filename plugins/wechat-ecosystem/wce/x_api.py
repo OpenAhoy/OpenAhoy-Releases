@@ -156,7 +156,9 @@ class XHTTP:
         return self.request('GET', '/2/users/' + identifier(user_id) + '/tweets', token=token, query=query)
 
     def post(self, token, post_id):
-        return self.request('GET', '/2/tweets/' + identifier(post_id), token=token, query=self.post_query())
+        query = self.post_query()
+        query['expansions'] += ',referenced_posts'
+        return self.request('GET', '/2/tweets/' + identifier(post_id), token=token, query=query)
 
     @staticmethod
     def context_query():
@@ -209,7 +211,9 @@ class XHTTP:
         return self.request('GET','/2/media/upload',token=token,query={'media_id':identifier(media_id),'command':'STATUS'})
 
     def create(self, token, text, media_ids, *, made_with_ai=None):
-        body = {'text': text, 'media': {'media_ids': media_ids}}
+        body = {'text': text}
+        if media_ids:
+            body['media'] = {'media_ids': media_ids}
         if made_with_ai is not None:
             body['made_with_ai'] = made_with_ai
         return self.request('POST', '/2/tweets', token=token, body=body)

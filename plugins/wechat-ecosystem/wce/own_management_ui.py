@@ -126,6 +126,12 @@ def native_page_body(logo, platform_settings):
 <section id="settingsPanel" class="oa-platform-settings" aria-label="平台设置"><h2 id="platformTitle">平台设置</h2><p id="platformHelp" class="help"></p>
 <div class="actions oa-context-tabs" role="tablist" aria-label="工作区设置"><button id="platformSettingsTab" role="tab" aria-selected="true">平台设置</button><button id="contextSettingsTab" role="tab" aria-selected="false">项目与 Skills</button></div>
 <p id="unsupportedSettings" class="empty" hidden>当前平台暂不支持这些设置，未调用其他平台工具。</p>'''+platform_settings+'''</section>
+<dialog id="accountNameDialog" class="oa-account-remove-dialog" aria-labelledby="accountNameTitle">
+<form id="accountNameForm"><h2 id="accountNameTitle">编辑显示名称</h2>
+<label for="accountDisplayName">显示名称</label><input id="accountDisplayName" required maxlength="64" autocomplete="off" autofocus>
+<p id="accountNameStatus" role="status"></p>
+<div class="actions"><button id="accountNameCancel" type="button">取消</button><button id="accountNameSave" class="primary" type="submit">保存</button></div>
+</form></dialog>
 <dialog id="accountRemoveDialog" class="oa-account-remove-dialog" aria-labelledby="accountRemoveTitle">
 <h2 id="accountRemoveTitle">移除账号</h2>
 <p id="accountRemoveTarget"></p>

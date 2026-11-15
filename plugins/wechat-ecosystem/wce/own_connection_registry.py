@@ -200,6 +200,50 @@ class MembershipProofError(WCEError):
         self.check = check
 
 
+def inspect_storage_binding(registry, connection_id):
+    """Describe stored and current identity pins without adopting either."""
+    from .own_connection_policy import load_policy
+
+    data = read_registry(registry)
+    entry = data.get('entries', {}).get(connection_id)
+    if entry is None:
+        return 'PROOF_INCOMPLETE'
+    policy = load_policy(data['connections'][connection_id], active=False)
+    owner = validate_owner(registry, read_optional(registry.parent / OWNER))
+    if not policy.value['enabled'] or revoked(policy):
+        return 'PROOF_INCOMPLETE'
+    path = transaction_path(registry, policy.value['transaction'])
+    with locked(path.with_suffix('.lock'), nonblocking=True, shared=True, existing=True, readonly=True):
+        proof = metadata(path) or {}
+        change = (proof.get('policies') or {}).get(str(policy.path)) or {}
+        pins = change.get('pins') or {}
+        if (type(proof.get('schema')) is not int or proof['schema'] not in (1, 2)
+                or proof.get('state') != 'COMMITTED' or proof.get('id') != policy.value['transaction']
+                or proof.get('owner') != owner or proof.get('registry') != str(registry)
+                or owner_value(registry, policy.data['actor']) != owner
+                or policy.value['owner_digest'] != digest(owner)
+                or policy.value['registry_path'] != str(registry) or policy.data['connection_id'] != connection_id
+                or (proof.get('after') or {}).get('entries', {}).get(connection_id) != entry
+                or change.get('after') != policy.value
+                or entry.get('policy_digest') != policy.fingerprint
+                or entry.get('identity_digest') != digest(policy.data)
+                or entry.get('credential_scope') != sha(policy.data)
+                or entry.get('appid') != policy.data['appid'] or entry.get('transaction') != policy.value['transaction']
+                or pins.get('profile_sha256') != sha256(private_read(policy.root / 'profile.json')[0]).hexdigest()):
+            return 'PROOF_INCOMPLETE'
+        pairs = [(proof.get('registry_parent'), path_check(registry.parent, True)),
+                 (proof.get('journal_parent'), path_check(path.parent, True)),
+                 (pins.get('root'), policy.root_pin), (pins.get('images'), policy.image_pin),
+                 (pins.get('database'), policy.database_pin[:2])]
+        if not all(type(old) is list and len(old) == 2
+                   and all(type(value) is int and value >= 0 for value in old) for old, _ in pairs):
+            return 'PROOF_INCOMPLETE'
+        if (all(old[1] == new[1] and old[0] != new[0] for old, new in pairs)
+                and len({(old[0], new[0]) for old, new in pairs}) == 1):
+            return 'CONSISTENT_DEVICE_REMAP_UNPROVEN'
+    return 'STORAGE_IDENTITY_UNVERIFIED'
+
+
 def check_member(policy, revocation=True, durable=False, *, readonly=False, proof_reader=None):
     value = policy.value
     registry = Path(value['registry_path'])
