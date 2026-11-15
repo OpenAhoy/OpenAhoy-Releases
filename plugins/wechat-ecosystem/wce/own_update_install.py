@@ -25,9 +25,13 @@ from .own_updates import OID, REMOTE, REPOSITORY, VERSION, _version, check
 PLUGIN = 'wechat-ecosystem'
 PUBLIC_MARKET = 'openahoy-distribution'
 BUNDLED_CLI = Path('/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex')
-ACTIVE = {'CHECKING', 'DOWNLOADING', 'VERIFYING', 'WAITING_FOR_IDLE', 'INSTALLING'}
+ACTIVE = {'CHECKING', 'DOWNLOADING', 'VERIFYING', 'STAGED', 'WAITING_FOR_IDLE', 'INSTALLING'}
 MAX_ASSET = 128 * 1024 * 1024
 SHA = re.compile(r'[0-9a-f]{64}')
+REQUEST_ID = re.compile(r'[0-9a-f]{32}')
+SELECTOR = re.compile(r'wechat-ecosystem@([A-Za-z0-9_-]+)')
+BUSY_CODES = {'CONNECTION_BUSY', 'CONNECTION_START_PENDING', 'UPDATE_BUSINESS_BUSY'}
+RECEIPT_RACE_CODES = {'BOOTSTRAP_PATH_CHANGED', 'LOCAL_FILE_CHANGED', 'INVALID_LOCAL_FILE'}
 
 
 def require(condition, code):
@@ -132,12 +136,12 @@ def verify_package(root, version, manifest_sha=None):
     require(identity.get('name') == PLUGIN and identity.get('version') == version, 'UPDATE_PACKAGE_IDENTITY')
 
 
-def cli(*args):
+def cli(*args, timeout=90):
     executable = next((path for path in (BUNDLED_CLI, Path('/opt/homebrew/bin/codex'),
                                         Path('/usr/local/bin/codex')) if path.is_file()), None)
     require(executable is not None, 'UPDATE_CODEX_CLI_UNAVAILABLE')
     result = subprocess.run([str(executable), 'plugin', *args, '--json'], capture_output=True,
-                            stdin=subprocess.DEVNULL, cwd=Path.home(), timeout=90)
+                            stdin=subprocess.DEVNULL, cwd=Path.home(), timeout=timeout)
     require(result.returncode == 0, 'UPDATE_CODEX_CLI_FAILED')
     return json.loads(result.stdout)
 
@@ -208,6 +212,18 @@ def installed(rows):
     return [row for row in rows['installed'] if row.get('name') == PLUGIN and row.get('enabled') is True]
 
 
+def verify_installation(version, selector, manifest_sha, rows):
+    match = SELECTOR.fullmatch(selector)
+    require(match and VERSION.fullmatch(version) and SHA.fullmatch(manifest_sha), 'UPDATE_INSTALL_RECEIPT_INVALID')
+    current = installed(rows)
+    require(len(current) == 1 and current[0]['version'] == version and current[0]['pluginId'] == selector,
+            'UPDATE_INSTALL_READBACK_FAILED')
+    codex_home = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex')))
+    target = codex_home / 'plugins/cache' / match[1] / PLUGIN / version
+    verify_package(target, version, manifest_sha)
+    require(os.access(target / 'scripts/wce_mcp.sh', os.X_OK), 'UPDATE_LAUNCHER_INVALID')
+
+
 def install(previous, version, target, manifest_sha, registry, folder, progress, *, run=cli):
     active = installed(run('list'))
     require(len(active) == 1 and active[0]['version'] == previous, 'UPDATE_INSTALLED_VERSION_CHANGED')
@@ -267,7 +283,7 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
             shutil.copytree(target, staged_target)
             verify_package(staged_target, version, manifest_sha)
             target = staged_target
-        progress('INSTALLING')
+        progress('INSTALLING', plugin_id=selector, manifest_sha256=manifest_sha)
         if git_market:
             (folder / '.agents/plugins').mkdir(parents=True, exist_ok=True)
             (folder / '.agents/plugins/marketplace.json').write_bytes(raw)
@@ -313,44 +329,103 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
                     replace_market(path, updated, raw)
                 raise WCEError('UPDATE_INSTALL_REJECTED') from None
             raise
-        new = old.parent / version
-        verify_package(new, version, manifest_sha)
-        require(os.access(new / 'scripts/wce_mcp.sh', os.X_OK), 'UPDATE_LAUNCHER_INVALID')
-        current = installed(run('list'))
-        require(len(current) == 1 and current[0]['version'] == version and current[0]['pluginId'] == selector,
-                'UPDATE_INSTALL_READBACK_FAILED')
+        verify_installation(version, selector, manifest_sha, run('list'))
     progress('INSTALLED_RELOAD_REQUIRED')
 
 
 class UpdateInstaller:
     """One persistent local receipt shared across panels and server processes."""
 
-    def __init__(self, installed_version, registry=None, *, download=release, switch=install, checker=check):
+    def __init__(self, installed_version, registry=None, *, download=release, switch=install, checker=check,
+                 readback=verify_installation, run=cli):
         self.version = installed_version
         self.registry = Path(registry or registry_path())
         self.root = self.registry.parent / 'software-updates'
         self.download, self.switch, self.checker = download, switch, checker
+        self.readback, self.run = readback, run
+
+    def _receipt(self):
+        path = self.root / 'status.json'
+        try:
+            value = read_optional(path)
+        except WCEError as error:
+            if error.code not in RECEIPT_RACE_CODES:
+                raise
+            # Progress replaces the file atomically. Retry the checked read
+            # if it overlapped that replacement.
+            value = read_optional(path)
+        return value or {'state': 'IDLE'}
+
+    def _reconcile_installation(self, value):
+        selector = value.get('plugin_id', '')
+        manifest = value.get('manifest_sha256', '')
+        match = SELECTOR.fullmatch(selector) if isinstance(selector, str) else None
+        try:
+            if match and isinstance(manifest, str) and SHA.fullmatch(manifest):
+                # An exact receipt identifies one marketplace. Listing all
+                # markets can block on unrelated sources during panel startup.
+                rows = self.run('list', '--marketplace', match[1], timeout=12)
+            else:
+                # Older receipts lack the selector and manifest hash. A
+                # previously verified success can be matched to its staged
+                # package, but an old unknown has no proof of the write edge.
+                if value['state'] != 'INSTALLED_RELOAD_REQUIRED':
+                    return value
+                version = value['version']
+                require(VERSION.fullmatch(version), 'UPDATE_INSTALL_RECEIPT_INVALID')
+                manifests = set()
+                for stage in self.root.glob(version + '-*'):
+                    if not OID.fullmatch(stage.name.removeprefix(version + '-')):
+                        continue
+                    marker = read_optional(stage / 'verified.json') or {}
+                    digest = marker.get('manifest')
+                    if isinstance(digest, str) and SHA.fullmatch(digest):
+                        manifests.add(digest)
+                require(len(manifests) == 1, 'UPDATE_INSTALL_RECEIPT_INVALID')
+                manifest = manifests.pop()
+                rows = self.run('list', timeout=12)
+                candidates = installed(rows)
+                require(len(candidates) == 1, 'UPDATE_INSTALL_READBACK_FAILED')
+                selector = candidates[0]['pluginId']
+            self.readback(value['version'], selector, manifest, rows)
+        except (WCEError, OSError, ValueError, KeyError, IndexError, TypeError, subprocess.SubprocessError):
+            return dict(value, state='INSTALL_UNKNOWN', code=value.get('code', 'UPDATE_INSTALL_READBACK_FAILED'))
+        verified = dict(value, state='INSTALLED_RELOAD_REQUIRED')
+        verified.pop('code', None)
+        if value['state'] != 'INSTALLED_RELOAD_REQUIRED':
+            atomic_write(self.root / 'status.json', verified)
+        return verified
 
     def status(self):
         if not self.root.exists():
             return {'state': 'IDLE'}
-        value = read_optional(self.root / 'status.json') or {'state': 'IDLE'}
-        if value['state'] in ACTIVE:
+        value = self._receipt()
+        if value['state'] in ACTIVE | {'INSTALL_UNKNOWN', 'INSTALLED_RELOAD_REQUIRED'}:
             try:
                 with locked(self.root / 'worker.lock', nonblocking=True):
-                    value = read_optional(self.root / 'status.json') or {'state': 'IDLE'}
-                    if value['state'] in ACTIVE:
-                        value['state'] = 'INSTALL_UNKNOWN' if value['state'] == 'INSTALLING' else 'INTERRUPTED'
+                    value = self._receipt()
+                    state = value['state']
+                    if state == 'INSTALLING':
+                        value = dict(value, state='INSTALL_UNKNOWN', code='UPDATE_INSTALL_READBACK_FAILED')
+                    elif state in ACTIVE:
+                        downloaded = state in ('STAGED', 'WAITING_FOR_IDLE')
+                        value = dict(value, state='DOWNLOADED_NOT_INSTALLED' if downloaded else 'INTERRUPTED')
+                    if value['state'] in ('INSTALL_UNKNOWN', 'INSTALLED_RELOAD_REQUIRED'):
+                        value = self._reconcile_installation(value)
             except WCEError as error:
                 if error.code != 'CONNECTION_BUSY':
                     raise
+                if value['state'] == 'INSTALLED_RELOAD_REQUIRED':
+                    value = dict(value, state='INSTALLING')
         if value['state'] == 'INSTALLED_RELOAD_REQUIRED' and value.get('version') == self.version:
             return dict(value, state='LOADED')
         return value
 
-    def start(self, version, revision):
+    def start(self, version, revision, request_id=None):
         require(type(version) is str and VERSION.fullmatch(version) and type(revision) is str and OID.fullmatch(revision)
                 and _version(version) > _version(self.version), 'UPDATE_TARGET_INVALID')
+        require(request_id is None or type(request_id) is str and REQUEST_ID.fullmatch(request_id),
+                'UPDATE_TARGET_INVALID')
         require(platform.system() == 'Darwin' and platform.machine() == 'arm64', 'UPDATE_PLATFORM_UNSUPPORTED')
         if not self.registry.parent.exists():
             self.registry.parent.mkdir(mode=0o700, exist_ok=True)
@@ -362,31 +437,46 @@ class UpdateInstaller:
         try:
             with locked(self.root / 'worker.lock', nonblocking=True) as fd:
                 prior = read_optional(self.root / 'status.json') or {}
+                if request_id is not None and prior.get('request_id') == request_id:
+                    require(prior['version'] == version and prior['revision'] == revision, 'UPDATE_TARGET_INVALID')
+                    return prior
                 if prior.get('state') in ('INSTALLING', 'INSTALL_UNKNOWN', 'INSTALLED_RELOAD_REQUIRED') and (
                         prior.get('state') != 'INSTALLED_RELOAD_REQUIRED' or prior.get('version') != self.version):
                     return dict(prior, state='INSTALL_UNKNOWN' if prior['state'] == 'INSTALLING' else prior['state'])
-                row = {'state': 'CHECKING', 'version': version}
+                intent = {'version': version, 'revision': revision}
+                if request_id is not None:
+                    intent['request_id'] = request_id
+                row = dict(intent, state='CHECKING')
                 atomic_write(self.root / 'status.json', row)
                 keeper = os.dup(fd)
                 try:
-                    Thread(target=self._run, args=(version, revision, keeper), daemon=True).start()
+                    Thread(target=self._run, args=(intent, keeper), daemon=True).start()
                 except BaseException:
                     os.close(keeper)
+                    atomic_write(self.root / 'status.json', dict(intent, state='INTERRUPTED'))
                     raise
                 return row
         except WCEError as error:
             if error.code != 'CONNECTION_BUSY':
                 raise
-            return read_optional(self.root / 'status.json') or {'state': 'CHECKING', 'version': version}
+            current = self._receipt()
+            if current['state'] in ACTIVE | {'INSTALLED_RELOAD_REQUIRED', 'INSTALL_UNKNOWN'}:
+                return current
+            return {'state': 'BUSY', 'code': 'UPDATE_BUSINESS_BUSY'}
 
-    def _run(self, version, revision, keeper):
+    def _run(self, intent, keeper):
         try:
+            version, revision = intent['version'], intent['revision']
             state = 'CHECKING'
+            readback = {}
 
             def progress(next_state, **fields):
                 nonlocal state
+                if next_state == 'INSTALLING':
+                    readback.update(fields)
                 state = next_state
-                atomic_write(self.root / 'status.json', {'state': state, 'version': version, **fields})
+                row = dict(intent, **readback)
+                atomic_write(self.root / 'status.json', dict(row, state=state, **fields))
 
             try:
                 ad = self.checker(self.version)
@@ -416,22 +506,23 @@ class UpdateInstaller:
                         shutil.rmtree(folder)
                         raise
                     atomic_write(stage / 'verified.json', {'folder': folder.name, 'manifest': manifest})
+                progress('STAGED')
                 deadline = time.monotonic() + 60
                 while True:
                     try:
                         self.switch(self.version, version, target, manifest, self.registry, folder, progress)
                         break
                     except WCEError as error:
-                        if state != 'WAITING_FOR_IDLE' or error.code not in ('CONNECTION_BUSY', 'CONNECTION_START_PENDING', 'UPDATE_BUSINESS_BUSY') or time.monotonic() >= deadline:
+                        if state != 'WAITING_FOR_IDLE' or error.code not in BUSY_CODES or time.monotonic() >= deadline:
                             raise
                         time.sleep(1)
             except (WCEError, OSError, ValueError, KeyError, IndexError, TypeError, BadZipFile, subprocess.SubprocessError) as error:
                 code = getattr(error, 'code', 'UPDATE_OPERATION_FAILED')
-                if code in ('CONNECTION_BUSY', 'CONNECTION_START_PENDING', 'UPDATE_BUSINESS_BUSY') and state == 'WAITING_FOR_IDLE':
-                    progress('BUSY', code='UPDATE_BUSINESS_BUSY')
+                if code in BUSY_CODES and state == 'WAITING_FOR_IDLE':
+                    progress('BUSY', code=code)
                 elif state == 'INSTALLING' and code != 'UPDATE_INSTALL_REJECTED':
                     progress('INSTALL_UNKNOWN', code=code)
                 else:
-                    progress('FAILED', code=code)
+                    progress('FAILED', code=code, downloaded=state in ('STAGED', 'WAITING_FOR_IDLE'))
         finally:
             os.close(keeper)

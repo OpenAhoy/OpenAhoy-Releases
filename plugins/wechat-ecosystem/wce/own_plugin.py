@@ -172,6 +172,7 @@ class PersonalStdioServer(OperatorStdioServer):
         from .video_protocol import VideoRouter
         self._inline_open_lock = threading.Lock()
         self._last_tools_list_observation = {'state': 'NOT_OBSERVED_IN_THIS_SERVER'}
+        self._management_resources = {}
         support=SupportRouter(TemplateRouter(ProjectContextRouter(UpdateRouter(XHSRouter(XPlatformRouter(SettingsRouter(router, settings_manager)))), registry=router.registry), registry=router.registry), registry=router.registry, instrument=False)
         managed=DraftManagementRouter(VideoRouter(support, router.registry), registry=router.registry, launcher=router.launcher)
         self._tool_observer=support
@@ -179,6 +180,14 @@ class PersonalStdioServer(OperatorStdioServer):
         support.tool_names=frozenset(t['name']for t in rows)
         support.readonly_tools=support.tool_names & LOCAL_ONLY_TOOLS
         super().__init__(managed, *args, **kwargs)
+
+    def _tool_available(self, name, arguments):
+        from .own_updates_protocol import INSTALL
+        # Codex can remove the previous cache after installing the verified
+        # target. This exact read remains available in the original process.
+        if name == INSTALL and arguments == {'action': 'status'}:
+            return name in self._tool_observer.tool_names
+        return super()._tool_available(name, arguments)
 
     def tool_result(self,name,arguments):
         # One hook surrounds every formal tool and its MCP representation.
@@ -193,7 +202,10 @@ class PersonalStdioServer(OperatorStdioServer):
         from .own_native_management import RESOURCE, MIME
         from .own_updates_protocol import RESOURCE as UPDATE_RESOURCE
         if method == 'resources/read' and params in ({'uri': RESOURCE}, {'uri': UPDATE_RESOURCE}):
-            return self.router.update_resource(self.router.management.resource(), params['uri'])
+            uri = params['uri']
+            if uri not in self._management_resources:
+                self._management_resources[uri] = self.router.update_resource(self.router.management.resource(), uri)
+            return deepcopy(self._management_resources[uri])
         if method == 'resources/list' and not params:
             return {'resources': [{'uri': UPDATE_RESOURCE, 'name': 'openahoy-management',
                 'title': 'OpenAhoy · 账号管理', 'mimeType': MIME}]}

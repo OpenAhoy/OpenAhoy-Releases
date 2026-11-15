@@ -96,7 +96,7 @@ JS = r'''
     const choiceGroups={audience_topics:['主题','读者','内容形式','目标'],voice:['表达'],image_preferences:['配图'],visual_layout:['版式']};
     const loaded=new Map(),verifications=new Map();let accountNames=new Map(),configAccounts=new Set(),importRequest=null,selectionEpoch=0,cardAccount='';
     const creations=new Map(),creatorEditors={},creatorChoices=[];let creator=null,creatorEpoch=0,fillRequest=null,lastRead=null;
-    let pendingRestore=null;
+    let pendingRestore=null,readTask=null;
     let ready=false, selected='', generation=0, busy=false, meta=null, before=null, pendingSave=null, historyEnded=false;
     // A saved override masks its fallback in the effective read. Show that
     // fallback only after a save and readback when inheritance is newly enabled.
@@ -192,8 +192,13 @@ JS = r'''
       }
       return values;
     }
-    async function load(keepEdits=true) {
+    function load(keepEdits=true) {
+      if(readTask)return readTask;
       if(!ready||busy)return;
+      readTask=readRules(keepEdits).finally(()=>{readTask=null;});
+      return readTask;
+    }
+    async function readRules(keepEdits) {
       if(!keepEdits)starter?.forget(selected);
       const epoch=++generation, target=base();busy=true;buttons();status('正在读取当前规则与有效预览。');
       try {
@@ -510,6 +515,9 @@ JS = r'''
     });
     $('rulesCreate').addEventListener('click',()=>openCreator(selected,accountNames.get(selected)));
     async function selectScope(cid,{keepCreator=false}={}){
+      // A read already in progress can finish before switching scopes.
+      // Saves and restores still hold the original scope and operation ID.
+      while(readTask)await readTask;
       if(busy)return false;if(cid===selected){if(cid)cardAccount=cid;buttons();return true;}
       if(pendingSave||pendingRestore){status('原操作结果待确认，请先在原范围接续。');return false;}
       if(cid)cardAccount=cid;

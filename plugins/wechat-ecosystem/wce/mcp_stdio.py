@@ -60,6 +60,9 @@ class StdioServer:
         if self.tokens<1:raise RPCError(-32001,"Rate limit exceeded")
         self.tokens-=1
 
+    def _tool_available(self, name, arguments):
+        return name in {item["name"] for item in self.router.list_tools()}
+
     def dispatch(self, message):
         request_id = None
         notification = False
@@ -126,7 +129,7 @@ class StdioServer:
             elif method == "tools/call":
                 if set(params) - {"name", "arguments", "_meta"} or not isinstance(params.get("name"), str) or not isinstance(params.get("arguments", {}), dict):
                     raise RPCError(-32602, "Invalid params")
-                if params["name"] not in {item["name"] for item in self.router.list_tools()}:
+                if not self._tool_available(params["name"], params.get("arguments", {})):
                     raise RPCError(-32602, "Unknown tool")
                 if params["name"] == "own.drafts.locate":
                     try:

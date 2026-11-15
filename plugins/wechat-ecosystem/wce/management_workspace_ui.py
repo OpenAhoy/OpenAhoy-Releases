@@ -517,7 +517,14 @@ body.oa-management.oa-native .oa-starter-options > button[aria-pressed=true]::af
 """
 
 NATIVE_FINISH_STYLE += """
-.oa-native #accounts>.account{flex:0 0 auto;width:min(100%,270px);max-width:100%}
+.oa-management.oa-native #accountPanel.oa-account-cards{container-type:inline-size}
+.oa-management.oa-native #accountPanel .oa-account-cards-body{justify-content:flex-start;align-items:center}
+.oa-management.oa-native #accounts{display:flex;flex-wrap:wrap;width:max-content;max-width:100%;max-height:none;overflow:visible}
+.oa-native #accounts>.account{flex:0 0 auto;width:clamp(200px,calc((100cqw - 20px)/2),270px);max-width:100%}
+.oa-management.oa-native #accountPanel .oa-account-tools{flex:0 0 auto;flex-direction:row;margin:0}
+@container(max-width:439px){
+ .oa-native #accounts>.account{width:min(100%,270px)}
+}
 .oa-native #accounts .oa-account-copy{flex:1;min-width:0}
 .oa-native #accounts .account-select{max-width:100%}
 .oa-native .oa-account-menu{position:relative;align-self:flex-start;flex:0 0 auto;margin-left:auto}

@@ -1,5 +1,6 @@
 """Optional software UI outside unchanged platform authority contracts."""
 from copy import deepcopy
+from importlib import import_module
 
 from .contracts import WCEError
 from .own_updates import check
@@ -28,7 +29,8 @@ def install_descriptor():
                 schema({'action': {'type': 'string', 'const': 'status'}}),
                 schema({'action': {'type': 'string', 'const': 'start'},
                         'version': {'type': 'string', 'maxLength': 29},
-                        'revision': {'type': 'string', 'pattern': '^[0-9a-f]{40}([0-9a-f]{24})?$'}}),
+                        'revision': {'type': 'string', 'pattern': '^[0-9a-f]{40}([0-9a-f]{24})?$'}},
+                       optional={'request_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'}}),
             ]}, 'outputSchema': {'type': 'object'},
             'annotations': {'readOnlyHint': False, 'destructiveHint': False,
                             'openWorldHint': True, 'idempotentHint': True},
@@ -44,6 +46,9 @@ class UpdateRouter:
         self.installed_version = installed_version
         self.checker = checker or check
         self.installer = installer
+        # A first-ever receipt read may happen after Codex prunes this
+        # process's package. Load the private reader's lazy dependency now.
+        import_module('.draft_group_upload_proof_reads', __package__)
 
     def __getattr__(self, name):
         return getattr(self.inner, name)
@@ -72,7 +77,15 @@ class UpdateRouter:
                                                          checker=self.checker)
             if arguments['action'] == 'status':
                 return installer.status()
-            return installer.start(arguments['version'], arguments['revision'])
+            request_id = arguments.get('request_id')
+            if request_id is None:
+                return installer.start(arguments['version'], arguments['revision'])
+            try:
+                return installer.start(arguments['version'], arguments['revision'], request_id)
+            except WCEError as error:
+                if error.code in ('UPDATE_TARGET_INVALID', 'UPDATE_PLATFORM_UNSUPPORTED'):
+                    return {'state': 'START_REJECTED', 'code': error.code, 'request_id': request_id}
+                raise
         if name != CHECK:
             return self.inner.call(name, arguments)
         if type(arguments) is not dict or arguments:
