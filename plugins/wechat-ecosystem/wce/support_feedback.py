@@ -112,14 +112,14 @@ class Support:
         for rid,digest,raw,state in rows:
             if hashlib.sha256(raw.encode()).hexdigest()!=digest:continue
             value=json.loads(raw)
-            if value.get('kind')=='feedback':pending.append({'report_id':rid,'digest':digest,'title':value['title'],'state':state})
+            if value.get('kind')=='feedback' and value.get('source','app')=='app':pending.append({'report_id':rid,'digest':digest,'title':value['title'],'state':state})
         return {'repository':self.repository,'diagnostics':self.logs.snapshot(), 'pending':pending,
             'version':self.version,'privacy':'LOCAL_ONLY; sanitized diagnostics attach only on explicit submit'}
 
     def open_report(self, report_id, digest):
         return self._get(report_id,digest)
 
-    def preview(self, fields, selected_platform):
+    def preview(self, fields, selected_platform, *, source=None):
         if type(fields) is not dict or set(fields)!=set(FIELDS) or selected_platform not in {'wechat','x','general','updates'}:
             raise ValueError('SUPPORT_REPORT_INVALID')
         clean={key:redact(fields[key]) for key in FIELDS}
@@ -148,6 +148,8 @@ class Support:
             compact={e['report_id']:e for e in failures[-5:]+events[-3:]}
             lines=[e['at']+' '+e.get('tool',e['module'])+' '+e['result']+' '+e.get('code','')+
                 (' phase='+e['operation_phase']if 'operation_phase'in e else '')+
+                (' error_kind='+e['error_kind']if 'error_kind'in e else '')+
+                (' proof_check='+e['proof_check']if 'proof_check'in e else '')+
                 (' fields='+','.join(e['different_fields'])if e.get('different_fields')else '')+
                 (' differences='+str(e['difference_count'])if 'difference_count'in e else '')+
                 (' candidate_created='+str(e['candidate_created'])if 'candidate_created'in e else '')+
@@ -160,7 +162,10 @@ class Support:
                 if len(description)>40:description=description[:len(description)//2]
                 elif len(lines)>1:lines=lines[:-1]
                 else:raise ValueError('SUPPORT_DRAFT_CARRIER_INVALID')
-        return self._put({'report_id':rid,'kind':'feedback','repository':self.repository,'title':title,'body':body,'web_body':web_body})
+        report = {'report_id':rid,'kind':'feedback','repository':self.repository,'title':title,'body':body,'web_body':web_body}
+        if source is not None:
+            report['source'] = source
+        return self._put(report)
 
     def diagnostics(self):
         rid=uuid.uuid4().hex
@@ -179,10 +184,15 @@ class Support:
         expected='https://github.com/'+self.repository+'/issues/'+str(value['number'])
         return expected if value.get('html_url')==expected else None
 
-    def send(self, report_id, digest):
-        row=self._get(report_id,digest)
-        if row['kind']!='feedback':raise ValueError('SUPPORT_REPORT_INVALID')
-        if row['state']!='PREPARED':return self.status(report_id,digest)
+    def _feedback(self, report_id, digest, source):
+        row = self._get(report_id, digest)
+        if row['kind'] != 'feedback' or row.get('source', 'app') != source:
+            raise ValueError('SUPPORT_REPORT_INVALID')
+        return row
+
+    def send(self, report_id, digest, *, source='app'):
+        row = self._feedback(report_id, digest, source)
+        if row['state']!='PREPARED':return self.status(report_id,digest,source=source)
         if not self.github.available():
             url='https://github.com/'+self.repository+'/issues/new?'+urllib.parse.urlencode({'title':row['title'],'body':row.get('web_body',row['body'])})
             # Browsers have finite URL carriers; preserve full report for copy/export.
@@ -191,7 +201,7 @@ class Support:
             return self._result(self._get(report_id,digest))
         with self._db()as db:
             change=db.execute('UPDATE reports SET state=? WHERE id=? AND state=?',('PENDING',report_id,'PREPARED')).rowcount
-        if not change:return self.status(report_id,digest)
+        if not change:return self.status(report_id,digest,source=source)
         try:
             result=self.github.create(self.repository,row['title'],row['body'])
             url=self._issue(result,row)
@@ -204,8 +214,8 @@ class Support:
             pass  # Original request is now PENDING; never POST a second time.
         return self._result(self._get(report_id,digest))
 
-    def status(self, report_id, digest):
-        row=self._get(report_id,digest)
+    def status(self, report_id, digest, *, source='app'):
+        row = self._feedback(report_id, digest, source)
         if row['state']not in {'PENDING','WEB_DRAFT'}:return self._result(row)
         try:
             matches=[]

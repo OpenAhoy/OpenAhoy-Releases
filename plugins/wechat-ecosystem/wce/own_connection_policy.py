@@ -30,20 +30,7 @@ IDENTITY_FIELDS = {'actor', 'connection_id', 'appid', 'resource_id', 'generation
 
 
 def registry_path():
-    # Optional host configuration for an independent installation/test profile.
-    # This is not a tool input, credential locator or permission grant.
-    selected = os.environ.get('OPENAHOY_DATA_DIR')
-    if selected is None:
-        return Path.home() / '.wce' / 'connections.json'
-    path = Path(selected)
-    if (not path.is_absolute() or '..' in path.parts or len(selected)>4096
-            or any(ord(c)<32 or ord(c)==127 for c in selected)):
-        raise WCEError('CONNECTION_INVALID_REGISTRY')
-    for ancestor in (path, *path.parents):
-        if ancestor.is_symlink():
-            raise WCEError('CONNECTION_INVALID_REGISTRY')
-    return path / 'connections.json'
-
+    return Path.home() / '.wce' / 'connections.json'
 
 
 def read_optional(path, maximum=16384):
@@ -274,16 +261,18 @@ class ConnectionPolicy:
     def fingerprint(self):
         return digest(self.value)
 
-    def check(self, candidate=True, *, readonly=False, proof_reader=None):
+    def check(self, candidate=True, *, readonly=False, proof_reader=None, allow_disconnected=False):
         if (path_check(self.path) != self.pin or path_check(self.root, True) != self.root_pin
                 or path_check(self.root / 'images', True) != self.image_pin
                 or path_check(self.root / 'state.sqlite3')[:2] != self.database_pin[:2]):
             raise WCEError('CONNECTION_POLICY_CHANGED')
-        if not self.value['enabled']:
+        if allow_disconnected and not readonly:
+            raise WCEError('CONNECTION_INVALID_ARGUMENTS')
+        if not self.value['enabled'] and not allow_disconnected:
             raise WCEError('CONNECTION_DISCONNECTED')
         if self.value['schema'] == 2:
             from .own_connection_registry import check_member
-            check_member(self, readonly=readonly, proof_reader=proof_reader)
+            check_member(self, revocation=not allow_disconnected, readonly=readonly, proof_reader=proof_reader)
         # A managed software update keeps the existing account delegation.
         # Account membership, identity and disconnection are checked above.
         return True
@@ -330,7 +319,7 @@ def load_policy(path, active=True):
     return policy
 
 
-def resolve(connection_id, registry=None, active=True):
+def resolve(connection_id, registry=None, active=True, *, readonly=False):
     selected = Path(registry or registry_path())
     data = read_registry(selected)
     path = data['connections'].get(connection_id)
@@ -343,7 +332,7 @@ def resolve(connection_id, registry=None, active=True):
         from .own_connection_registry import check_member
         if policy.value.get('registry_path') != str(selected):
             raise WCEError('CONNECTION_REGISTRY_CONFLICT')
-        check_member(policy, revocation=False)
+        check_member(policy, revocation=False, readonly=readonly)
     return policy
 
 

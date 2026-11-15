@@ -17,7 +17,7 @@ from .own_account_metadata import read_metadata
 from .own_bootstrap_security import path_check
 from .own_connection_policy import atomic_write, locked, registry_path
 from .own_connection_registry import mkdir
-from .x_api import CALLBACK, SCOPES, XHTTP, identifier
+from .x_api import CALLBACK, SCOPES, XHTTP, XResponseUnknown, identifier
 from .x_application import CLIENT_ID
 from .x_oauth import OAuthFlow
 from .x_discovery import DISCOVERY_TYPES, post_data, references, reply_matches, require, search_options
@@ -90,7 +90,13 @@ class XPlatform:
             raise WCEError('X_CLIENT_ID_INVALID')
         def check(cid, c):
             base = {'connection_id','profile','scope','expires_at','state','credential_scope'}
-            if type(c) is not dict or set(c) not in (base, base | {'client_id', 'application_name'}) or type(c['profile']) is not dict:
+            if type(c) is not dict or set(c) - {'removal_marker','binding_revision'} not in (base, base | {'client_id', 'application_name'}) or type(c['profile']) is not dict:
+                raise WCEError('X_CONNECTION_INVALID')
+            if 'binding_revision' in c and (type(c['binding_revision']) is not str
+                                            or re.fullmatch('[a-f0-9]{64}',c['binding_revision']) is None):
+                raise WCEError('X_CONNECTION_INVALID')
+            if 'removal_marker' in c and (type(c['removal_marker']) is not str
+                                          or re.fullmatch('[a-f0-9]{32}', c['removal_marker']) is None):
                 raise WCEError('X_CONNECTION_INVALID')
             if 'client_id' in c and (value['schema'] != 3 or not valid_client_id(c['client_id'])
                                      or c['client_id'] == CLIENT_ID or not valid_application_name(c['application_name'])):
@@ -133,15 +139,38 @@ class XPlatform:
             for c in self._load()['connections'].values():
                 profile=c['profile']
                 rows.append({'platform_id':'x','connection_id':c['connection_id'],'account_id':profile['id'],
-                    'state':'BOUND_IDLE' if c['state']=='BOUND' else 'ACTION_REQUIRED',
+                    'state':{'BOUND':'BOUND_IDLE','DISCONNECTED':'DISCONNECTED'}.get(c['state'],'ACTION_REQUIRED'),
                     'presentation':{'display_name':profile['name'],'avatar':None},
-                    'username':profile['username'],'profile_image_url':profile.get('profile_image_url'),
+                    'binding_revision':self._binding_revision(c),'username':profile['username'],'profile_image_url':profile.get('profile_image_url'),
                     'own_application': 'CONNECTED' if 'client_id' in c and c['state']=='BOUND'
                     else 'NEEDS_AUTHORIZATION' if 'client_id' in c else 'UNCONFIGURED'})
             return rows
         except WCEError:
             return [{'platform_id':'x','connection_id':'x-unavailable','state':'ACTION_REQUIRED',
                      'presentation':{'display_name':'X 连接需要处理','avatar':None}}]
+
+    @staticmethod
+    def _binding_revision(connection):
+        return connection.get('binding_revision', fingerprint(['binding',connection['credential_scope']]))
+
+    def disconnect(self, cid, account_id, binding_revision):
+        with locked(self.root / 'connection.lock', nonblocking=True):
+            value = self._load()
+            connection = value['connections'].get(cid)
+            if connection is None or connection['profile']['id'] != account_id:
+                raise WCEError('X_CONNECTION_NOT_FOUND')
+            if self._binding_revision(connection) != binding_revision:
+                raise WCEError('X_CONNECTION_CHANGED')
+            if connection['state'] != 'DISCONNECTED':
+                connection['state'] = 'DISCONNECTED'
+                connection['removal_marker'] = secrets.token_hex(16)
+                for grant in value.get('retired', {}).get(cid, {}).values():
+                    grant['state'] = 'DISCONNECTED'
+                self._save(value)
+        return {'connection_id': cid, 'state': 'DISCONNECTED', 'remote_revocation': 'NOT_REQUESTED'}
+
+    def automation_binding(self, cid):
+        return self._connection(cid).get('removal_marker')
 
     def settings(self,authorization_handle=None):
         value=self._load()
@@ -233,7 +262,7 @@ class XPlatform:
             client_id = value['client_id']
         if not client_id:
             raise WCEError('X_APPLICATION_REQUIRED')
-        if expected_connection_id is not None and prior is None:
+        if expected_connection_id is not None and (prior is None or prior['state']=='DISCONNECTED'):
             raise WCEError('X_CONNECTION_NOT_FOUND')
         if expected_user_id is not None:
             identifier(expected_user_id)
@@ -244,10 +273,12 @@ class XPlatform:
             if self.flow.snapshot()['state'] in {'AWAITING_AUTHORIZATION', 'EXCHANGING'}:
                 raise WCEError('X_AUTHORIZATION_IN_PROGRESS')
             self.flow.close()
+        removal_markers = {cid: c['removal_marker'] for cid,c in value['connections'].items()
+                           if 'removal_marker' in c}
         def finish(client, tokens, guard=nullcontext):
             return self._finish(client, tokens, guard, expected_connection_id=expected_connection_id,
                                 application_name=application_name, expected_scope=prior['credential_scope'] if prior else None,
-                                expected_user_id=expected_user_id)
+                                expected_user_id=expected_user_id, removal_markers=removal_markers)
         self.flow = self.flow_factory(client_id, self.api, finish)
         self.flow_handle='x-auth-'+secrets.token_hex(24)
         return {'state': 'AWAITING_AUTHORIZATION', 'authorization_handle':self.flow_handle, 'authorization_url': self.flow.authorization_url()}
@@ -266,7 +297,7 @@ class XPlatform:
                     'currency': 'USD', 'source': 'X_API', 'checked_at': self.clock(), **credits}
 
     def _finish(self, client_id, token_value, guard=nullcontext, *, expected_connection_id=None,
-                application_name=None, expected_scope=None, expected_user_id=None):
+                application_name=None, expected_scope=None, expected_user_id=None, removal_markers=None):
         secret = credential(token_value)
         tokens = json.loads(secret.reveal_for_adapter())
         profile = self.api.profile(Secret(tokens['access_token']))
@@ -281,9 +312,11 @@ class XPlatform:
             if expected_connection_id is not None and (expected_connection_id not in value['connections'] or cid!=expected_connection_id):
                 raise WCEError('X_AUTHORIZATION_ACCOUNT_MISMATCH')
             previous = value['connections'].get(cid)
+            if removal_markers is not None and (previous or {}).get('removal_marker') != removal_markers.get(cid):
+                raise WCEError('X_CONNECTION_CHANGED')
             if expected_scope is not None and previous['credential_scope'] != expected_scope:
                 raise WCEError('X_APPLICATION_CHANGED')
-            if previous and expected_connection_id is None and (application_name is not None or 'client_id' in previous):
+            if previous and previous['state'] != 'DISCONNECTED' and expected_connection_id is None and (application_name is not None or 'client_id' in previous):
                 raise WCEError('X_SELECT_EXISTING_ACCOUNT')
             if application_name is not None and (not valid_client_id(client_id) or client_id == CLIENT_ID
                                                   or not valid_application_name(application_name)):
@@ -291,7 +324,9 @@ class XPlatform:
             scope = fingerprint(['x', client_id, profile['id']])
             c = {'connection_id': 'x-' + profile['id'], 'profile': profile, 'scope': list(SCOPES),
                  'expires_at': self.clock() + token_value['expires_in'],
-                 'state': 'BOUND', 'credential_scope': scope}
+                 'state': 'BOUND', 'credential_scope': scope, 'binding_revision': secrets.token_hex(32)}
+            if previous and 'removal_marker' in previous:
+                c['removal_marker'] = previous['removal_marker']
             if application_name is not None:
                 value['schema'] = 3
                 retired = value.setdefault('retired', {}).setdefault(cid, {})
@@ -335,6 +370,8 @@ class XPlatform:
         c = value['connections'].get(cid)
         if not c:
             raise WCEError('X_CONNECTION_NOT_FOUND')
+        if c['state'] == 'DISCONNECTED':
+            raise WCEError('X_REAUTHORIZATION_REQUIRED')
         if receipt is not None:
             scope = self._receipt_scope(value, cid, receipt)
             if scope != c['credential_scope']:
@@ -463,6 +500,8 @@ class XPlatform:
             receipt['state'] = 'SUCCEEDED'
         except WCEError as error:
             receipt['error'] = error.code
+            if isinstance(error, XResponseUnknown):
+                receipt['error_kind'] = error.kind
             if re.fullmatch(r'X_HTTP_4[0-9]{2}', error.code) and error.code != 'X_HTTP_408':
                 receipt['state'] = 'REJECTED'
         except Exception:

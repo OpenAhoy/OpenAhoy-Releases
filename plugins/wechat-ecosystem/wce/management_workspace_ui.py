@@ -515,3 +515,22 @@ body.oa-management.oa-native .oa-starter-options > button[aria-pressed=true]::af
   color: var(--oa-preset-fill);
 }
 """
+
+NATIVE_FINISH_STYLE += """
+.oa-native #accounts>.account{flex:0 0 auto;width:min(100%,270px);max-width:100%}
+.oa-native #accounts .oa-account-copy{flex:1;min-width:0}
+.oa-native #accounts .account-select{max-width:100%}
+.oa-native .oa-account-menu{position:relative;align-self:flex-start;flex:0 0 auto;margin-left:auto}
+.oa-native #accounts>.account>.oa-account-recovery{align-self:center;min-height:28px;padding:3px 6px;font-size:11px;margin-inline-start:auto}
+.oa-native .oa-account-menu summary{display:grid;place-items:center;width:30px;height:30px;list-style:none;cursor:pointer;border-radius:7px;color:var(--muted);font-size:18px}
+.oa-native .oa-account-menu summary::-webkit-details-marker{display:none}
+.oa-native .oa-account-menu summary:hover{background:var(--soft);color:var(--ink)}
+.oa-native .oa-account-menu>div{position:absolute;right:0;top:100%;z-index:45;display:grid;gap:3px;white-space:nowrap;background:var(--surface);padding:4px;border-radius:8px;box-shadow:var(--raised)}
+.oa-native .oa-account-menu:not([open])>div{display:none}
+.oa-native .oa-account-menu>div>button:last-child{color:var(--danger)}
+.oa-native #accounts>.account:has(.oa-account-menu[open]){z-index:46}
+.oa-native .oa-account-remove-dialog{width:min(420px,calc(100% - 32px));padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink)}
+.oa-native .oa-account-remove-dialog::backdrop{background:#0006}
+.oa-native .oa-account-remove-dialog p{margin:8px 0;overflow-wrap:anywhere}
+.oa-native .oa-account-remove-dialog .actions{justify-content:flex-end;margin-top:14px}
+"""

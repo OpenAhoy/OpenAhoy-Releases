@@ -57,7 +57,9 @@ def perform(value, settings):
         return call(OPERATIONS[operation], arguments, settings.original.registry)
     if operation in BINDING_SPECS:
         strict_validate(arguments,BINDING_SPECS[operation])
-        method={'BINDING_CHECK':'channel_check','BINDING_BEGIN':'begin','BINDING_SUBMIT':'submit','BINDING_STATUS':'status','BINDING_CANCEL':'cancel','BINDING_RESUME':'resume'}[operation]
+        method={'BINDING_CHECK':'channel_check','BINDING_BEGIN':'begin','BINDING_SUBMIT':'submit','BINDING_STATUS':'status','BINDING_CANCEL':'cancel','BINDING_RESUME':'resume',
+                'REBIND_BEGIN':'rebind_begin','REBIND_SUBMIT':'rebind_submit',
+                'REBIND_STATUS':'rebind_status','REBIND_CANCEL':'rebind_cancel'}[operation]
         return getattr(settings.binding,method)(**arguments)
     strict_validate(arguments, schema({}))
     if operation == 'OPEN_BINDING':

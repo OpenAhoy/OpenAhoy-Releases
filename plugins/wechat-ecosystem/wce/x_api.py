@@ -1,5 +1,6 @@
 """Small official X v2 transport. No retries, credentials in URLs, or redirects."""
 import base64
+from http.client import HTTPException
 import json
 import math
 import re
@@ -27,6 +28,17 @@ def identifier(value):
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
+
+
+X_RESPONSE_ERROR_KINDS = frozenset({'TIMEOUT', 'TRANSPORT_ERROR', 'RESPONSE_DECODE_ERROR'})
+
+
+class XResponseUnknown(WCEError):
+    def __init__(self, kind):
+        if kind not in X_RESPONSE_ERROR_KINDS:
+            raise ValueError('Invalid X response error kind')
+        self.kind = kind
+        super().__init__('X_RESPONSE_UNKNOWN')
 
 
 class XHTTP:
@@ -72,8 +84,15 @@ class XHTTP:
             raise WCEError('X_HTTP_' + str(status)) from None
         except WCEError:
             raise
-        except (URLError, OSError, ValueError, UnicodeError):
-            raise WCEError('X_RESPONSE_UNKNOWN') from None
+        except URLError as error:
+            kind = 'TIMEOUT' if isinstance(error.reason, TimeoutError) else 'TRANSPORT_ERROR'
+            raise XResponseUnknown(kind) from None
+        except TimeoutError:
+            raise XResponseUnknown('TIMEOUT') from None
+        except (OSError, HTTPException):
+            raise XResponseUnknown('TRANSPORT_ERROR') from None
+        except (ValueError, RecursionError):
+            raise XResponseUnknown('RESPONSE_DECODE_ERROR') from None
 
     def exchange(self, client_id, code, verifier):
         return self.request('POST', '/2/oauth2/token', form=True, body={

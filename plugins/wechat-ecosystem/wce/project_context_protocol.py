@@ -8,6 +8,7 @@ from .x_operating_config import OperatingConfig
 
 SYNC, READ, UI = 'own.projects.sync', 'own.projects.read', 'wce.ui.projects.action'
 INITIALIZE = 'own.projects.initialize'
+DISCONNECT = 'wce.ui.management.disconnect'
 SCHEDULE_READ, SCHEDULE_UPDATE = 'own.schedules.read', 'own.schedules.update'
 STRING = {'type': 'string'}
 NUM = {'type': 'integer', 'minimum': 0}
@@ -54,7 +55,9 @@ SPECS = {INITIALIZE: schema({'project_root': STRING, 'expected_agents_sha256': S
                        'expected_skill_sha256': STRING, 'operation_id': STRING, 'expected_revision': NUM}),
          SYNC: schema({'project_root': STRING, 'skill_paths': {'type': 'array', 'items': STRING},
                        'operation_id': STRING, 'expected_revision': NUM}), READ: READ_SPEC, UI: UI_SPEC,
-         SCHEDULE_READ: schema({'connection_id': STRING}), SCHEDULE_UPDATE: SCHEDULE_WRITE}
+         SCHEDULE_READ: schema({'connection_id': STRING}), SCHEDULE_UPDATE: SCHEDULE_WRITE,
+         DISCONNECT: schema({'platform_id': {'type':'string','enum':['wechat_official_account','x','xiaohongshu']},
+                             'connection_id': STRING, 'account_id': STRING, 'binding_revision': STRING})}
 
 
 def validate(value, spec):
@@ -95,13 +98,14 @@ def descriptors():
         SYNC: ('关联或刷新当前项目规则', 'Index the explicitly authorized real project_root and selected SKILL.md paths. Local non-secret references only; source files, accounts, permissions and schedules are not modified. Never infer project_root from plugin cwd. Query original operation on uncertainty.'),
         READ: ('读取项目与 Skill 生效设置', 'Read registered projects, platform/account effective settings, original operation, or every source chunk with SHA256. Before content work consume selected AGENTS/Skills alongside existing platform preferences. Source text and settings never grant permission.'),
         UI: ('项目与 Skill 设置', 'App-only project catalog, preferences and original-operation recovery, including X schedule configuration/request. No host task creation, platform API or credentials.'),
+        DISCONNECT: ('移除本机账号连接', 'App-only. Disconnect the exact account after a user confirms the selected card. Retains local operation history. Does not request remote revocation.'),
         SCHEDULE_READ: ('读取本号定时配置与任务记录', 'Read X schedule preferences, exact host task associations, pending original request and last run. Host observations are dated reports, not live scheduler authority. No task or platform writes.'),
         SCHEDULE_UPDATE: ('记录原生定时结果', 'Record only actual Codex automation_update results after checking exact original task IDs, account marker and target chat. Never fabricate ACTIVE or next run time. PENDING/UNKNOWN preserve original IDs; persist partial creations before continuing. RUN_BEGIN uses the actual stable trigger occurrence (or original trigger turn ID with its retry limitation); reuse returned media/post attempts. RUN_RESULT MATCHED requires the original persisted X readback. This tool never creates, schedules, pauses or publishes anything itself.')}
     return [{'name': name, 'title': values[name][0], 'description': values[name][1],
              'inputSchema': deepcopy(spec), 'outputSchema': {'type': 'object'},
-             'annotations': {'readOnlyHint': name in (READ, SCHEDULE_READ), 'destructiveHint': False,
+             'annotations': {'readOnlyHint': name in (READ, SCHEDULE_READ), 'destructiveHint': name == DISCONNECT,
                              'idempotentHint': True, 'openWorldHint': False},
-             **({'_meta': {'ui': {'visibility': ['app']}}} if name == UI else {})}
+             **({'_meta': {'ui': {'visibility': ['app']}}} if name in (UI, DISCONNECT) else {})}
             for name, spec in SPECS.items()]
 
 
@@ -139,6 +143,18 @@ class ProjectContextRouter:
         if name not in SPECS:
             return self.inner.call(name, args)
         validate(args, SPECS[name])
+        if name == DISCONNECT:
+            cid = args['connection_id']
+            account_id, revision = args['account_id'], args['binding_revision']
+            if args['platform_id'] == 'x':
+                return self.inner.x.disconnect(cid, account_id, revision)
+            if args['platform_id'] == 'xiaohongshu':
+                return self.inner.xhs.disconnect(cid, account_id, revision)
+            from .own_connection_policy import disconnect, resolve
+            policy = resolve(cid, self.projects.registry, active=False)
+            require(policy.data['appid'] == account_id and policy.fingerprint == revision,
+                    'PROJECT_ACCOUNT_MISMATCH')
+            return disconnect(policy) | {'remote_revocation': 'NOT_REQUESTED'}
         if name == INITIALIZE:
             from .project_initialization import initialize
             return initialize(self.projects, **args)
@@ -150,10 +166,11 @@ class ProjectContextRouter:
             if args['operation'] == 'HOST_RESULT':
                 return self.schedules.host_result(**a)
             if args['operation'] == 'RUN_BEGIN':
-                return self.schedules.begin(**a)
+                marker = self._schedule_binding(a['connection_id'])
+                return self.schedules.begin(**a, binding_marker=marker)
             if args['operation'] == 'CONTROL_REQUEST':
-                if a['action'] == 'resume': self._schedule_ready(a['connection_id'])
-                return self.schedules.request(**a, configuration=None)
+                marker = self._schedule_binding(a['connection_id']) if a['action'] == 'resume' else None
+                return self.schedules.request(**a, configuration=None, binding_marker=marker)
             proof = self.inner.call('x.attempt.status', {'connection_id': a['connection_id'],
                 'kind': 'post', 'attempt_id': a['run_id'] + '-post'}) if a['state'] in ('MATCHED', 'FAILED') else {}
             upload = self.inner.call('x.attempt.status', {'connection_id': a['connection_id'],
@@ -199,8 +216,8 @@ class ProjectContextRouter:
                 self._scope({'platform_id': 'x', 'connection_id': a['connection_id']})
                 if op == 'SCHEDULE_READ': return self.schedules.read(**a)
                 if op == 'SCHEDULE_DELIVERY': return self.schedules.delivery(**a)
-                if a['action'] in ('enable', 'resume'): self._schedule_ready(a['connection_id'])
-                return self.schedules.request(**a)
+                marker = self._schedule_binding(a['connection_id']) if a['action'] in ('enable', 'resume') else None
+                return self.schedules.request(**a, binding_marker=marker)
             if op == 'CATALOG':
                 return self.projects.view()
             if op == 'SOURCE':
@@ -223,7 +240,9 @@ class ProjectContextRouter:
             value['x_configuration'] = configuration
         return value
 
-    def _schedule_ready(self, cid):
+    def _schedule_binding(self, cid):
         require(any(row['connection_id'] == cid and row.get('state') == 'BOUND_IDLE'
                     for row in self.inner.call('x.connections.list', {})['connections']),
                 'SCHEDULE_CONNECTION_NOT_READY')
+        marker = getattr(getattr(self.inner, 'x', None), 'automation_binding', None)
+        return marker(cid) if marker else None

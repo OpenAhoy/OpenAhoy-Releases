@@ -9,11 +9,11 @@ description: Manage OpenAhoy accounts, produce illustrated WeChat articles, use 
 
 使用当前实际加载的原生工具。微信公众号先区分正常内容生产、旧稿恢复、普通发表和群发；它们有各自真实权限和状态。X 单账号通路按[X 官方接入](references/X_ACCOUNT.md)执行，不能从页面入口或本地fixture通过推导实际账号/API已验证；不跨平台复用凭据、规则或媒体。小红书按[小红书标准浏览器接入](references/XIAOHONGSHU.md)操作：本人官方扫码、显式connection_id的隔离会话、本号笔记读取、原生图文一次提交和原任务链接读回；它不是已获官方发布API。其他平台和共享资产分发仍是后续方向。
 
-Seedance 首尾帧生成和 X 单视频交付见 [Seedance 视频](references/SEEDANCE.md)。
+Seedance 生成和 X 单视频交付见 [Seedance 视频](references/SEEDANCE.md)。从创意准备分镜、画面资产和运镜提示词时，使用随包的 [OpenAhoy 视频导演](../video-director/SKILL.md)。
 
 ## 连接与规则
 
-内嵌页“反馈问题”仅需可选的一句描述；本人点击“提交反馈并附诊断”时自动生成脱敏快照并使用本机已有GitHub CLI身份提交至OpenAhoy/OpenAhoy-Feedback，版本、系统和最近失败/运行诊断自动附上，技术预览可选查看，不要求填写复现步骤或复制日志；没有该身份时打开官方待提交草稿，不声称已经创建Issue。发送未知只查询原report_id，不重发。诊断日志仅白名单状态/错误码/相对模块位置，无自动上报；本人可复制或导出当前脱敏快照。反馈/日志app-only工具不得由模型代调。软件更新固定公开发行源OpenAhoy/OpenAhoy-Releases，保留账号及配置。
+内嵌页“反馈问题”仅需可选的一句描述；本人点击“提交反馈并附诊断”时自动生成脱敏快照并使用本机已有GitHub CLI身份提交至OpenAhoy/OpenAhoy-Feedback，版本、系统和最近失败/运行诊断自动附上，技术预览可选查看，不要求填写复现步骤或复制日志；没有该身份时打开官方待提交草稿，不声称已经创建Issue。发送未知只查询原report_id，不重发。诊断日志仅白名单状态/错误码/相对模块位置，无自动上报；本人可复制或导出当前脱敏快照。内嵌页反馈/日志工具仅供界面使用。对话可用 `openahoy.feedback.preview` 预览仅作本机准备的脱敏报告。本人明确要求提交反馈时，沿这份报告的 `report_id` 和 `digest` 调用 `openahoy.feedback.submit`，传 `confirmed: true`。若状态未知，使用 `openahoy.feedback.status` 查原回执。返回网页草稿时提供原链接。反馈说明只整理与故障直接相关的内容，勿传原稿、秘密、完整聊天或原始日志。软件更新固定公开发行源OpenAhoy/OpenAhoy-Releases，保留账号及配置。
 
 X 运营表单和可加载标准见[X 运营配置与创作 Skill](references/X_CONFIGURATION.md)。生产前完整读取本号 `own.projects.read effective` 的 `x_configuration.configuration` 与 `x_configuration.skill.text`（complete=true），连同原适用 AGENTS/Skills/补充偏好采用；不能只看旧五字段摘要。定位、关注方式多选与自定义、栏目和图片方法来自同一保存配置。导入预览/保存/下载均不启用日程，个人资料不打入公共包；公众号八字段保持原格式。
 
@@ -48,6 +48,8 @@ X 页的“立即生产并发布”通过现有宿主消息桥向当前聊天发
 打开绑定表单时会先自动用公开固定值验证本机加密通道；这只使用同一页面加密、app-only 密文桥与随包 helper，不读取账号、调用微信或访问钥匙串，不增加权限。自检通过才启用密钥输入，失败只影响该表单，不阻断已绑定账号、加载配置或正常发文。
 
 “绑定账号”在同一内嵌资源打开专用 AppID＋隐藏 AppSecret 表单，名称可选；本人点击一次绑定即提交，不另弹终端或逐版本审核。表单用受支持的 SecureContext/WebCrypto 生成标准 JWE，只将密文经 app-only 工具桥送到随包 macOS 原生加密 helper 的私有 pipe，原 enrollment 进行微信验证后才存钥匙串。模型不能调用或索取这些输入；密钥、明文 Secret 不进工具参数/父桥、widgetState、URL 或日志。不声称能对抗恶意宿主/DOM 替换；宿主未提供安全加密能力就近显示不可用，不自动转外部浏览器。绑定成功返回并刷新原工作区；已绑定不重绑，取消不声称撤回已发请求，未知沿原操作查询，白名单明确拒绝后才由本人在原流程继续。兼容本机安全页仍保留给旧入口，内嵌不嵌套 HTTP 页面、不自动打开外部浏览器。产品候选与实际 Codex 宿主可用性分别验收，不因本地组件测试通过宣称真实宿主已经验证。
+
+公众号卡片显示「查看恢复方法」时，先只读核对原连接和当前机器的绑定证明。登记 AppID 仅供核对。原账号的重新绑定和移除需要有效的本机身份校验。已有当前机器经核验的恢复入口时，由本人在可信终端核对原账号再执行，完成后刷新列表。缺少恢复依据时记录明确缺口并保留账号、草稿、配置和回执。
 
 ## 制作与管理个人生产配置
 

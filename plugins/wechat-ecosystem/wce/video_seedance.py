@@ -20,7 +20,8 @@ TASKS = 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks'
 RESULT_HOSTS = frozenset({'ark-content-generation-cn-beijing.tos-cn-beijing.volces.com',
                           'ark-acg-cn-beijing.tos-cn-beijing.volces.com'})
 TASK_ID = re.compile(r'cgt-[A-Za-z0-9-]{1,120}\Z')
-MAX_REQUEST = 12 * 1024 * 1024
+MAX_REQUEST = 64_000_000
+MAX_REFERENCE_IMAGES = 30
 MAX_RESULT = 64 * 1024 * 1024
 MAX_JSON = 256 * 1024
 MAX_REJECTION_BODY = 8 * 1024
@@ -98,14 +99,14 @@ def request_body(prompt, frames, *, model=MODEL, mode='frames', duration=5, reso
         raise WCEError('VIDEO_OUTPUT_UNSUPPORTED')
     if mode == 'edit' and duration != -1 or mode == 'extend' and direction not in ('before','after'):
         raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
-    expected = {'frames': 2, 'reference': 1}.get(mode, 0)
-    if len(frames) != expected or (mode in ('edit', 'extend')) != bool(reference):
+    minimum, maximum = {'frames': (2, 2), 'reference': (1, MAX_REFERENCE_IMAGES)}.get(mode, (0, 0))
+    if not minimum <= len(frames) <= maximum or (mode in ('edit', 'extend')) != bool(reference):
         raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
     if mode == 'extend':
         side = '向前' if direction == 'before' else '向后'
         prompt = f'将参考视频{side}延长。{prompt}'
     content = [{'type': 'text', 'text': prompt}]
-    roles = ('first_frame', 'last_frame') if mode == 'frames' else ('reference_image',) if mode == 'reference' else ()
+    roles = ('first_frame', 'last_frame') if mode == 'frames' else ('reference_image',) * len(frames)
     for role, (mime, raw) in zip(roles, frames, strict=True):
         encoded = base64.b64encode(raw).decode('ascii')
         content.append({'type': 'image_url', 'role': role,
@@ -201,6 +202,9 @@ class Ark:
 
     def download(self, url, output):
         result_url(url)
+        self._download(url, output)
+
+    def _download(self, url, output):
         try:
             with self.opener.open(Request(url, headers={'Accept': 'video/mp4'}), timeout=25) as response:
                 size = 0

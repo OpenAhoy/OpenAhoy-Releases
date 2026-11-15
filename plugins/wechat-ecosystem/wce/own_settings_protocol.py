@@ -85,24 +85,49 @@ def descriptors():
     return result
 
 
-def overview(router):
+def overview(router, *, native=False):
+    from .own_connection_policy import read_registry, resolve
+    from .own_connection_registry import MembershipProofError
     from .own_presentation import read
     raw = router.call('own.connections.list', {})
+    entries = (read_registry(router.registry).get('entries', {}) if native and
+               any(item.get('error') == 'CONNECTION_ENTRY_UNAVAILABLE' for item in raw['connections']) else {})
     projected = []
     for item in raw['connections']:
         # Deliberately avoid private roots, dynamic lease details and opaque handles.
         row = {key: item[key] for key in
             ('connection_id', 'account_id', 'label', 'state', 'error') if key in item}
         try:
-            row['presentation'] = read(item['connection_id'], router.registry)
-        except WCEError:
-            # One inaccessible identity must not hide unrelated accounts or be
-            # mistaken for editable, missing presentation data.
+            policy = resolve(item['connection_id'], router.registry, active=False, readonly=native)
+        except (WCEError, OSError, EOFError) as error:
+            policy = None
+            if native:
+                storage_pin = isinstance(error, MembershipProofError) and error.check in {
+                    'JOURNAL_DIRECTORY', 'ACCOUNT_ROOT', 'IMAGE_DIRECTORY', 'DATABASE'}
+                row['recovery'] = {'kind': 'STORAGE_IDENTITY_CHANGED' if storage_pin else 'CHECK_LOCAL_BINDING'}
+                entry = entries.get(item['connection_id'])
+                if entry:
+                    row['label'] = entry['label']
+                    row['recovery']['registered_appid'] = entry['appid']
+                row.pop('account_id', None)
+        if policy is not None:
+            try:
+                row['presentation'] = read(item['connection_id'], router.registry)
+            except (WCEError, OSError, EOFError):
+                pass
+            else:
+                if native and item.get('error') != 'CONNECTION_ENTRY_UNAVAILABLE':
+                    row['binding_revision'] = policy.fingerprint
+                projected.append(row)
+                continue
+            if native and item.get('error') != 'CONNECTION_ENTRY_UNAVAILABLE':
+                row['binding_revision'] = policy.fingerprint
+        else:
             row['state'] = 'ACTION_REQUIRED'
             row['error'] = 'CONNECTION_ENTRY_UNAVAILABLE'
-            row['presentation'] = {
-                'display_name': '账号资料不可用', 'avatar': None, 'revision': None,
-                'state': 'UNAVAILABLE', 'name_source': 'UNSET', 'avatar_source': 'UNSET'}
+        row['presentation'] = {
+            'display_name': '账号资料不可用', 'avatar': None, 'revision': None,
+            'state': 'UNAVAILABLE', 'name_source': 'UNSET', 'avatar_source': 'UNSET'}
         projected.append(row)
     return {'connections': projected, 'platform_business_capabilities': 'NOT_VERIFIED'}
 
@@ -298,7 +323,7 @@ class SettingsRouter:
         if name == OVERVIEW:
             strict_validate(arguments, schema({}))
             from .own_platform_catalog import WECHAT, platforms
-            value = overview(self.original)
+            value = overview(self.original, native=True)
             return dict(value, platforms=platforms(), connections=[dict(row, platform_id=WECHAT)
                 for row in value['connections']])
         if name == ACTION:

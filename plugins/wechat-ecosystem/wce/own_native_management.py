@@ -9,7 +9,7 @@ SCRIPT = r'''
 (() => {
  'use strict';
  const $=id=>document.getElementById(id),bridge=window.parent,pending=new Map();
- const allowed=new Set(['wce.ui.management.overview','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','wce.ui.video.credential','wce.ui.video.workspace']);
+ const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','wce.ui.video.credential','wce.ui.video.workspace']);
 
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
  let view='home',initialView='',explicitNavigation=false;
@@ -176,17 +176,114 @@ SCRIPT = r'''
    }catch(_){}}
    box.textContent=Array.from(name(row))[0]||'账';return box;
  }
+ let removalTarget=null, removing=false;
+ const removalDialog=$('accountRemoveDialog');
+ const recoveryDialog=$('accountRecoveryDialog');
+ let recoveryTarget=null;
+ function recoveryAction(row){
+   const button=document.createElement('button');
+   button.type='button';button.className='oa-account-recovery';
+   OAUI.set(button,'查看恢复方法');
+   button.onclick=()=>{
+     if(closed||activePlatform!==row.platform_id||!rows.includes(row))return;
+     recoveryTarget=row;
+     OAUI.raw($('accountRecoveryTarget'),[row.label,row.recovery.registered_appid].filter(Boolean).join(' · '));
+     OAUI.set($('accountRecoveryReason'),row.recovery.kind==='STORAGE_IDENTITY_CHANGED'
+       ?'本机绑定证明与当前存储位置不一致，原账号仍在登记中。'
+       :'暂时无法核实本机绑定，需先检查原登记。');
+     OAUI.set($('accountRecoveryStatus'),'');
+     $('accountRecoveryAsk').hidden=!hostCapabilities.message?.text;
+     $('accountRecoveryAsk').disabled=false;
+     recoveryDialog.showModal();
+   };
+   return button;
+ }
+ $('accountRecoveryClose').onclick=()=>recoveryDialog.close();
+ recoveryDialog.addEventListener('close',()=>{recoveryTarget=null;});
+ $('accountRecoveryAsk').onclick=async event=>{
+   const row=recoveryTarget;
+   if(!event.isTrusted||!row||!rows.includes(row)||row.platform_id!==activePlatform)return;
+   const button=$('accountRecoveryAsk');button.disabled=true;
+   try{
+     const prompt=OAUI.format('请只读核对这个 OpenAhoy 公众号原绑定及本机恢复入口。连接 ID 为 {0}。请保留原账号、草稿、配置和回执。',[row.connection_id]);
+     await sendChatRequest(prompt);
+     if(recoveryTarget===row)OAUI.set($('accountRecoveryStatus'),'已在当前对话发起只读检查。');
+   }catch(_){
+     if(recoveryTarget===row)OAUI.set($('accountRecoveryStatus'),'请在 Codex 对话里直接发起恢复检查。');
+   }finally{
+     if(recoveryTarget===row)button.disabled=false;
+   }
+ };
+ function accountMenu(row){
+   const menu=document.createElement('details'),toggle=document.createElement('summary');
+   const actions=document.createElement('div'),rebind=document.createElement('button'),remove=document.createElement('button');
+   menu.className='oa-account-menu';
+   toggle.textContent='⋯';OAUI.attr(toggle,'aria-label','{0} 的更多操作',name(row)||row.account_id);
+   remove.type='button';OAUI.set(remove,'移除账号');
+   remove.onclick=()=>{
+     if(!ready||closed||refreshing||removing||activePlatform!==row.platform_id)return;
+     if(!rows.some(item=>key(item)===key(row)&&item.account_id===row.account_id&&item.binding_revision===row.binding_revision))return;
+     menu.open=false;removalTarget=row;
+     OAUI.raw($('accountRemoveTarget'),[name(row),platformName(row.platform_id),row.account_id].filter(Boolean).join(' · '));
+     removalDialog.showModal();
+   };
+   rebind.type='button';OAUI.set(rebind,'重新绑定');
+   rebind.onclick=async event=>{
+     if(!event.isTrusted||!ready||closed||removing||refreshing||activePlatform!==row.platform_id)return;
+     menu.open=false;
+     await select(key(row));
+     const chosen=current();
+     if(closed||!chosen||key(chosen)!==key(row)||chosen.binding_revision!==row.binding_revision)return;
+     if(row.platform_id==='wechat_official_account')return binding.open(row);
+     if(row.platform_id==='xiaohongshu')return xhsManagement.reconnect(row.connection_id);
+     await openXAuthorization(true);
+     if(current()&&key(current())===key(row))await xManagement.reauthorize();
+   };
+   actions.append(rebind,remove);menu.append(toggle,actions);return menu;
+ }
+ $('accountRemoveCancel').onclick=()=>removalDialog.close();
+ removalDialog.addEventListener('close',()=>{removalTarget=null;});
+ $('accountRemoveConfirm').onclick=async event=>{
+   const row=removalTarget;
+   if(!event.isTrusted||!row||removing||closed||!ready||refreshing)return;
+   if(view!=='platform'||activePlatform!==row.platform_id||!rows.some(item=>key(item)===key(row)&&item.account_id===row.account_id&&item.binding_revision===row.binding_revision)){
+     removalDialog.close();return;
+   }
+   removing=true;removalDialog.close();
+   let disconnected=false;
+   try{
+     const result=await tool('wce.ui.management.disconnect',{
+       platform_id:row.platform_id,connection_id:row.connection_id,account_id:row.account_id,binding_revision:row.binding_revision
+     });
+     const value=content(result);
+     disconnected=!result.isError&&value.connection_id===row.connection_id&&value.state==='DISCONNECTED';
+   }catch(_){}
+   finally{
+     removing=false;
+     if(!closed){
+       const observed=await refresh();
+       const confirmed=observed?.some(item=>key(item)===key(row)&&item.state==='DISCONNECTED');
+       const stillVisible=rows.some(item=>key(item)===key(row));
+       if(view==='platform'&&activePlatform===row.platform_id){
+         const verified=confirmed||(disconnected&&!stillVisible);
+         notice(verified?'已从 OpenAhoy 移除账号。':'请刷新核对账号状态，移除结果尚未确认。',!verified);
+       }
+     }
+   }
+ };
  function card(row,choose=false){
    const el=document.createElement('div');el.className='account';el.style.display='flex';el.dataset.accountKey=key(row);
-   const body=document.createElement('div');body.style.minWidth='0';const title=document.createElement(choose?'button':'strong');title.className=choose?'account-select':'account-title';if(name(row))OAUI.raw(title,name(row));else OAUI.set(title,'账号资料暂不可用');title.title=name(row);
-   if(choose){el.tabIndex=0;el.setAttribute('role','option');el.addEventListener('click',e=>{if(!e.target.closest('button,a')){selectionIntent++;select(key(row));}});el.addEventListener('keydown',e=>{if(e.target===el&&['Enter',' '].includes(e.key)){e.preventDefault();selectionIntent++;select(key(row));}});title.setAttribute('aria-pressed',String(key(row)===selected));title.addEventListener('click',()=>{selectionIntent++;select(key(row));});}
+   const body=document.createElement('div');body.style.minWidth='0';const title=document.createElement(choose?'button':'strong');title.className=choose?'account-select':'account-title';const display=row.recovery?row.label:name(row);if(display)OAUI.raw(title,display);else OAUI.set(title,'账号资料暂不可用');title.title=display||'';
+   if(choose){el.tabIndex=0;el.setAttribute('role','option');el.addEventListener('click',e=>{if(!e.target.closest('button,a,summary,.oa-account-menu')){selectionIntent++;select(key(row));}});el.addEventListener('keydown',e=>{if(e.target===el&&['Enter',' '].includes(e.key)){e.preventDefault();selectionIntent++;select(key(row));}});title.setAttribute('aria-pressed',String(key(row)===selected));title.addEventListener('click',()=>{selectionIntent++;select(key(row));});}
    const attribution=document.createElement('span');attribution.className='help';attribution.style.display='block';if(platformName(row.platform_id))OAUI.set(attribution,platformName(row.platform_id));else OAUI.raw(attribution,platform(row.platform_id)?.name||'');
    const state=document.createElement('span');state.className='status'+(['CONNECTED','BOUND_IDLE'].includes(row.state)?' good':'');OAUI.set(state,({CONNECTED:'已连接',BOUND_IDLE:'已绑定 · 空闲',DISCONNECTED:'已断开',ACTION_REQUIRED:'需要处理',BUSY:'正在使用'}[row.state]||'状态待核对'));
    if(row.platform_id==='x'){
     el.classList.add('oa-x-account');
     body.append(title,xCardLine('X','oa-x-oauth-state'),xCardLine('X Developer Console','oa-x-console-state',choose?row:null));
    }else body.append(title,attribution,state);
-   el.append(avatar(row),body);
+   body.className='oa-account-copy';el.append(avatar(row),body);
+   if(choose&&row.account_id&&/^[a-f0-9]{64}$/.test(row.binding_revision)&&row.error!=='CONNECTION_ENTRY_UNAVAILABLE')el.append(accountMenu(row));
+   else if(choose&&row.platform_id==='wechat_official_account'&&row.recovery)el.append(recoveryAction(row));
    if(row.platform_id==='x')updateXCard(el,row);
    return el;
  }
@@ -279,7 +376,7 @@ SCRIPT = r'''
      const value=content(await tool('wce.ui.management.overview',{}));if(closed)return;
      if(!Array.isArray(value.platforms)||value.platforms.some(p=>!p||typeof p.id!=='string'||typeof p.name!=='string'||typeof p.settings_supported!=='boolean'||typeof p.binding_supported!=='boolean')||new Set(value.platforms.map(p=>p.id)).size!==value.platforms.length)throw new Error('PLATFORM_INVALID_DIRECTORY');
      if(!Array.isArray(value.connections)||value.connections.some(row=>!row||typeof row.platform_id!=='string'||typeof row.connection_id!=='string'||(row.account_id!==undefined&&typeof row.account_id!=='string')||typeof row.state!=='string')||new Set(value.connections.map(key)).size!==value.connections.length)throw new Error('MANAGEMENT_INVALID_SNAPSHOT');
-     directory=value.platforms;rows=value.connections;
+     directory=value.platforms;rows=value.connections.filter(row=>row.state!=='DISCONNECTED');
      renderPlatforms();renderFeatures();
      if(view==='platform'){
        const intent=platformEpoch;await renderAccounts();
@@ -293,6 +390,7 @@ SCRIPT = r'''
          await editor.setReady(true);initializedEditors.add(id);const row=current();if(view==='platform'&&row?.platform_id===id)await select(key(row));
        }
      }
+     return value.connections;
    }catch(_){if(!closed){notice('账号读取失败，已有显示可能不是最新状态；可点击刷新重试。',true);OAUI.set($('homeStatus'),'暂时无法读取平台。');}}
    finally{refreshing=false;buttons();}
  }
@@ -384,9 +482,11 @@ SCRIPT = r'''
    const result=await tool(name,args);
    if(result?.isError)throw new Error(result.structuredContent?.error||result.content?.[0]?.text||'VIDEO_TOOL_FAILED');
    return content(result);
- },video,async()=>{
+ },video,async site=>{
    if(!hostCapabilities.openLinks)throw new Error('HOST_OPEN_LINK_UNAVAILABLE');
-   const result=await rpc('ui/open-link',{url:'https://console.volcengine.com/finance/bill/detail'});
+   const url={cn:'https://platform.minimax.cn/user-center/payment/balance',
+              global:'https://platform.minimax.io/user-center/payment/balance'}[site]||'https://console.volcengine.com/finance/bill/detail';
+   const result=await rpc('ui/open-link',{url});
    if(!result||result.isError)throw new Error('HOST_OPEN_LINK_FAILED');
  });
  const intro=$('homeIntroPlayer');
@@ -416,7 +516,7 @@ SCRIPT = r'''
      platformEpoch++;selectionIntent++;selectEpoch++;navigationEpoch++;
      if(target==='home'){closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();}
      view=target;showVideo(target==='video');renderView();renderPlatforms();
-     if(focus)(target==='home'?$('homeTitle'):$('openVideoWorkspace')).focus();
+     if(focus)(target==='home'?$('homeTitle'):$('videoPageTitle')).focus();
      return;
    }
    view='platform';

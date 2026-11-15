@@ -25,6 +25,11 @@ CHANNEL_APPID='wx0000000000000000'
 CHANNEL_CANARY='OPENAHOY_PUBLIC_CHANNEL_CHECK_V1'
 CHANNEL_TTL=120
 BINDING_SPECS={
+ 'REBIND_BEGIN':schema({'view':HANDLE,'connection_id':{'type':'string','minLength':1},
+                       'appid':ID,'binding_revision':HANDLE}),
+ 'REBIND_SUBMIT':schema({'view':HANDLE,'operation':HANDLE,'jwe':{'type':'string','minLength':1,'maxLength':16384}}),
+ 'REBIND_STATUS':schema({'view':HANDLE,'operation':HANDLE}),
+ 'REBIND_CANCEL':schema({'view':HANDLE,'operation':HANDLE}),
  'BINDING_CHECK':schema({'view':HANDLE},{'jwe':{'type':'string','minLength':1,'maxLength':16384}}),
  'BINDING_BEGIN':schema({'view':HANDLE,'appid':ID},{'label':{'type':'string','maxLength':64},
     'revalidate_unknown':{'type':'boolean'}}),
@@ -269,6 +274,93 @@ class InlineBinding:
                 result['state']=status(cid,self.registry)['state']
             except (WCEError,OSError,EOFError):result['state']='ACTION_REQUIRED'
         return result
+
+    def rebind_begin(self, view, connection_id, appid, binding_revision):
+        from .own_connection_policy import resolve
+        with self.lock:
+            panel = self._view(view)
+            previous = panel.get('rebind')
+            if previous and previous['state'] in {'READY','IN_PROGRESS','UNKNOWN'}:
+                raise WCEError('INLINE_BINDING_BUSY')
+            policy = resolve(connection_id,self.registry,active=False)
+            policy.check(readonly=True)
+            if policy.data['appid'] != appid or policy.fingerprint != binding_revision:
+                raise WCEError('CONNECTION_POLICY_CHANGED')
+            challenge=self._crypto().begin(appid)
+            operation=secrets.token_hex(32)
+            panel['rebind']={'operation':operation,'policy':policy,'challenge':challenge,
+                             'state':'READY','created':time.monotonic()}
+            return {'operation':operation,'challenge':challenge,'state':'READY'}
+
+    def _rebind(self, view, operation):
+        item=self._view(view).get('rebind')
+        if item is None or item['operation']!=operation:
+            raise WCEError('INLINE_BINDING_OPERATION_NOT_FOUND')
+        return item
+
+    def rebind_status(self, view, operation):
+        with self.lock:
+            item=self._rebind(view,operation)
+            return {'state':item['state'],'operation':operation,
+                    'connection_id':item['policy'].data['connection_id']}
+
+    def rebind_cancel(self, view, operation):
+        with self.lock:
+            item=self._rebind(view,operation)
+            if item['state'] in {'READY','IN_PROGRESS'}:
+                if item['state']=='READY':
+                    try: self.crypto.cancel(item['challenge'])
+                    except WCEError: pass
+                item['state']='CANCELLED'
+            return self.rebind_status(view,operation)
+
+    def rebind_submit(self, view, operation, jwe):
+        with self.lock:
+            item=self._rebind(view,operation)
+            if item['state']!='READY':
+                return self.rebind_status(view,operation)
+            if time.monotonic()-item['created']>120:
+                self.rebind_cancel(view,operation)
+                return self.rebind_status(view,operation)
+            challenge=item.pop('challenge')
+            item['state']='REJECTED'
+            appid,secret=self.crypto.decrypt(challenge,jwe)
+            if appid!=item['policy'].data['appid']:
+                item['state']='REJECTED'
+                raise WCEError('INLINE_BINDING_ENVELOPE_REJECTED')
+            if not item['policy'].value['enabled']:
+                raise WCEError('CONNECTION_DISCONNECTED')
+            item['state']='IN_PROGRESS'
+            threading.Thread(target=self._reauthorize,args=(item,secret),
+                             daemon=True,name='openahoy-rebind').start()
+            return self.rebind_status(view,operation)
+
+    def _reauthorize(self,item,secret):
+        from .own_bootstrap_security import acquire_checked
+        from .own_keychain import KeychainCredential
+        policy=item['policy']
+        replacing=False
+        try:
+            with ExitStack() as locks:
+                for path in (self.registry.parent/'connection-setup.lock',policy.root/'connection-start.lock',
+                             policy.root/'connection.lock',policy.root/'connection-policy.lock'):
+                    locks.enter_context(locked(path,nonblocking=True))
+                policy.check(readonly=True)
+                with self.lock:
+                    if self.closed or item['state']!='IN_PROGRESS':
+                        return
+                acquire_checked(policy.data['appid'],secret.reveal_for_adapter())
+                with self.lock:
+                    if self.closed or item['state']!='IN_PROGRESS':
+                        return
+                    policy.check(readonly=True)
+                    replacing=True
+                    KeychainCredential(policy).replace(secret.reveal_for_adapter())
+                    item['state']='BOUND_IDLE'
+        except Exception:
+            with self.lock:
+                if item['state']=='IN_PROGRESS':
+                    item['state']='UNKNOWN' if replacing else 'REJECTED'
 
     def begin(self,view,appid,label='',revalidate_unknown=False):
         with self.lock:

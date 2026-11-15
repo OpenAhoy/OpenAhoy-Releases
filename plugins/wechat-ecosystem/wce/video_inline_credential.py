@@ -31,25 +31,26 @@ class InlineVideoCredential:
             if self.pending and self.pending['session'] == session:
                 self._clear()
 
-    def begin(self):
+    def begin(self, provider='ark'):
         with self.lock:
             if self.closed:
                 raise WCEError('VIDEO_CREDENTIAL_SESSION_EXPIRED')
             self._clear()
             crypto = self.crypto_factory()
             try:
-                challenge = crypto.begin(PURPOSE)
+                purpose = PURPOSE if provider == 'ark' else 'openahoy:video:minimax:' + provider + ':key:v1'
+                challenge = crypto.begin(purpose)
                 session = secrets.token_hex(32)
                 timer = threading.Timer(TTL, self._expire, args=(session,))
                 timer.daemon = True
                 self.pending = {'crypto': crypto, 'challenge': challenge, 'session': session,
-                                'created': self.clock(), 'timer': timer}
+                                'created': self.clock(), 'timer': timer, 'purpose': purpose, 'provider': provider}
                 timer.start()
             except BaseException:
                 self.pending = None
                 crypto.close()
                 raise
-            return {'state': 'READY', 'purpose': PURPOSE, 'session': session, 'challenge': challenge}
+            return {'state': 'READY', 'purpose': purpose, 'session': session, 'challenge': challenge}
 
     def submit(self, session, jwe):
         with self.lock:
@@ -61,13 +62,15 @@ class InlineVideoCredential:
                 if not 0 <= elapsed < TTL:
                     raise WCEError('VIDEO_CREDENTIAL_SESSION_EXPIRED')
                 purpose, secret = item['crypto'].decrypt(item['challenge'], jwe)
-                if purpose != PURPOSE or not 0 <= self.clock() - item['created'] < TTL:
+                if purpose != item['purpose'] or not 0 <= self.clock() - item['created'] < TTL:
                     raise WCEError('VIDEO_CREDENTIAL_ENVELOPE_REJECTED')
             finally:
                 # Spend the challenge before the Keychain call, including failure.
                 self._clear()
             try:
-                return self.writer(secret.reveal_for_adapter())
+                if item['provider'] == 'ark':
+                    return self.writer(secret.reveal_for_adapter())
+                return self.writer(secret.reveal_for_adapter(), provider=item['provider'])
             finally:
                 secret = None
 

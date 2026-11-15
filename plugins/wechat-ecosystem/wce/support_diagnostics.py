@@ -12,6 +12,7 @@ import re
 import stat
 import time
 import uuid
+from .own_connection_registry import PROOF_CHECKS
 from .own_binding_failure import SAFE_ERRORS as BINDING_ERROR_CODES
 
 MAX_BYTES = 256 * 1024
@@ -24,7 +25,7 @@ CODES = frozenset({'UNAVAILABLE', 'INVALID_VERSION', 'SOURCE_REWRITTEN', 'NO_STA
     'NETWORK_TIMEOUT', 'NETWORK_DNS', 'NETWORK_CONNECT', 'AUTH_REQUIRED', 'ACCESS_UNAVAILABLE',
     'TLS_FAILED', 'REDIRECT_REFUSED', 'GIT_FAILED', 'CARRIER_LIMIT', 'UNCLASSIFIED_ERROR'})
 CODES = CODES | frozenset({'OWN_STATE_CORRUPT','OWN_CONNECTION_UNAVAILABLE','OWN_LEASE_UNAVAILABLE','OWN_REVIEW_REQUIRED','OWN_SOURCE_CHANGED','RULES_VERSION_CONFLICT','RULES_WRITE_RESULT_UNKNOWN','PARSED_SUCCESS','PLATFORM_ERROR','TRANSPORT_UNDETERMINED','NON_SUCCESS_HTTP','NOT_RECORDED'})
-CODES = CODES | BINDING_ERROR_CODES | {'INLINE_BINDING_RESULT_UNDETERMINED','X_AUTHORIZATION_ACCOUNT_MISMATCH','X_AUTHORIZATION_SESSION_MISMATCH','X_AUTHORIZATION_IN_PROGRESS','X_AUTHORIZATION_DENIED','X_AUTHORIZATION_RESULT_UNKNOWN','X_DIFFERENT_ACCOUNT_NOT_REPLACED','CURRENT_DRAFT_OPERATION_NOT_FOUND'}
+CODES = CODES | BINDING_ERROR_CODES | {'INLINE_BINDING_RESULT_UNDETERMINED','X_AUTHORIZATION_ACCOUNT_MISMATCH','X_AUTHORIZATION_SESSION_MISMATCH','X_AUTHORIZATION_IN_PROGRESS','X_AUTHORIZATION_DENIED','X_AUTHORIZATION_RESULT_UNKNOWN','X_DIFFERENT_ACCOUNT_NOT_REPLACED','CURRENT_DRAFT_OPERATION_NOT_FOUND','CONNECTION_NOT_COMMITTED','CONNECTION_COMMITTED_IDENTITY_CHANGED'}
 CODES=CODES|{'PRESERVATION_MISMATCH','CURRENT_DRAFT_SOURCE_CHANGED','CURRENT_DRAFT_SOURCE_UNAVAILABLE','X_MEDIA_PROCESSING_FAILED','X_MEDIA_SOURCE_UNAVAILABLE','X_MEDIA_EXPIRED','X_MEDIA_RESPONSE_INCOMPLETE','X_MEDIA_IDENTITY_MISMATCH','X_MEDIA_SEGMENT_INVALID','X_RESPONSE_UNKNOWN','X_HTTP_400','X_HTTP_401','X_HTTP_402','X_HTTP_403','X_HTTP_408','X_HTTP_413','X_HTTP_415','X_HTTP_422','X_HTTP_429','X_HTTP_500','X_HTTP_502','X_HTTP_503','X_HTTP_504'}
 PRESERVATION_FIELDS=frozenset({'article_count','article_type','title','author','digest','content','content_source_url','thumb_media_id','thumb_url','cover_info','need_open_comment','only_fans_can_comment','show_cover_pic','image_info','product_info','other'})
 OPERATION_PHASES=frozenset({'PREPARED','READ_SOURCE','ADD','VERIFY_NEW_GROUP','RETIRE_SOURCES','COMPLETED','INIT_UNKNOWN','APPENDING','APPEND_UNKNOWN','FINALIZE_UNKNOWN','PROCESSING','READY'})
@@ -61,14 +62,14 @@ class Diagnostics:
 
     @staticmethod
     def event(module, stage, result, *, tool=None, code=None, elapsed_ms=None,
-              http_status=None, wechat_code=None, site=None, error_kind=None, possible_side_effect=None, operation_phase=None, different_fields=None, difference_count=None, candidate_created=None, source_container_count=None, source_retired_count=None):
+              http_status=None, wechat_code=None, site=None, error_kind=None, possible_side_effect=None, operation_phase=None, different_fields=None, difference_count=None, candidate_created=None, source_container_count=None, source_retired_count=None, proof_check=None):
         if module not in MODULES or stage not in STAGES or result not in RESULTS:
             raise ValueError('SUPPORT_EVENT_INVALID')
         value = {'schema': 1, 'at': datetime.now(timezone.utc).isoformat(),
             'report_id': uuid.uuid4().hex, 'module': module, 'stage': stage, 'result': result}
         # tool is selected from the router's immutable descriptor names.
         if tool is not None:
-            if type(tool) is not str or not re.fullmatch(r'(?:own|wce|x)\.[a-z._]+', tool):
+            if type(tool) is not str or not re.fullmatch(r'(?:(?:own|wce|x)\.[a-z._]+|openahoy\.feedback\.(?:preview|submit|status))', tool):
                 raise ValueError('SUPPORT_EVENT_INVALID')
             value['tool'] = tool
         if code in CODES:
@@ -80,7 +81,7 @@ class Diagnostics:
             value['wechat_code'] = wechat_code
         if type(site) is dict and set(site)=={'module','function','line'} and type(site['module'])is str and re.fullmatch(r'[a-z_]+\.py',site['module']) and type(site['function'])is str and re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]{0,63}',site['function']) and type(site['line'])is int and 0<site['line']<100000:
             value['site']=site
-        if error_kind in {'CONTRACT_ERROR','TIMEOUT','ATTRIBUTE_ERROR','TRANSPORT_ERROR','INTERNAL_ERROR','LOCAL_COMPARISON'}:value['error_kind']=error_kind
+        if error_kind in {'CONTRACT_ERROR','TIMEOUT','ATTRIBUTE_ERROR','TRANSPORT_ERROR','INTERNAL_ERROR','LOCAL_COMPARISON','RESPONSE_DECODE_ERROR'}:value['error_kind']=error_kind
         if possible_side_effect in {'NONE','POSSIBLE'}:value['possible_side_effect']=possible_side_effect
         if operation_phase in OPERATION_PHASES:value['operation_phase']=operation_phase
         if type(different_fields)is list:
@@ -90,6 +91,8 @@ class Diagnostics:
         if type(candidate_created)is bool:value['candidate_created']=candidate_created
         for key,number in [('source_container_count',source_container_count),('source_retired_count',source_retired_count)]:
             if type(number)is int and 0<=number<=8:value[key]=number
+        if type(proof_check) is str and proof_check in PROOF_CHECKS:
+            value['proof_check'] = proof_check
         return value
 
     def emit(self, module, stage, result, **fields):
@@ -144,7 +147,7 @@ class Diagnostics:
                 for line in raw.splitlines():
                     try:
                         row = json.loads(line)
-                        allowed = {'schema','at','report_id','module','stage','result','tool','code','elapsed_ms','http_status','wechat_code','site','error_kind','possible_side_effect','operation_phase','different_fields','difference_count','candidate_created','source_container_count','source_retired_count'}
+                        allowed = {'schema','at','report_id','module','stage','result','tool','code','elapsed_ms','http_status','wechat_code','site','error_kind','possible_side_effect','operation_phase','different_fields','difference_count','candidate_created','source_container_count','source_retired_count','proof_check'}
                         if type(row) is not dict or set(row)-allowed or row.get('schema') != 1:
                             continue
                         if not re.fullmatch('[a-f0-9]{32}', row['report_id']) or not re.fullmatch(r'[0-9T:.+Z-]{20,40}', row['at']):

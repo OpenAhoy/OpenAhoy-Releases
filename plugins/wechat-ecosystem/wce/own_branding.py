@@ -1,5 +1,6 @@
 """Packaged OpenAhoy artwork; no network, account state or generated graphics."""
 import base64
+from functools import cache
 from pathlib import Path
 
 
@@ -8,6 +9,12 @@ _ROOT = Path(__file__).resolve().parents[1]
 _PACKAGE = _ROOT / 'integrations/codex' if (_ROOT / 'integrations/codex/plugin.json').is_file() else _ROOT
 _ASSETS = _PACKAGE / 'assets/openahoy-v1'
 HORIZONTAL = (_ASSETS / 'openahoy-horizontal-color.svg').read_text()
+
+
+@cache
+def video_model_mark():
+    raw = (_PACKAGE / 'assets/models/minimax-color-black.png').read_bytes()
+    return 'data:image/png;base64,' + base64.b64encode(raw).decode('ascii')
 
 
 def icons():

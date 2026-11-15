@@ -79,10 +79,12 @@ class Schedules:
                 **self.row(state, connection_id), 'authority': 'HOST_OBSERVATIONS_ONLY',
                 'time_meaning': 'START_PRODUCTION_THEN_PUBLISH'}
 
-    def request(self, connection_id, action, configuration, operation_id, expected_revision):
+    def request(self, connection_id, action, configuration, operation_id, expected_revision, *, binding_marker=None):
         require(action in ('save', 'enable', 'pause', 'resume', 'check'))
         cfg = config(configuration) if action in ('save', 'enable') else None
         payload = {'schedule_request': action, 'connection_id': connection_id, 'config': cfg}
+        if binding_marker is not None:
+            payload['binding_marker'] = binding_marker
 
         def mutate(state):
             row = self.row(state, connection_id)
@@ -100,6 +102,8 @@ class Schedules:
                                   'config': cfg if action == 'enable' else row['applied_config'],
                                   'tasks_before': deepcopy(row['tasks']), 'created_at': self.clock(),
                                   'delivery': 'NOT_SENT'}
+                if binding_marker is not None:
+                    row['pending']['binding_marker'] = binding_marker
                 if cfg is not None:
                     row['config'] = cfg
                 row['last_request_id'] = operation_id
@@ -147,8 +151,13 @@ class Schedules:
             if outcome == 'PAUSED':
                 require(bool(tasks) and all(t['status'] == 'PAUSED' for t in tasks), 'SCHEDULE_HOST_NOT_PAUSED')
             row['tasks'] = deepcopy(tasks)
+            proof = (row['observed'] or {}).get('binding_marker')
+            if outcome == 'ACTIVE' and pending['action'] in ('enable', 'resume'):
+                proof = pending.get('binding_marker')
             row['observed'] = {'status': outcome, 'checked_at': self.clock(),
                                'source': 'CODEX_OFFICIAL_AUTOMATION_OBSERVATION', 'note': note}
+            if proof is not None:
+                row['observed']['binding_marker'] = proof
             if (outcome == 'ACTIVE' and pending['action'] in ('enable', 'resume', 'check')
                     or outcome == 'PAUSED' and pending['action'] in ('pause', 'check')):
                 row['pending'] = None
@@ -171,7 +180,7 @@ class Schedules:
             return {'connection_id': connection_id, 'request_id': request_id, 'delivery': delivery}
         return self.projects._change(operation_id, payload, expected_revision, mutate)
 
-    def begin(self, connection_id, automation_id, occurrence_id, expected_revision):
+    def begin(self, connection_id, automation_id, occurrence_id, expected_revision, *, binding_marker=None):
         text(occurrence_id); require(bool(occurrence_id), 'SCHEDULE_OCCURRENCE_REQUIRED')
         run_id = 'x-scheduled-' + digest([connection_id, automation_id, occurrence_id])[:32]
         payload = {'schedule_run': run_id, 'connection_id': connection_id,
@@ -179,6 +188,8 @@ class Schedules:
 
         def mutate(state):
             row = self.row(state, connection_id)
+            require(binding_marker is None or (row['observed'] or {}).get('binding_marker') == binding_marker,
+                    'SCHEDULE_CONNECTION_REQUIRES_RESUME')
             require(any(t['id'] == automation_id and t['status'] == 'ACTIVE' for t in row['tasks']), 'SCHEDULE_TASK_NOT_ACTIVE')
             previous = row['last_run']
             require(not previous or previous['state'] not in ('RUNNING', 'UNKNOWN'), 'SCHEDULE_ORIGINAL_RUN_PENDING')

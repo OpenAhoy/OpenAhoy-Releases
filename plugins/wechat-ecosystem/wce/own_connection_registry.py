@@ -188,6 +188,18 @@ def revoked(policy):
     return True
 
 
+PROOF_CHECKS = frozenset({'REGISTRY_MEMBER', 'COMMIT_STATE', 'JOURNAL_DIRECTORY',
+                          'PROOF_OWNER_OR_REGISTRY', 'PROOF_MEMBER', 'PROOF_POLICY',
+                          'ACCOUNT_ROOT', 'IMAGE_DIRECTORY', 'DATABASE', 'PROFILE'})
+
+
+class MembershipProofError(WCEError):
+    """Nonsecret failing predicate for support. The caller still gets the existing code."""
+    def __init__(self, check, *, identity_changed=False):
+        super().__init__('CONNECTION_COMMITTED_IDENTITY_CHANGED' if identity_changed else 'CONNECTION_NOT_COMMITTED')
+        self.check = check
+
+
 def check_member(policy, revocation=True, durable=False, *, readonly=False, proof_reader=None):
     value = policy.value
     registry = Path(value['registry_path'])
@@ -204,7 +216,7 @@ def check_member(policy, revocation=True, durable=False, *, readonly=False, proo
             or entry['identity_digest'] != digest(policy.data)
             or entry['credential_scope'] != sha(policy.data)
             or entry['appid'] != policy.data['appid'] or entry['transaction'] != value['transaction']):
-        raise WCEError('CONNECTION_NOT_COMMITTED')
+        raise MembershipProofError('REGISTRY_MEMBER')
     path = transaction_path(registry, value['transaction'])
     if readonly and durable:
         raise WCEError('CONNECTION_INVALID_ARGUMENTS')
@@ -223,21 +235,28 @@ def check_member(policy, revocation=True, durable=False, *, readonly=False, proo
             _, raw = proof_reader.read(path, keep=True)
             from .own_account_metadata import decode_metadata
             proof = decode_metadata(raw)
-        if (type(proof) is not dict or proof.get('state') != 'COMMITTED'
-                or proof.get('journal_parent') != list(path_check(path.parent, True))
-                or proof.get('owner') != owner or proof.get('registry') != str(registry)
-                or type(proof.get('after')) is not dict or type(proof['after'].get('entries')) is not dict
-                or proof['after']['entries'].get(cid) != entry
-                or type(proof.get('policies')) is not dict
-                or type(proof['policies'].get(str(policy.path))) is not dict
-                or proof['policies'][str(policy.path)].get('after') != value):
-            raise WCEError('CONNECTION_NOT_COMMITTED')
-        pins = proof['policies'][str(policy.path)].get('pins')
-        if (type(pins) is not dict or pins.get('root') != list(policy.root_pin)
-                or pins.get('images') != list(policy.image_pin)
-                or pins.get('database') != list(policy.database_pin[:2])
-                or pins.get('profile_sha256') != sha256(private_read(policy.root / 'profile.json')[0]).hexdigest()):
-            raise WCEError('CONNECTION_COMMITTED_IDENTITY_CHANGED')
+        if type(proof) is not dict or proof.get('state') != 'COMMITTED':
+            raise MembershipProofError('COMMIT_STATE')
+        if proof.get('journal_parent') != list(path_check(path.parent, True)):
+            raise MembershipProofError('JOURNAL_DIRECTORY')
+        if proof.get('owner') != owner or proof.get('registry') != str(registry):
+            raise MembershipProofError('PROOF_OWNER_OR_REGISTRY')
+        after = proof.get('after')
+        if type(after) is not dict or type(after.get('entries')) is not dict or after['entries'].get(cid) != entry:
+            raise MembershipProofError('PROOF_MEMBER')
+        policies = proof.get('policies')
+        change = policies.get(str(policy.path)) if type(policies) is dict else None
+        if type(change) is not dict or change.get('after') != value:
+            raise MembershipProofError('PROOF_POLICY')
+        pins = change.get('pins')
+        if type(pins) is not dict or pins.get('root') != list(policy.root_pin):
+            raise MembershipProofError('ACCOUNT_ROOT', identity_changed=True)
+        if pins.get('images') != list(policy.image_pin):
+            raise MembershipProofError('IMAGE_DIRECTORY', identity_changed=True)
+        if pins.get('database') != list(policy.database_pin[:2]):
+            raise MembershipProofError('DATABASE', identity_changed=True)
+        if pins.get('profile_sha256') != sha256(private_read(policy.root / 'profile.json')[0]).hexdigest():
+            raise MembershipProofError('PROFILE', identity_changed=True)
         if type(proof.get('schema')) is not int or proof['schema'] not in (1, 2):
             raise WCEError('CONNECTION_INVALID_TRANSACTION')
         if proof['schema'] == 2:

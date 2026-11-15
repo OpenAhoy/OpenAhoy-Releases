@@ -34,21 +34,21 @@ const OASealCredential = (() => {
 SCRIPT = FALLBACK + SEAL_SCRIPT + r'''
 const OAInlineBinding = {
  mount(call,{enter,leave,complete}){
-  const $=id=>document.getElementById(id);let view='',operation='',generation=0,busy=false,timer=null,visible=false,checked=false,revalidating=false,mayRevalidate=false,pendingBindings=[],selectionLocked=false;
+  const $=id=>document.getElementById(id);let view='',operation='',generation=0,busy=false,timer=null,visible=false,checked=false,revalidating=false,mayRevalidate=false,pendingBindings=[],selectionLocked=false,rebindTarget=null;
   const ui=globalThis.OAUI||globalThis.OAPlainUI;
   const note=(text,...values)=>ui.set($('bindingNotice'),text,...values);
   const clear=()=>{$('bindingSecret').value='';clearTimeout(timer);timer=null;};
   const supported=()=>globalThis.isSecureContext===true&&!!globalThis.crypto?.subtle;
   function controls(){
-   $('bindingSubmit').disabled=busy||!view||!checked||!supported();$('bindingAppID').disabled=busy||revalidating;
-   $('bindingSecret').disabled=busy||!checked||!supported();$('bindingLabel').disabled=busy||revalidating;
+   $('bindingSubmit').disabled=busy||!view||!checked||!supported();$('bindingAppID').disabled=busy||revalidating||!!rebindTarget;
+   $('bindingSecret').disabled=busy||!checked||!supported();$('bindingLabel').disabled=busy||revalidating||!!rebindTarget;
    $('bindingRetry').disabled=!mayRevalidate||!view||!checked||!supported();
-   ui.set($('bindingSubmit'),revalidating?'重新验证并继续绑定':'绑定公众号');
+   ui.set($('bindingSubmit'),rebindTarget?'重新绑定':revalidating?'重新验证并继续绑定':'绑定公众号');
    $('bindingPending').disabled=selectionLocked||revalidating;
   }
   async function status(epoch=generation){
    if(!visible||!view||!operation||epoch!==generation)return;
-   try{await display(await call('BINDING_STATUS',{view,operation}),epoch);}
+   try{await display(await call(rebindTarget?'REBIND_STATUS':'BINDING_STATUS',{view,operation}),epoch);}
    catch(_){if(epoch===generation){busy=true;selectionLocked=false;note('原操作状态暂不可用，请查询原操作；不要重复绑定。');$('bindingQuery').hidden=false;controls();}}
   }
   async function display(result,epoch){
@@ -57,6 +57,9 @@ const OAInlineBinding = {
    if(result.operation)operation=result.operation;
    $('bindingQuery').hidden=true;$('bindingResume').hidden=true;$('bindingRetry').hidden=true;mayRevalidate=false;
    if(result.binding_result==='COMMITTED'||result.state==='BOUND_IDLE'||result.state==='ALREADY_BOUND'){clear();busy=false;visible=false;$('inlineBinding').hidden=true;await complete(result.connection_id,result.state==='ALREADY_BOUND',result.state);return;}
+   if(rebindTarget&&result.state==='REJECTED'){
+    busy=false;operation='';note('重新绑定未完成，请检查凭据或账号是否正在使用。');controls();return;
+   }
    if(result.state==='IN_PROGRESS'){
     busy=true;note(result.cancel_requested?'已请求取消，正在确认原操作结果…':'正在检查凭据、白名单并保存，请稍候…');
     clearTimeout(timer);timer=setTimeout(()=>status(epoch),1000);
@@ -87,23 +90,25 @@ const OAInlineBinding = {
    controls();
   }
   async function cancel(){
-   const oldView=view,oldOperation=operation;generation++;visible=false;clear();view='';operation='';busy=false;checked=false;revalidating=false;mayRevalidate=false;$('inlineBinding').hidden=true;leave();
-   if(oldView){try{await call('BINDING_CANCEL',{view:oldView,operation:oldOperation||oldView});}catch(_){/* The original operation remains recoverable; no success claim. */}}
+   const oldView=view,oldOperation=operation,oldRebind=rebindTarget;rebindTarget=null;generation++;visible=false;clear();view='';operation='';busy=false;checked=false;revalidating=false;mayRevalidate=false;$('inlineBinding').hidden=true;leave();
+   if(oldView){try{await call(oldRebind&&oldOperation?'REBIND_CANCEL':'BINDING_CANCEL',{view:oldView,operation:oldOperation||oldView});}catch(_){/* The original operation remains recoverable; no success claim. */}}
   }
   $('inlineBindingForm').addEventListener('submit',async event=>{
-   event.preventDefault();if(busy||!view||!checked||!supported())return;
+   event.preventDefault();if(busy||!view||!checked||!supported()||(rebindTarget&&!event.isTrusted))return;
    const appid=$('bindingAppID').value.trim().toLowerCase(),label=$('bindingLabel').value.trim();let secret=$('bindingSecret').value;
    if(!/^wx[a-f0-9]{16}$/.test(appid)||!secret.length||secret.length>4096||[...secret].some(c=>c.charCodeAt(0)<33||c.charCodeAt(0)>126)){note('请检查 AppID 与 AppSecret 格式。');return;}
-   const epoch=generation,originalView=view;busy=true;selectionLocked=true;controls();$('bindingSecret').value='';note('正在准备本机安全提交…');
+   const epoch=generation,originalView=view,expected=rebindTarget;busy=true;selectionLocked=true;controls();$('bindingSecret').value='';note('正在准备本机安全提交…');
    try{
     const newValidation=revalidating;revalidating=false;
-    const ready=await call('BINDING_BEGIN',{view:originalView,appid,...(label?{label}:{}),...(newValidation?{revalidate_unknown:true}:{})});
+    const ready=expected
+      ?await call('REBIND_BEGIN',{view:originalView,appid,...expected})
+      :await call('BINDING_BEGIN',{view:originalView,appid,...(label?{label}:{}),...(newValidation?{revalidate_unknown:true}:{})});
     if(ready.operation)operation=ready.operation;
-    if(epoch!==generation){if(ready.operation)await call('BINDING_CANCEL',{view:originalView,operation:ready.operation});return;}
+    if(epoch!==generation){if(ready.operation)await call(expected?'REBIND_CANCEL':'BINDING_CANCEL',{view:originalView,operation:ready.operation});return;}
     if(ready.state!=='READY'){await display(ready,epoch);return;}
     const jwe=await OASealCredential(ready.challenge,appid,secret);secret='';
-    if(epoch!==generation){await call('BINDING_CANCEL',{view:originalView,operation:ready.operation});return;}
-    await display(await call('BINDING_SUBMIT',{view:originalView,operation:ready.operation,jwe}),epoch);
+    if(epoch!==generation){await call(expected?'REBIND_CANCEL':'BINDING_CANCEL',{view:originalView,operation:ready.operation});return;}
+    await display(await call(expected?'REBIND_SUBMIT':'BINDING_SUBMIT',{view:originalView,operation:ready.operation,jwe}),epoch);
    }catch(_){
     if(epoch===generation){
      if(operation)await status(epoch);
@@ -138,7 +143,11 @@ const OAInlineBinding = {
    catch(_){if(epoch===generation)note('原绑定仍待本机确认，没有重新请求微信。');}
   });
   return {
-   async open(){
+   async open(target=null){
+    rebindTarget=target?{connection_id:target.connection_id,binding_revision:target.binding_revision}:null;
+    ui.set($('inlineBindingTitle'),target?'重新绑定公众号':'绑定公众号');
+    $('bindingAppID').value=target?.account_id||'';
+    $('bindingLabel').value='';
     generation++;const epoch=generation;clear();operation='';view='';visible=true;busy=false;checked=false;revalidating=false;mayRevalidate=false;selectionLocked=false;pendingBindings=[];$('bindingRetry').hidden=true;$('bindingPending').hidden=true;$('bindingPendingLabel').hidden=true;
     delete $('inlineBindingForm').dataset.channelEnvelopeSha256;
     enter();$('inlineBinding').hidden=false;controls();
@@ -160,20 +169,21 @@ const OAInlineBinding = {
      if(epoch!==generation)return;
      if(verified.state!=='BINDING_CHANNEL_VERIFIED'||verified.envelope_sha256!==expected)throw new Error('CHANNEL_NOT_VERIFIED');
      checked=true;$('inlineBindingForm').dataset.channelEnvelopeSha256=expected;
-     if(pendingBindings.length){
+     if(pendingBindings.length&&!target){
       const select=$('bindingPending');select.replaceChildren();const empty=document.createElement('option');empty.value='';ui.set(empty,'选择原账号');select.append(empty);
       for(const row of pendingBindings){const option=document.createElement('option');option.value=row.appid;option.textContent=(row.label||row.appid)+' · '+row.appid;select.append(option);}
       select.hidden=false;$('bindingPendingLabel').hidden=false;
       if(pendingBindings.length===1){select.value=pendingBindings[0].appid;await choosePending(select.value,epoch);return;}
      }
+     if(target){note('仅重新验证当前公众号的 AppSecret。');controls();$('bindingSecret').focus();return;}
      note(value.pending_unavailable?'安全连接已就绪，但部分历史绑定记录暂不可读；它们不会自动重发。可填写新的账号，原账号请先检查诊断。':'安全连接已就绪。填写后点击一次“绑定公众号”即可。');controls();$('bindingAppID').focus();
     }catch(_){
      if(epoch===generation){checked=false;view='';note('本机安全连接暂不可用，未接收密钥；现有账号不受影响。');controls();}
      if(checkingView)try{await call('BINDING_CANCEL',{view:checkingView,operation:checkingView});}catch(_){/* Owner timer bounds a lost cancellation. */}
     }
    },dispose(){
-    const oldView=view,oldOperation=operation;generation++;visible=false;clear();view='';operation='';busy=false;checked=false;
-    if(oldView)void call('BINDING_CANCEL',{view:oldView,operation:oldOperation||oldView}).catch(()=>{});
+    const oldView=view,oldOperation=operation,oldRebind=rebindTarget;rebindTarget=null;generation++;visible=false;clear();view='';operation='';busy=false;checked=false;
+    if(oldView)void call(oldRebind&&oldOperation?'REBIND_CANCEL':'BINDING_CANCEL',{view:oldView,operation:oldOperation||oldView}).catch(()=>{});
    }
   };
  }

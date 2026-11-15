@@ -180,10 +180,10 @@ def public(row):
 
 
 def local_status(policy, args):
-    policy.check(readonly=True)
+    policy.check(readonly=True, allow_disconnected=True)
     with journal(policy) as db:
         row = _load(db, policy, handle=args.get('operation_handle'), request_key=args.get('request_key'))
-    policy.check(readonly=True)
+    policy.check(readonly=True, allow_disconnected=True)
     return public(row)
 
 

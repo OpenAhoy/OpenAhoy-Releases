@@ -76,6 +76,7 @@ def native_page_body(logo, platform_settings):
     """Single native workspace; secret input has its own view in this resource."""
     from .own_inline_binding_ui import HTML as binding_html
     from .video_workspace_ui import HTML as video_html
+    from .own_branding import video_model_mark
     from .own_branding import icons
     from .video_jobs import PROMO_DIR
     from base64 import b64encode
@@ -94,20 +95,25 @@ def native_page_body(logo, platform_settings):
 <section class="oa-home-features" aria-labelledby="homeFeaturesTitle">
 <h2 id="homeFeaturesTitle">开始使用</h2>
 <div class="oa-home-grid" id="homeFeatures">
-<button id="homeVideo" type="button" class="oa-home-card" disabled><span class="oa-home-card-title">'''+icon('video')+'''<span>视频生成</span></span><span class="oa-home-card-description">生成视频、对比版本，并下载项目成片。</span>'''+icon('arrow')+'''</button>
+<button id="homeVideo" type="button" class="oa-home-card" disabled><span class="oa-home-card-title">'''+icon('video')+'''<span>视频生成</span></span><span class="oa-home-card-description">预览、对比并下载项目成片。</span>'''+icon('arrow')+'''</button>
 </div></section>'''+promo+'''
 <section id="homeRecommendations" aria-labelledby="homeRecommendationsTitle" hidden>
 <h2 id="homeRecommendationsTitle">推荐插件</h2><div class="oa-home-grid"></div>
 </section>
 <p id="homeStatus" class="help" role="status">正在连接管理工具…</p>
 </section>'''
-    credential = '''<details id="videoModel" class="panel"><summary>视频模型</summary><h2>火山方舟</h2>
+    credential = '''<div id="videoModel" class="panel">
+<div class="oa-video-model-brands">
+<div class="oa-video-model-brand" data-model="seedance"><strong>Seedance 2.5</strong><small>火山方舟</small></div>
+<div class="oa-video-model-brand" data-model="minimax"><img src="'''+video_model_mark()+'''" alt="" width="86" height="32"><strong>MiniMax H3</strong></div>
+</div>
+<label>凭据来源<select id="videoCredentialProvider"><option value="ark">火山方舟</option><option value="cn">MiniMax 中国站</option><option value="global">MiniMax 国际站</option></select></label>
 <p id="videoModelState" role="status" aria-live="polite"></p>
 <div id="videoCredentialForm">
 <label for="videoCredential">API Key</label>
 <input id="videoCredential" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" required disabled>
 <button id="videoCredentialSave" type="button" class="primary" disabled>保存 API Key</button>
-</div></details>'''
+</div></div>'''
     return '''<body class="oa-management oa-platform-workspace oa-native"><div class="oa-shell">
 '''+platform_sidebar(logo, '<p class="help">正在读取平台…</p>', localized=True)+'''
 <main class="oa-content">'''+home+'''<div id="nativeWorkspace" hidden><header class="oa-account-header">
@@ -120,6 +126,22 @@ def native_page_body(logo, platform_settings):
 <section id="settingsPanel" class="oa-platform-settings" aria-label="平台设置"><h2 id="platformTitle">平台设置</h2><p id="platformHelp" class="help"></p>
 <div class="actions oa-context-tabs" role="tablist" aria-label="工作区设置"><button id="platformSettingsTab" role="tab" aria-selected="true">平台设置</button><button id="contextSettingsTab" role="tab" aria-selected="false">项目与 Skills</button></div>
 <p id="unsupportedSettings" class="empty" hidden>当前平台暂不支持这些设置，未调用其他平台工具。</p>'''+platform_settings+'''</section>
+<dialog id="accountRemoveDialog" class="oa-account-remove-dialog" aria-labelledby="accountRemoveTitle">
+<h2 id="accountRemoveTitle">移除账号</h2>
+<p id="accountRemoveTarget"></p>
+<p>将断开此账号在 OpenAhoy 的连接并停止后续自动任务。平台账号、内容、资产和操作记录会保留。</p>
+<div class="actions"><button id="accountRemoveCancel" type="button" autofocus>取消</button>
+<button id="accountRemoveConfirm" class="danger" type="button">确认移除</button></div>
+</dialog>
+<dialog id="accountRecoveryDialog" class="oa-account-remove-dialog" aria-labelledby="accountRecoveryTitle">
+<h2 id="accountRecoveryTitle">恢复本机绑定</h2>
+<p id="accountRecoveryTarget"></p>
+<p id="accountRecoveryReason"></p>
+<p>请在 Codex 检查本机是否有可核验的恢复入口。按可信终端的提示恢复原绑定后，刷新账号列表即可重新绑定或移除。</p>
+<div class="actions"><button id="accountRecoveryClose" type="button" autofocus>关闭</button>
+<button id="accountRecoveryAsk" type="button" class="primary">在 Codex 中检查</button></div>
+<p id="accountRecoveryStatus" role="status"></p>
+</dialog>
 <footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div>'''+video_html.replace('__CREDENTIAL__', credential)+binding_html+'''</main></div>'''
 
 

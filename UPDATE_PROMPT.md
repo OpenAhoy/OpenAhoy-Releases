@@ -1,17 +1,32 @@
-# 升级 OpenAhoy 至 0.6.54
+# 升级 OpenAhoy 至 0.6.55
 
-正式源为 [OpenAhoy/OpenAhoy-Releases](https://github.com/OpenAhoy/OpenAhoy-Releases)。按 [v0.6.54 发行清单](https://github.com/OpenAhoy/OpenAhoy-Releases/blob/v0.6.54/RELEASE.json) 和随版 SHA256SUMS、package-manifest.json 核对制品。先用 Codex 官方命令读回实际版本、市场来源、技术 ID 和启用状态。支持直接升级的版本可在内嵌页安装并查看进度。旧版仍可按下面的官方 CLI 路径升级。
+使用 [固定版发行页](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.55) 和 [发行清单](https://github.com/OpenAhoy/OpenAhoy-Releases/blob/v0.6.55/RELEASE.json) 核对 ZIP、SHA256SUMS 和 package-manifest.json。先等当前发文或生成任务结束。保留原安装来源与回退包、现有账号资料、系统钥匙串、规则、排期、草稿与合组回执。持有恢复目录、经校验的快照或待确认案例时一并保留。使用原请求 ID 查询未决任务。
 
-- **公开独占市场**：技术 ID 保持 `wechat-ecosystem@openahoy-distribution`。固定旧标签时，普通 marketplace upgrade 会保留旧 ref；确认市场仅有 OpenAhoy 后，沿官方 marketplace remove/add 把市场登记更新到 `https://github.com/OpenAhoy/OpenAhoy-Releases.git --ref v0.6.54`，再用官方 `codex plugin add wechat-ecosystem@openahoy-distribution`。不卸载插件、不删除数据。
-- **共享市场**：保留原市场名和其他插件，别删除整个市场或另启第二份 OpenAhoy。由该市场维护者只将 OpenAhoy 条目的 git-subdir ref 更新为 `v0.6.54`，并以该公开标签实际解析到的提交替换原 sha；核对后沿原 marketplace 名安装。保留已有单条变更保护；受管市场无法安全编辑时交原维护者。
-- **旧私有来源**：较旧客户端可能只发现迁移用的 0.6.28。按 [0.6.28 迁移说明](https://github.com/OpenAhoy/OpenAhoy-Releases/blob/5428de4f2c7d603a889863d2b8e5513d1b3066e0/UPDATE_PROMPT.md) 识别原命名和来源，再由用户选择采用公开源。全新安装见本版 INSTALL_PROMPT.md。
+## 通过 Codex 升级
 
-在安全点升级，保留原安装来源、版本和已校验的软件包。保留账号、钥匙串、规则、项目、草稿、历史和未决请求，软件恢复无需删除、还原或覆盖用户数据。
+如果管理页升级因绑定校验失败，请在目标机器用 Codex 官方 CLI 更新软件。先运行以下只读命令，核对实际插件 ID、市场登记、固定 ref 和来源。
+
+```sh
+codex plugin list --json
+codex plugin marketplace list --json
+```
+
+仅当原市场是公开 Git 源 `https://github.com/OpenAhoy/OpenAhoy-Releases.git`、名称为 `openahoy-distribution` 且只有 OpenAhoy 时，执行以下命令。这里移除的是原市场登记。保留插件与业务数据，再把同一市场登记到新标签。
+
+```sh
+codex plugin marketplace remove openahoy-distribution
+codex plugin marketplace add https://github.com/OpenAhoy/OpenAhoy-Releases.git --ref v0.6.55
+codex plugin add wechat-ecosystem@openahoy-distribution
+codex plugin list --json
+```
+
+共享市场由维护者仅更新 OpenAhoy 条目的 `git-subdir` ref 与提交 SHA，从原市场名安装。旧私有来源先按 [0.6.28 迁移说明](https://github.com/OpenAhoy/OpenAhoy-Releases/blob/5428de4f2c7d603a889863d2b8e5513d1b3066e0/UPDATE_PROMPT.md) 核对原技术 ID 与来源，再决定是否迁移。全新安装使用本标签的 INSTALL_PROMPT.md。
+
+打开原 OpenAhoy 管理页，确认加载 0.6.55 与原账号列表。若当前聊天仍加载旧资源，在发文空闲时刷新插件或按宿主提示重开 Codex。若公众号故障卡仍提示绑定待恢复，使用「查看恢复方法」，沿现有恢复材料与本人确认的步骤恢复原身份。恢复后刷新账号列表，确认原账号与合组回执，再从「更多」选择重新绑定或移除。重新绑定沿原账号处理。移除会停用目标本地连接并保留原草稿和操作回执。软件升级不会替用户恢复故障绑定，也不会重发未决业务操作。
 
 ## 软件恢复
 
-- 已授权自有 X 应用后，旧公开版 0.6.31 不能读取更新后的连接格式，会影响 X 账号列表。保留现有数据，用相同插件技术 ID 从本版公开发行源重新安装已校验的 0.6.54，可恢复兼容运行环境。只执行软件恢复，不重绑、不重新提交原任务。用原回执查询其状态。
-- 已保留原 0.6.53 软件及原安装来源的设备，也可按原来源恢复 0.6.53。该版本在隔离验证中读回两个连接、自有应用与原应用未决记录。它不是公开发行下载项。
-- 0.6.31 是前一公开稳定版。只有确认 X 数据仍为旧格式时，才考虑用它恢复软件。即使误装 0.6.31，也应保留现有数据并重新安装 0.6.54，不把授权前的备份覆盖到当前记录。
-
-核对安装包完整性、标准 MCP 版本与工具、管理资源及原有账号可见性。当前聊天实际加载另行确认。
+- [v0.6.54](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.54) 是前一公开稳定版。遇到本版新状态时优先重装校验过的 v0.6.55，使用同一插件 ID 与原市场。保留 MiniMax H3 任务回执和 MP4。v0.6.54 不支持 H3 查询与资产身份验证。
+- 使用过 v0.6.55 的账号移除功能时，保留现有停用记录并用 v0.6.55 恢复。v0.6.54 会忽略新版小红书停用标记，可能把停用账号重新显示为已连接。
+- 在 v0.6.55 成功绑定或重新绑定 X 账号后，保留现有连接表和原回执，使用同一插件 ID 的 v0.6.55 恢复。v0.6.54 无法读取新增绑定标记，整个 X 账号列表可能显示为需要处理。不要用旧连接快照覆盖当前授权或历史回执。
+- 仅在确认没有上述新状态且已有数据与 v0.6.54 兼容时，才考虑回退到 v0.6.54。

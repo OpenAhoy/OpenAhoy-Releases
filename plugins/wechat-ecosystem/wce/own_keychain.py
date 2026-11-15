@@ -155,6 +155,36 @@ class NativeKeychain:
             raise WCEError('BOOTSTRAP_KEYCHAIN_OPERATION_FAILED') from None
 
 
+    def replace(self, scope, value):
+        """Update the existing credential atomically, without a delete or a fresh scope."""
+        if not valid_secret(value):
+            raise WCEError('BOOTSTRAP_CREDENTIAL_INVALID')
+        data=value.encode('ascii')
+        pointer=self.cf.CFDataCreate(None,c.create_string_buffer(data),len(data))
+        if not pointer:
+            raise WCEError('BOOTSTRAP_KEYCHAIN_OPERATION_FAILED')
+        attributes=None
+        try:
+            keys=(c.c_void_p*1)(self.constant('kSecValueData'))
+            values=(c.c_void_p*1)(pointer)
+            attributes=self.cf.CFDictionaryCreate(None,keys,values,1,
+                c.addressof(c.c_byte.in_dll(self.cf,'kCFTypeDictionaryKeyCallBacks')),
+                c.addressof(c.c_byte.in_dll(self.cf,'kCFTypeDictionaryValueCallBacks')))
+            if not attributes:
+                raise WCEError('BOOTSTRAP_KEYCHAIN_OPERATION_FAILED')
+            self._function(self.sec,'SecItemUpdate',c.c_int32,[c.c_void_p,c.c_void_p])
+            with self.query(scope,deleting=True) as query:
+                status=self.sec.SecItemUpdate(query,attributes)
+            if status == -25300:
+                self.store(scope,value)
+            elif status != 0:
+                raise WCEError(self._error(status))
+        finally:
+            if attributes:
+                self.cf.CFRelease(attributes)
+            self.cf.CFRelease(pointer)
+
+
 class KeychainCredential:
     def __init__(self, config, backend=None):
         self.config = config
@@ -173,6 +203,9 @@ class KeychainCredential:
 
     def store(self, value):
         self._check(); self.backend.store(self.scope, value); self._check()
+
+    def replace(self, value):
+        self._check(); self.backend.replace(self.scope, value); self._check()
 
 
 _GROUP_QUERY = NativeKeychain.query

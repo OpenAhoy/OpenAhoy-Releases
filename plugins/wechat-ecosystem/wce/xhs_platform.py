@@ -76,9 +76,42 @@ class XHSPlatform:
             value=profile(old['profile']);rows.setdefault('xhs-'+value['id'],old|{'session':'legacy'})
         return rows
 
-    def _account(self,cid):
+    def _removed(self, cid, row):
+        marker = read_metadata(self.root/'accounts'/cid/'disconnected.json')
+        if marker is None:
+            return False
+        require(type(marker) is dict and set(marker)=={'schema','session'}
+                and marker['schema']==1 and type(marker['session']) is str, 'XHS_CONNECTION_INVALID')
+        return marker['session'] == row['session']
+
+    @staticmethod
+    def _binding_revision(cid, row):
+        return fingerprint([cid,row['session']])
+
+    def disconnect(self, cid, account_id, binding_revision):
+        self._prepare()
+        with locked(self.root/'binding.lock',nonblocking=True):
+            row = self._account(cid, allow_removed=True)
+            require(row['profile']['id'] == account_id, 'XHS_ACCOUNT_MISMATCH')
+            require(self._binding_revision(cid,row)==binding_revision,'XHS_ACCOUNT_MISMATCH')
+            directory = self.root if row['session']=='legacy' else self.root/'accounts'/cid
+            with locked(directory/'account.lock',nonblocking=True):
+                pending = self._pending()
+                if pending and pending['state'] in {'LOGIN_PENDING','HUMAN_ACTION_REQUIRED'}:
+                    require(pending['connection_id'] not in (None,cid), 'XHS_BINDING_IN_PROGRESS')
+                target = container(self.root/'accounts',cid)/'disconnected.json'
+                if not self._removed(cid,row):
+                    atomic_write(target,{'schema':1,'session':row['session']},maximum=None)
+                browser = self.browsers.pop(row['session'],None)
+                if browser:
+                    browser.close()
+        return {'connection_id':cid,'state':'DISCONNECTED','remote_revocation':'NOT_REQUESTED'}
+
+    def _account(self,cid,*,allow_removed=False):
         require(type(cid) is str and re.fullmatch('xhs-[0-9a-f]{24}',cid) is not None)
         row=self._connections().get(cid);require(row is not None,'XHS_ACCOUNT_MISMATCH')
+        if not allow_removed:
+            require(not self._removed(cid,row),'XHS_CONNECTION_DISCONNECTED')
         return row
 
     def _directory(self,cid):
@@ -94,7 +127,8 @@ class XHSPlatform:
 
     def overview(self):
         return [{'platform_id':'xiaohongshu','connection_id':cid,'account_id':row['profile']['id'],
-            'state':'BOUND_IDLE','presentation':{'display_name':row['profile']['name'],'avatar':None}}
+            'binding_revision':self._binding_revision(cid,row),
+            'state':'DISCONNECTED' if self._removed(cid,row) else 'BOUND_IDLE','presentation':{'display_name':row['profile']['name'],'avatar':None}}
             for cid,row in self._connections().items()]
 
     def _pending(self):
@@ -103,7 +137,7 @@ class XHSPlatform:
             if set(value)=={'session','connection_id','state'}:value=value|{'binding_id':value['session']}
             require(set(value)=={'session','connection_id','state','binding_id'} and re.fullmatch('[0-9a-f]{32}',value['binding_id']) and re.fullmatch('[0-9a-f]{32}',value['session'])
                 and value['state'] in {'LOGIN_PENDING','HUMAN_ACTION_REQUIRED','BOUND_IDLE','CANCELLED'},'XHS_CONNECTION_INVALID')
-            if value['connection_id'] is not None:self._account(value['connection_id'])
+            if value['connection_id'] is not None:self._account(value['connection_id'],allow_removed=True)
         return value
 
     def begin_login(self,connection_id=None):
@@ -113,10 +147,10 @@ class XHSPlatform:
             if pending and pending['state'] in {'LOGIN_PENDING','HUMAN_ACTION_REQUIRED'}:
                 require(pending['connection_id']==connection_id,'XHS_BINDING_IN_PROGRESS')
             else:
-                # Reauthentication uses its exact original session; adding a
-                # second identity always starts a distinct empty profile.
-                sid=self._account(connection_id)['session'] if connection_id else secrets.token_hex(16)
-                require(sid!='legacy','XHS_LEGACY_LOGIN_REQUIRES_EXISTING_SESSION')
+                if connection_id:
+                    self._account(connection_id)
+                # Keep the old browser login until the staged QR confirms the same identity.
+                sid=secrets.token_hex(16)
                 pending={'session':sid,'connection_id':connection_id,'state':'LOGIN_PENDING','binding_id':secrets.token_hex(16)}
                 atomic_write(self.root/'binding.json',pending,maximum=None)
             result=self._browser(pending['session']).call('BEGIN')
@@ -142,7 +176,7 @@ class XHSPlatform:
             directory=container(self.root/'accounts',cid)
             with locked(directory/'account.lock',nonblocking=True):
                 existing=self._connections().get(cid)
-                if existing is None or target==cid:
+                if existing is None or self._removed(cid,existing) or target==cid:
                     atomic_write(directory/'connection.json',{'schema':2,'profile':value,'session':pending['session']},maximum=None)
                 # A duplicate login must not silently overwrite an existing session.
                 pending['state']='BOUND_IDLE';atomic_write(self.root/'binding.json',pending,maximum=None)
@@ -172,6 +206,7 @@ class XHSPlatform:
     def _session(self,cid):
         row=self._account(cid);directory=self._directory(cid)
         with locked(directory/'account.lock',nonblocking=True):
+            require(self._account(cid)['session']==row['session'],'XHS_ACCOUNT_MISMATCH')
             browser=self._browser(row['session'])
             try:yield row['profile'],browser,directory
             except WCEError as error:
@@ -193,7 +228,16 @@ class XHSPlatform:
 
     def _path(self,cid,attempt_id):
         require(type(attempt_id) is str and ATTEMPT.fullmatch(attempt_id) is not None)
-        return self._directory(cid)/'attempts'/(attempt_id+'.json')
+        row = self._account(cid,allow_removed=True)
+        current = self.root/'accounts'/cid/'attempts'/(attempt_id+'.json')
+        if row['session']=='legacy':
+            return self.root/'attempts'/(attempt_id+'.json')
+        if not current.exists():
+            old = self.root/'attempts'/(attempt_id+'.json')
+            receipt = read_metadata(old)
+            if receipt is not None and receipt.get('connection_id')==cid:
+                return old
+        return current
 
     def _receipt(self,row):
         return {k:row[k] for k in ('attempt_id','connection_id','state','phase','note_id','note','error','resolution','resolution_details','media_readback') if k in row}
@@ -316,6 +360,12 @@ class XHSPlatform:
             return self._receipt(row)
 
     def status(self,cid,attempt_id,*,readback=False):
+        if not readback:
+            row = read_metadata(self._path(cid,attempt_id))
+            if row is None:
+                return {'state':'NOT_FOUND','attempt_id':attempt_id}
+            require(row.get('connection_id')==cid,'XHS_ACCOUNT_MISMATCH')
+            return self._receipt(row)
         with self._session(cid) as (account,browser,directory):
             row=read_metadata(self._path(cid,attempt_id))
             if row is None:return {'state':'NOT_FOUND','attempt_id':attempt_id}

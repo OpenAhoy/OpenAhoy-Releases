@@ -15,7 +15,7 @@ from .bounded_file import FileSource, file_state
 from .contracts import WCEError
 from .own_connection_policy import atomic_write
 from .own_connection_policy import locked
-from .x_api import identifier
+from .x_api import XResponseUnknown, identifier
 
 SEGMENT_BYTES=4*1024*1024  # below official 8 MB multipart maximum
 TRANSFER_SECONDS=20  # cooperative call yield, never a file/duration quota
@@ -123,6 +123,8 @@ def error(row,exc):
         'X_MEDIA_RESPONSE_INCOMPLETE','X_MEDIA_IDENTITY_MISMATCH','X_INVALID_PLATFORM_ID',
         'LOCAL_FILE_CHANGED','INVALID_LOCAL_FILE','X_MEDIA_SEGMENT_INVALID'})else 'X_RESPONSE_UNKNOWN'
     if type(code)is str and code.startswith('X_HTTP_4') and code!='X_HTTP_408':row['state']='REJECTED'
+    if isinstance(exc, XResponseUnknown):
+        row['error_kind'] = exc.kind
     # UNKNOWN retains its in-flight phase; no new INIT/APPEND/FINALIZE.
 
 
@@ -161,6 +163,9 @@ def accept(x,row,value,*,ready=False):
         row.update(state='SUCCEEDED',phase='READY');row.pop('error',None)
     row['result']=result
     row.pop('query_error',None)
+    row.pop('query_error_kind',None)
+    if 'error' not in row:
+        row.pop('error_kind',None)
 
 
 def poll(x,cid,path,row):
@@ -180,6 +185,9 @@ def poll(x,cid,path,row):
     except Exception as exc:
         # A failed GET is not a failed upload: retain the original phase/identity.
         row['query_error']=getattr(exc,'code','X_RESPONSE_UNKNOWN')if isinstance(exc,WCEError)else 'X_RESPONSE_UNKNOWN'
+        row.pop('query_error_kind', None)
+        if isinstance(exc, XResponseUnknown):
+            row['query_error_kind'] = exc.kind
     return save(path,row)
 
 

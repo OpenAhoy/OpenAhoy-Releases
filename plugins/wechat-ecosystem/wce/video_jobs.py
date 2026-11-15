@@ -18,16 +18,18 @@ from .own_connection_policy import atomic_write, locked, read_optional
 from .own_connection_registry import mkdir
 from .project_context import ProjectStore
 from .video_keychain import load
-from .video_seedance import Ark, ArkSubmitRejected, MODEL, MAX_RESULT, ark_error_code, request_body, result_url, validate_model
+from .video_minimax import H3, SITES, MiniMax, MiniMaxRejected, h3_body, h3_usage
+from .video_seedance import Ark, ArkSubmitRejected, MINI, MODEL, PRO, STANDARD, MAX_REQUEST, MAX_RESULT, ark_error_code, request_body, result_url, validate_model
 
 ATTEMPT = re.compile(r'[A-Za-z0-9_-]{1,96}\Z')
-FRAME_LIMIT = 4 * 1024 * 1024
+FRAME_LIMIT = 30_000_000
 PLAYBACK_CHUNK = 384 * 1024
 PROBE = Path(__file__).resolve().parents[1] / 'native' / 'openahoy-video-inspect'
 PACKAGE = PROBE.parents[1]
 PROMO_DIR = (PACKAGE / 'integrations/codex' if (PACKAGE / 'integrations/codex').is_dir() else PACKAGE) / 'assets/home-video'
 PROMO_SHA = '4284baabff6a818d6721c249d80bb7bd938d23d71161929e72a0ec311d44bd90'
 PROJECT_VIDEO_DIR = ('assets', 'openahoy', 'videos')
+RECEIPT_MAX = 1024 * 1024
 
 
 def provider_usage(value):
@@ -46,13 +48,13 @@ def provider_usage(value):
     return usage
 
 
-def image(path, root, expected, scratch):
+def image(path, root, expected, scratch, *, h3=False):
     if not path.is_absolute() or '..' in path.parts or not path.is_relative_to(root):
         raise WCEError('VIDEO_FRAME_OUTSIDE_PROJECT')
     raw = bytearray()
     for chunk in FileSource(root).iter_html(path.relative_to(root).as_posix()):
         raw.extend(chunk)
-        if len(raw) > FRAME_LIMIT:
+        if len(raw) >= FRAME_LIMIT:
             raise WCEError('VIDEO_FRAME_TOO_LARGE')
     data = bytes(raw)
     if expected is not None and sha256(data).hexdigest() != expected:
@@ -60,7 +62,7 @@ def image(path, root, expected, scratch):
     with tempfile.NamedTemporaryFile(prefix='.frame-', dir=scratch) as temporary:
         temporary.write(data)
         temporary.flush()
-        facts = probe('image', temporary.name, error='VIDEO_FRAME_INVALID')
+        facts = probe('image-h3' if h3 else 'image', temporary.name, error='VIDEO_FRAME_INVALID')
     mime = {'public.png': 'image/png', 'public.jpeg': 'image/jpeg'}.get(facts.get('type'))
     if mime is None:
         raise WCEError('VIDEO_FRAME_INVALID')
@@ -94,11 +96,14 @@ def media_facts(path):
 
 
 class Jobs:
-    def __init__(self, registry=None, *, api=None, credential=load, inspect=media_facts):
+    def __init__(self, registry=None, *, api=None, credential=load, inspect=media_facts,
+                 minimax=MiniMax, minimax_credential=load):
         self.projects = ProjectStore(registry)
         self.root = self.projects.root / 'video-ark'
         self.api = api if api is not None else Ark()
         self.credential = credential
+        self.minimax = minimax
+        self.minimax_credential = minimax_credential
         self.inspect = inspect
         self.playback_pin = None
 
@@ -134,7 +139,7 @@ class Jobs:
         for receipt in self.root.glob('*.json'):
             if not ATTEMPT.fullmatch(receipt.stem):
                 continue
-            row = read_optional(receipt)
+            row = read_optional(receipt, RECEIPT_MAX)
             if row is None or row['request']['project_id'] != project_id:
                 continue
             versions.append(self.workspace_row(row, recipe=True))
@@ -189,7 +194,7 @@ class Jobs:
         if project is None or not os.path.lexists(self.root):
             raise WCEError('VIDEO_ASSET_NOT_READY')
         with locked(self.root / 'generation.lock'):
-            row = read_optional(receipt)
+            row = read_optional(receipt, RECEIPT_MAX)
             if row is None or row['state'] != 'ASSET_READY' or row['request']['project_id'] != project_id:
                 raise WCEError('VIDEO_ASSET_NOT_READY')
             path = self._library_path(attempt)
@@ -270,7 +275,7 @@ class Jobs:
             finally:
                 os.close(folder)
             new = dict(row, project_video_copy=copy)
-            atomic_write(receipt, new)
+            atomic_write(receipt, new, maximum=RECEIPT_MAX)
             row.update(new)
         except (OSError, WCEError):
             # The verified original and provider receipt are already durable.
@@ -281,7 +286,7 @@ class Jobs:
         self._directory()
         with locked(self.root / 'generation.lock'):
             for attempt in filter(None, (primary, compare)):
-                row = read_optional(self._paths(attempt)[0])
+                row = read_optional(self._paths(attempt)[0], RECEIPT_MAX)
                 if row is None or row['request']['project_id'] != project_id:
                     raise WCEError('VIDEO_VERSION_NOT_FOUND')
             atomic_write(self.root / ('selection-' + project_id + '.state'),
@@ -289,18 +294,22 @@ class Jobs:
             atomic_write(self.root / 'selected-project.state', {'project_id': project_id})
         return {'state': 'SAVED'}
 
-    def resolve_frames(self, project_id, paths):
+    def resolve_frames(self, project_id, paths, *, h3=False):
         project = next((row for row in self.projects.view()['projects'] if row['id'] == project_id), None)
         if not project:
             raise WCEError('VIDEO_PROJECT_NOT_REGISTERED')
         self._directory()
         root = Path(project['root'])
         rows = []
+        encoded_size = 0
         for relative in paths:
             if Path(relative).is_absolute() or '..' in Path(relative).parts:
                 raise WCEError('VIDEO_FRAME_OUTSIDE_PROJECT')
             path = root / relative
-            _, data = image(path, root, None, self.root)
+            _, data = image(path, root, None, self.root, h3=h3)
+            encoded_size += ((len(data) + 2) // 3) * 4
+            if encoded_size >= MAX_REQUEST:
+                raise WCEError('VIDEO_REQUEST_TOO_LARGE')
             rows.append({'path': str(path), 'sha256': sha256(data).hexdigest()})
         return rows
 
@@ -313,11 +322,30 @@ class Jobs:
         value['duration'] = request.get('duration', 5)
         if 'source_attempt_id' in request:
             value['source_attempt_id'] = request['source_attempt_id']
-        usage = provider_usage({'total_tokens': row.get('total_tokens')}) | provider_usage(row.get('usage'))
+        is_h3 = request['model'] == H3
+        usage = (h3_usage(row.get('usage')) if is_h3 else
+                 provider_usage({'total_tokens': row.get('total_tokens')}) | provider_usage(row.get('usage')))
         if usage:
             value['usage'] = usage
+        if is_h3:
+            value['provider_site'] = request['provider_site']
         if 'asset' in row:
             value['asset'] = {k: v for k, v in row['asset'].items() if k != 'path'}
+            if is_h3 and request['provider_site'] == 'global' and {'output_seconds', 'input_image_count'} <= usage.keys():
+                rate = {'768P': 0.08, '2K': 0.13}[request['resolution']]
+                value['list_price_usd'] = round(usage['output_seconds'] * rate +
+                                                max(0, usage['input_image_count'] - 5) * 0.04, 2)
+            tokens = usage.get('completion_tokens', usage.get('total_tokens'))
+            resolution = request.get('resolution', '720p')
+            video_input = request.get('mode') in ('edit', 'extend')
+            # Public Ark China list rates in CNY per million tokens, before billing adjustments.
+            rates = {
+                MODEL: {'480p': (70, 42), '720p': (70, 42), '1080p': (77, 46)},
+                STANDARD: {'720p': (46, 28)}, MINI: {'720p': (23, 14)}, PRO: {'720p': (15, 15)},
+            }
+            rate = rates.get(value['model'], {}).get(resolution)
+            if rate and tokens is not None:
+                value['list_price_cny'] = (tokens * rate[video_input] + 5_000) // 10_000 / 100
         if recipe and 'recipe' in row:
             value['recipe'] = row['recipe']
         for key in ('rejection', 'failure', 'query_error', 'download_error'):
@@ -360,7 +388,7 @@ class Jobs:
 
     def _playable(self, attempt, project_id):
         receipt, artifact = self._paths(attempt)
-        row = read_optional(receipt)
+        row = read_optional(receipt, RECEIPT_MAX)
         if row is None or row['request']['project_id'] != project_id or row['state'] != 'ASSET_READY':
             raise WCEError('VIDEO_ASSET_NOT_READY')
         asset = row['asset']
@@ -431,38 +459,58 @@ class Jobs:
             if created:
                 os.unlink(temporary, dir_fd=folder)
 
-    def _key(self):
-        key = self.credential()
+    def _key(self, site=None):
+        key = self.credential() if site is None else self.minimax_credential(provider=site)
         if key is None:
             raise WCEError('VIDEO_KEY_NOT_CONFIGURED')
         return key
 
-    def submit(self, attempt, project_id, first, last, prompt, *, model=MODEL, duration=5, workspace=None):
-        validate_model(model)
+    def submit(self, attempt, project_id, first, last, prompt, *, model=MODEL, duration=5,
+               reference_images=None, workspace=None):
+        is_h3 = model == H3
+        if not is_h3:
+            validate_model(model)
+        elif workspace is None or workspace.get('provider_site') not in SITES:
+            raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
+        if not is_h3 and workspace is not None and {'provider_site', 'ratio'} & workspace.keys():
+            raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
         receipt, _ = self._paths(attempt)
         if not prompt.strip():
             raise WCEError('VIDEO_FRAMES_OR_PROMPT_INVALID')
-        if workspace is not None and os.path.lexists(receipt):
-            old = read_optional(receipt)
-            if old:
-                recipe = {k: v for k, v in workspace.items() if k not in ('source_attempt_id', 'source_sha256')}
-                if (old['request']['project_id'] != project_id or old['request']['model'] != model
-                        or old.get('recipe') != dict(recipe, prompt=prompt)
-                        or any(old['request'].get(k) != workspace.get(k) for k in ('source_attempt_id', 'source_sha256'))):
-                    raise WCEError('VIDEO_ATTEMPT_CONFLICT')
-                return old
-        frame_specs = (first, last) if workspace is None else self.resolve_frames(project_id, workspace['paths'])
+        recipe = None
+        if workspace is not None:
+            recipe = dict({k: v for k, v in workspace.items() if k not in ('source_attempt_id', 'source_sha256')},
+                          prompt=prompt)
+            if os.path.lexists(receipt):
+                old = read_optional(receipt, RECEIPT_MAX)
+                if old:
+                    if (old['request']['project_id'] != project_id or old['request']['model'] != model
+                            or old.get('recipe') != recipe
+                            or any(old['request'].get(k) != workspace.get(k)
+                                   for k in ('source_attempt_id', 'source_sha256'))):
+                        raise WCEError('VIDEO_ATTEMPT_CONFLICT')
+                    return old
+        frame_specs = reference_images if reference_images is not None else (first, last)
+        if workspace is not None:
+            frame_specs = self.resolve_frames(project_id, workspace['paths'], h3=is_h3)
         identity = {'project_id': project_id, 'model': model, 'frames': [frame['sha256'] for frame in frame_specs],
                     'prompt_sha256': sha256(prompt.encode()).hexdigest()}
         params = {}
-        if workspace is None and duration != 5:
-            params['duration'] = duration
+        if workspace is None:
+            if reference_images is not None:
+                params['mode'] = 'reference'
+            if duration != 5:
+                params['duration'] = duration
             identity.update(params)
         if workspace is not None:
-            params = {k: workspace[k] for k in ('mode', 'duration', 'resolution', 'audio', 'direction')
+            params = {k: workspace[k] for k in ('mode', 'duration', 'resolution', 'audio', 'direction',
+                                               'provider_site', 'ratio')
                       if k in workspace}
             identity.update(params)
             has_source = {'source_attempt_id', 'source_sha256'} & workspace.keys()
+            if is_h3 and (params['mode'] in ('edit', 'extend') or params.get('audio') or 'direction' in params
+                          or 'ratio' not in params):
+                raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
             editing = params['mode'] in ('edit', 'extend')
             if ((editing and len(has_source) != 2)
                     or (not editing and (has_source or 'reference_asset' in workspace))):
@@ -472,23 +520,33 @@ class Jobs:
                 identity['source_sha256'] = workspace['source_sha256']
         self._directory()
         with locked(self.root / 'generation.lock'):
-            old = read_optional(receipt)
+            old = read_optional(receipt, RECEIPT_MAX)
             if old is not None:
-                if old['request'] != identity:
+                if old['request'] != identity or (recipe is not None and old.get('recipe') != recipe):
                     raise WCEError('VIDEO_ATTEMPT_CONFLICT')
                 return old
             project = next((row for row in self.projects.view()['projects'] if row['id'] == project_id), None)
             if not project:
                 raise WCEError('VIDEO_PROJECT_NOT_REGISTERED')
             root = Path(project['root'])
-            frames = [image(Path(frame['path']), root, frame['sha256'], self.root) for frame in frame_specs]
-            key = self._key()
+            frames = []
+            encoded_size = 0
+            for frame in frame_specs:
+                mime, data = image(Path(frame['path']), root, frame['sha256'], self.root, h3=is_h3)
+                encoded_size += ((len(data) + 2) // 3) * 4
+                if encoded_size >= MAX_REQUEST:
+                    raise WCEError('VIDEO_REQUEST_TOO_LARGE')
+                frames.append((mime, data))
+            site = params.get('provider_site')
+            key = self._key(site)
+            api = self.api if site is None else self.minimax(site)
             reference = None
             if 'source_attempt_id' in identity:
                 source_receipt, original = self._paths(identity['source_attempt_id'])
-                source = read_optional(source_receipt)
+                source = read_optional(source_receipt, RECEIPT_MAX)
                 if (source is None or source['state'] != 'ASSET_READY'
-                        or source['request']['project_id'] != project_id or source['asset']['sha256'] != workspace['source_sha256']):
+                        or source['request']['model'] == H3 or source['request']['project_id'] != project_id
+                        or source['asset']['sha256'] != workspace['source_sha256']):
                     raise WCEError('VIDEO_REFERENCE_SOURCE_UNAVAILABLE')
                 if self._asset_digest(original, path_check(original)) != (source['asset']['sha256'], source['asset']['bytes']):
                     raise WCEError('VIDEO_ASSET_CHANGED')
@@ -506,31 +564,32 @@ class Jobs:
                         reference = result_url(remote['content']['video_url'])
                     except (WCEError, KeyError, TypeError):
                         raise WCEError('VIDEO_REFERENCE_SOURCE_UNAVAILABLE') from None
-            body = request_body(prompt, frames, model=model, reference=reference, **params)
+            if is_h3:
+                body = h3_body(prompt, frames, **{k: params[k] for k in ('mode', 'duration', 'resolution', 'ratio')})
+            else:
+                body = request_body(prompt, frames, model=model, reference=reference, **params)
             row = {'generation_attempt_id': attempt, 'request': identity, 'state': 'SUBMIT_UNKNOWN',
                    'request_sha256': sha256(body).hexdigest(), 'created_at': int(time.time())}
             info = root.stat(follow_symlinks=False)
             row['project_video_root'] = [info.st_dev, info.st_ino]
             if workspace is not None:
-                row['recipe'] = dict(params, prompt=prompt, paths=workspace['paths'])
-                if 'reference_asset' in workspace:
-                    row['recipe']['reference_asset'] = workspace['reference_asset']
+                row['recipe'] = recipe
             else:
-                row['recipe'] = {'mode': 'frames', 'duration': duration, 'resolution': '720p',
+                row['recipe'] = {'mode': params.get('mode', 'frames'), 'duration': duration, 'resolution': '720p',
                                  'audio': False, 'prompt': prompt,
                                  'paths': [str(Path(frame['path']).relative_to(root)) for frame in frame_specs]}
-            atomic_write(receipt, row)
+            atomic_write(receipt, row, maximum=RECEIPT_MAX)
             try:
-                task = self.api.submit(key, body)
+                task = api.submit(key, body)
             except WCEError as error:
                 if error.code == 'VIDEO_SUBMIT_REJECTED':
                     row['state'] = 'SUBMIT_REJECTED'
-                    if isinstance(error, ArkSubmitRejected):
+                    if isinstance(error, (ArkSubmitRejected, MiniMaxRejected)):
                         row['rejection'] = error.diagnostic
-                    atomic_write(receipt, row)
+                    atomic_write(receipt, row, maximum=RECEIPT_MAX)
                 return row
             row.update(provider_task_id=task, state='SUBMITTED')
-            atomic_write(receipt, row)
+            atomic_write(receipt, row, maximum=RECEIPT_MAX)
             return row
 
     def status(self, attempt, project_id, poll=False):
@@ -539,7 +598,7 @@ class Jobs:
             return {'state': 'NOT_FOUND'}
         path_check(self.root, True)
         with locked(self.root / 'generation.lock'):
-            row = read_optional(receipt)
+            row = read_optional(receipt, RECEIPT_MAX)
             if row is None or row['request']['project_id'] != project_id:
                 return {'state': 'NOT_FOUND'}
             if row['state'] == 'ASSET_READY':
@@ -554,15 +613,21 @@ class Jobs:
                 if row.get('download_sha256') != asset['sha256']:
                     raise WCEError('VIDEO_ASSET_CONFLICT')
                 row.update(state='ASSET_READY', asset=asset)
-                atomic_write(receipt, row)
+                atomic_write(receipt, row, maximum=RECEIPT_MAX)
                 self._save_project_copy(row, receipt)
                 return row
             recover_failure = row['state'] == 'FAILED' and 'failure' not in row
             if not poll or (row['state'] in {'SUBMIT_UNKNOWN', 'SUBMIT_REJECTED', 'FAILED', 'EXPIRED', 'CANCELLED'}
                             and not recover_failure):
                 return row
+            request = row['request']
+            is_h3 = request['model'] == H3
+            site = request.get('provider_site') if is_h3 else None
+            if is_h3 and site not in SITES:
+                raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
+            api = self.api if site is None else self.minimax(site)
             try:
-                value = self.api.query(self._key(), row['provider_task_id'], model=row['request']['model'])
+                value = api.query(self._key(site), row['provider_task_id'], model=request['model'])
             except WCEError as error:
                 return dict(row, query_error=error.code)
             remote = value.get('status')
@@ -573,37 +638,43 @@ class Jobs:
             if type(remote) is not str or remote not in states:
                 return dict(row, query_error='VIDEO_TASK_STATUS_UNKNOWN')
             row['state'] = states[remote]
-            if remote == 'failed' and (code := ark_error_code(value)):
-                row['failure'] = {'ark_error_code': code}
-            usage = provider_usage(value.get('usage'))
+            if remote == 'failed':
+                if is_h3:
+                    row['failure'] = {'provider': 'minimax'}
+                elif code := ark_error_code(value):
+                    row['failure'] = {'ark_error_code': code}
+            parse_usage = h3_usage if is_h3 else provider_usage
+            usage = parse_usage(value.get('usage'))
             if usage:
-                row['usage'] = provider_usage(row.get('usage')) | usage
+                row['usage'] = parse_usage(row.get('usage')) | usage
                 if 'total_tokens' in usage:
                     row['total_tokens'] = usage['total_tokens']
-            atomic_write(receipt, row)
+            atomic_write(receipt, row, maximum=RECEIPT_MAX)
             if remote == 'succeeded':
                 try:
                     content = value.get('content')
                     url = content.get('video_url') if type(content) is dict else None
-                    asset = self._save(artifact, url, receipt, row)
+                    if is_h3 and value.get('resolution') != request['resolution']:
+                        raise WCEError('VIDEO_RESULT_INVALID')
+                    asset = self._save(artifact, url, receipt, row, api=api)
                     row.update(state='ASSET_READY', asset=asset)
                 except WCEError as error:
                     return dict(row, download_error=error.code)
-                atomic_write(receipt, row)
+                atomic_write(receipt, row, maximum=RECEIPT_MAX)
                 self._save_project_copy(row, receipt)
             return row
 
-    def _save(self, artifact, url, receipt, row):
+    def _save(self, artifact, url, receipt, row, *, api):
         fd, name = tempfile.mkstemp(prefix='.video-', suffix='.mp4', dir=self.root)
         temporary = Path(name)
         try:
             with os.fdopen(fd, 'wb') as out:
-                self.api.download(url, out)
+                api.download(url, out)
                 out.flush()
                 os.fsync(out.fileno())
             ready = self._asset(temporary, request=row['request'])
             row['download_sha256'] = ready['sha256']
-            atomic_write(receipt, row)
+            atomic_write(receipt, row, maximum=RECEIPT_MAX)
             if os.path.lexists(artifact):
                 raise WCEError('VIDEO_ASSET_CONFLICT')
             temporary.rename(artifact)
@@ -623,18 +694,25 @@ class Jobs:
         digest, size = self._asset_digest(path, pin)
         facts = self.inspect(path)
         request = request or {}
-        if not request.get('audio', False) and facts['audio_tracks'] != 0:
+        if request.get('model') != H3 and not request.get('audio', False) and facts['audio_tracks'] != 0:
             raise WCEError('VIDEO_RESULT_INVALID')
         duration = request.get('duration', 5)
         if request.get('mode') != 'extend' and duration != -1:
             delta = facts['seconds'] - duration
             # Ark reports whole seconds rounded down while MP4 timing retains fractional seconds.
-            above = delta >= 1 if request.get('model') == MODEL else delta > 0.25
+            if request.get('model') == MODEL:
+                above = delta >= 1
+            elif request.get('model') == H3:
+                # H3 can return a playable MP4 slightly longer than its billed duration.
+                above = delta > 0.5
+            else:
+                above = delta > 0.25
             if delta < -0.25 or above:
                 raise WCEError('VIDEO_RESULT_INVALID')
         if path_check(path) != pin:
             raise WCEError('VIDEO_ASSET_CHANGED')
-        return dict(facts, asset_id='ark-' + digest, sha256=digest, bytes=size, path=str(path))
+        prefix = 'minimax-' if request.get('model') == H3 else 'ark-'
+        return dict(facts, asset_id=prefix + digest, sha256=digest, bytes=size, path=str(path))
 
     def _asset_digest(self, path, pin):
         digest = sha256()

@@ -345,10 +345,12 @@ window.OAXManagement = {
     }
   }
   $('xSetupAssist').onclick=startSetup;
-  async function authorize(){await run(async()=>{
-   if(!target||!sameSetup(target)||waiting||!matchesSaved())return;
+  async function authorize(reuseCurrent=false){await run(async()=>{
+   if(!target||!sameSetup(target)||waiting||(reuseCurrent?!target.cid:!matchesSaved()))return;
    const request=target;
-   const current=generation,value=await action('APP_DRAFT_AUTHORIZE',{...accountArgs(request),revision:saved.revision});
+   const current=generation;
+   const value=reuseCurrent?await action('AUTHORIZE',{expected_connection_id:request.cid})
+     :await action('APP_DRAFT_AUTHORIZE',{...accountArgs(request),revision:saved.revision});
    bindingSelection=request.selection;lastBound='';authorizationHandle=value.authorization_handle;
    authorizationTarget=request.cid;authorizationForm=request;waiting=true;onStatusChange();
    if(target!==request||!sameSetup(request)){
@@ -381,7 +383,7 @@ window.OAXManagement = {
   $('xCancel').onclick=()=>run(async()=>{await action('CANCEL',{authorization_handle:authorizationHandle});await load();});
   addEventListener('focus',returned);document.addEventListener('visibilitychange',visibility);
   function deactivate(){generation++;billingEpoch++;billingTarget=null;ready=false;busy=false;waiting=false;readAgain=false;stop();setupTargetChanged();capability.hidden=true;buttons();}
-  return {async activate(){ready=true;capability.hidden=false;buttons();await run(load);},authorize,openAuthorization,startSetup,openBilling,updateBilling,setupTargetChanged,closeAuthorization,deactivate,
+  return {async activate(){ready=true;capability.hidden=false;buttons();await run(load);},authorize,reauthorize:()=>authorize(true),openAuthorization,startSetup,openBilling,updateBilling,setupTargetChanged,closeAuthorization,deactivate,
    pendingAuthorization:cid=>authorizationTarget===cid&&waiting,
    dispose(){deactivate();removeEventListener('focus',returned);document.removeEventListener('visibilitychange',visibility);}};
  }

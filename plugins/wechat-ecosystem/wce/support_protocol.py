@@ -1,15 +1,35 @@
-"""App-only support boundary. No login, install or automatic external submission."""
+"""Separate app and conversation routes for opt-in support."""
 from copy import deepcopy
 from pathlib import Path
 import time
 
 from .contracts import WCEError
+from .own_connection_registry import MembershipProofError
+from .prepared_contracts import strict_validate
+from .tools import schema
 from .support_feedback import Support
 from .support_diagnostics import RESULTS, CODES, PRESERVATION_FIELDS, OPERATION_PHASES
+from .x_api import X_RESPONSE_ERROR_KINDS, XResponseUnknown
 
 ACTION = 'wce.ui.support.action'
+PREVIEW = 'openahoy.feedback.preview'
+SEND = 'openahoy.feedback.submit'
+STATUS = 'openahoy.feedback.status'
+RECEIPT = {'report_id': {'type':'string','pattern':'^[a-f0-9]{32}$'},
+           'digest': {'type':'string','pattern':'^[a-f0-9]{64}$'}}
+CHAT_SPECS = {
+    PREVIEW: schema({'description': {'type':'string','maxLength':4000}},
+                    {'platform': {'type':'string','enum':['wechat','x','general','updates']}}),
+    SEND: schema(RECEIPT | {'confirmed': {'type':'boolean','const':True}}),
+    STATUS: schema(RECEIPT),
+}
+CHAT_DESCRIPTIONS = {
+    PREVIEW: 'Prepare a local OpenAhoy feedback preview with sanitized diagnostics. Use only the relevant issue summary. This does not send anything.',
+    SEND: 'Submit the existing OpenAhoy feedback preview. Use only when the user explicitly asked to submit this feedback. May open a public GitHub Issue. Reuse the exact preview receipt. If the result is uncertain, use status.',
+    STATUS: 'Check the original conversation feedback receipt. Returns the actual Issue URL, a GitHub draft link, or the current submission state. Does not create an Issue.',
+}
 # readOnlyHint does not exclude refresh-token rotation or metadata writes.
-LOCAL_ONLY_TOOLS=frozenset({'own.connections.list','x.connections.list','own.drafts.current.read','own.drafts.current.status'})
+LOCAL_ONLY_TOOLS=frozenset({PREVIEW,STATUS,'own.connections.list','x.connections.list','own.drafts.current.read','own.drafts.current.status'})
 
 
 def descriptor():
@@ -28,7 +48,7 @@ class SupportRouter:
             version=_server_info()['version']
         from .own_connection_policy import registry_path
         self.support=support or Support(Path(registry if registry is not None else registry_path()).parent/'diagnostics',version=version)
-        self.tool_names=frozenset(t['name']for t in inner.list_tools())|{ACTION}
+        self.tool_names=frozenset(t['name']for t in inner.list_tools())|{ACTION,*CHAT_SPECS}
 
     def __getattr__(self,name):return getattr(self.inner,name)
     @property
@@ -36,10 +56,20 @@ class SupportRouter:
     @_inline_probe_meta.setter
     def _inline_probe_meta(self,value):self.inner._inline_probe_meta=value
 
-    def list_tools(self):return deepcopy(self.inner.list_tools())+[descriptor()]
+    def list_tools(self):
+        chat = [{'name':name,'description':CHAT_DESCRIPTIONS[name],'inputSchema':deepcopy(spec),
+                 'annotations':{'readOnlyHint':False,'destructiveHint':False,
+                                'openWorldHint':name!=PREVIEW,'idempotentHint':name!=PREVIEW}}
+                for name,spec in CHAT_SPECS.items()]
+        return deepcopy(self.inner.list_tools())+[descriptor(),*chat]
 
     def call(self,name,arguments):
-        invoke=lambda:self.inner.call(name,arguments) if name!=ACTION else self._call(arguments)
+        def invoke():
+            if name == ACTION:
+                return self._call(arguments)
+            if name in CHAT_SPECS:
+                return self._chat(name,arguments)
+            return self.inner.call(name,arguments)
         return self.observe(name,invoke) if self.instrument else invoke()
 
     def observe(self,name,invoke,*,protocol_result=False):
@@ -64,6 +94,11 @@ class SupportRouter:
                 if projection is not None:state,code=projection
                 if type(value.get('error_code'))is int and value['error_code']!=0:wechat_code=value['error_code']
                 if code=='PRESERVATION_MISMATCH':kind='LOCAL_COMPARISON';wechat_code=None
+                if name in {'x.media.upload', 'x.attempt.status'} and value.get('kind')=='upload':
+                    field='query_error_kind' if value.get('query_error') else 'error_kind'
+                    failure_kind=value.get(field)
+                    if type(failure_kind) is str and failure_kind in X_RESPONSE_ERROR_KINDS:
+                        kind=failure_kind
                 details=management_details(value)
                 if details.get('candidate_created')is True:effect='POSSIBLE'
                 if state=='UNKNOWN':effect='POSSIBLE'
@@ -71,6 +106,10 @@ class SupportRouter:
         except Exception as error:
             state='TOOL_ERROR';candidate=getattr(error,'code',None);code=candidate if type(candidate)is str and candidate in CODES else 'UNCLASSIFIED_ERROR'
             kind=('CONTRACT_ERROR' if isinstance(error,WCEError) else 'TIMEOUT' if isinstance(error,TimeoutError) else 'ATTRIBUTE_ERROR' if isinstance(error,AttributeError) else 'TRANSPORT_ERROR' if isinstance(error,(OSError,EOFError)) else 'INTERNAL_ERROR')
+            if isinstance(error, MembershipProofError):
+                details['proof_check'] = error.check
+            if isinstance(error, XResponseUnknown):
+                kind=error.kind
             if kind=='TIMEOUT' and code=='UNCLASSIFIED_ERROR':code='PROCESS_TIMEOUT'
             frame=error.__traceback__
             while frame:
@@ -89,6 +128,18 @@ class SupportRouter:
                     elapsed_ms=min(3600000,int((time.monotonic()-start)*1000)),site=site,http_status=http_status,wechat_code=wechat_code,error_kind=kind,possible_side_effect=effect,**details)
             except Exception:
                 pass
+
+    def _chat(self, name, args):
+        strict_validate(args, CHAT_SPECS[name])
+        try:
+            if name == PREVIEW:
+                fields = dict(description=args['description'], steps='', expected='', actual='')
+                report = self.support.preview(fields, args.get('platform', 'general'), source='conversation')
+                return {key:report[key] for key in ('report_id','digest','state','repository','title','body')}
+            operation = self.support.send if name == SEND else self.support.status
+            return operation(args['report_id'], args['digest'], source='conversation')
+        except ValueError:
+            raise WCEError('SUPPORT_REQUEST_INVALID') from None
 
     def _call(self,value):
         try:
@@ -118,8 +169,8 @@ def outcome(value):
     state=value.get('state')
     if state in ('REJECTED','FAILED') and value.get('error')=='X_HTTP_402':
         return 'TOOL_ERROR','X_HTTP_402'
-    if value.get('media_protocol')=='X_V2_CHUNKED':
-        code=value.get('error')or value.get('query_error')
+    if value.get('media_protocol')=='X_V2_CHUNKED' or value.get('kind')=='upload' and state=='RESULT_UNKNOWN':
+        code=value.get('query_error')or value.get('error')
         safe_code=code if type(code)is str and code in CODES else None
         if state=='RESULT_UNKNOWN':return 'UNKNOWN',safe_code or 'X_RESPONSE_UNKNOWN'
         if state=='SOURCE_UNAVAILABLE':return 'TOOL_ERROR','X_MEDIA_SOURCE_UNAVAILABLE'
