@@ -8,6 +8,8 @@ from .video_jobs import Jobs
 from .video_inline_credential import InlineVideoCredential
 from .video_keychain import PROVIDERS, status
 from .video_minimax import H3, H3_MODES, RATIOS, SITES
+from .video_relay import RESOLUTIONS
+from .video_relay_keychain import relay_status
 from .video_seedance import MAX_REFERENCE_IMAGES, MODEL, SUPPORTED_MODELS
 
 CONNECTION = 'video.ark.connection.status'
@@ -16,6 +18,7 @@ STATUS = 'video.ark.generation.status'
 CREDENTIAL = 'wce.ui.video.credential'
 WORKSPACE = 'wce.ui.video.workspace'
 H3_SUBMIT = 'video.minimax.generation.submit'
+RELAY_SUBMIT = 'video.relay.generation.submit'
 SITE = {'type': 'string', 'enum': list(SITES)}
 RATIO = {'type': 'string', 'enum': ['adaptive', *RATIOS]}
 HANDLE = {'type': 'string', 'pattern': '^[a-f0-9]{64}$'}
@@ -73,11 +76,21 @@ WORKSPACE_SPECS = {'oneOf': [
         'resolution': {'type': 'string', 'enum': ['480p', '720p', '1080p', '768P', '2K']},
     }, SOURCE_OPTIONS | {'provider_site': SITE, 'ratio': RATIO}),
 ]}
+RELAY_URL = {'type': 'string', 'minLength': 1, 'maxLength': 8192}
+RELAY_IMAGES = {'type': 'array', 'minItems': 1, 'maxItems': 9, 'items': RELAY_URL}
+RELAY_AUDIO = {'type': 'array', 'minItems': 0, 'maxItems': 3, 'items': RELAY_URL}
+RELAY_PROMPT = {'type': 'string', 'minLength': 1, 'maxLength': 20000, 'x-wce-maxUtf8Bytes': 80000}
+RELAY_OPTIONS = {'reference_audio': RELAY_AUDIO,
+                 'duration': {'type': 'integer', 'minimum': 1, 'maximum': 15},
+                 'resolution': {'type': 'string', 'enum': list(RESOLUTIONS)}}
+
 SPECS = {
+    RELAY_SUBMIT: schema(JOB | {'prompt': RELAY_PROMPT, 'reference_images': RELAY_IMAGES}, RELAY_OPTIONS),
     CONNECTION: schema({}),
     CREDENTIAL: {'oneOf': [
         action('begin', {}, {'provider': {'type': 'string', 'enum': list(PROVIDERS)}}),
-        action('status', {'provider': {'type': 'string', 'enum': list(PROVIDERS)}}),
+        action('begin_relay', {'base_url': {'type': 'string', 'minLength': 1, 'maxLength': 512}}),
+        action('status', {'provider': {'type': 'string', 'enum': [*PROVIDERS, 'relay']}}),
         schema({'action': {'type': 'string', 'const': 'submit'}, 'session': HANDLE,
                 'jwe': {'type': 'string', 'minLength': 1, 'maxLength': 16384,
                         'pattern': r'^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){4}$'}}),
@@ -96,11 +109,12 @@ SPECS = {
                   'items': {'type': 'string', 'minLength': 1, 'maxLength': 4096}}}),
 }
 DESCRIPTIONS = {
+    RELAY_SUBMIT: 'Submit one authorized billable AutoDL · MiniMax H3 workflow task. Use 1–9 ordered HTTPS reference image URLs and optionally up to 3 HTTPS audio URLs accessible to the configured relay. Optional duration: 1–15 seconds. Resolution is a provider enum. This workflow offers reference images, with no dedicated first/last frame roles. Reuse the original generation_attempt_id. Query video.ark.generation.status with the original project and attempt. Never replace an unknown submission.',
     CONNECTION: 'Read local Ark credential configuration state. Does not verify model access or return the API Key.',
     CREDENTIAL: 'App-only local Ark Key configuration. Accepts only a one-use encrypted envelope, never a plaintext Key.',
     WORKSPACE: 'App-only project video history, previews, library and export. Supports legacy panel requests.',
     SUBMIT: 'Submit one authorized billable Seedance task. Supply either first_frame and last_frame or, for Seedance 2.5, 1–30 ordered reference_images. Each image needs a project-local original PNG/JPEG path and SHA-256 hash. Default: Seedance 2.5, 5 seconds. Seedance 2.5 accepts 4–30 seconds or -1 for Auto. For explicit mode, resolution or audio use configuration with mode, paths (ordered project-relative PNG/JPEG), duration, resolution and audio. Seedance 2.5 also supports text, edit and extend; edit/extend require the original source_attempt_id and source_sha256 in the same project. Reuse the original generation_attempt_id and identical inputs. Never submit a replacement after SUBMIT_UNKNOWN.',
-    STATUS: 'Read the original video receipt (Ark or MiniMax). With poll=true, query only the original provider task and save its verified MP4 if ready.',
+    STATUS: 'Read the original video receipt (Ark, MiniMax or video relay). With poll=true, query only the original provider task and save its verified MP4 if ready.',
     H3_SUBMIT: 'Submit one authorized billable MiniMax H3 generation. Choose the site where the user configured a Key. Pass ordered project-relative PNG/JPEG paths: text=0, first/last=1, frames=2, reference=1–9. Text requires a concrete ratio; frame modes use adaptive. Query the original attempt with video.ark.generation.status.',
 }
 
@@ -128,7 +142,7 @@ class VideoRouter:
             local_read = name == CONNECTION
             row = {'name': name, 'inputSchema': deepcopy(spec), 'description': DESCRIPTIONS[name],
                    'annotations': {'readOnlyHint': local_read, 'destructiveHint': False,
-                                   'idempotentHint': name != CREDENTIAL, 'openWorldHint': name in {SUBMIT, STATUS, WORKSPACE, H3_SUBMIT}}}
+                                   'idempotentHint': name != CREDENTIAL, 'openWorldHint': name in {SUBMIT, STATUS, WORKSPACE, H3_SUBMIT, RELAY_SUBMIT}}}
             if name in (CREDENTIAL, WORKSPACE):
                 row['_meta'] = {'ui': {'visibility': ['app']}}
             rows.append(row)
@@ -144,7 +158,9 @@ class VideoRouter:
         if name == CREDENTIAL:
             action = arguments['action']
             if action == 'status':
-                return status(provider=arguments['provider'])
+                return relay_status() if arguments['provider'] == 'relay' else status(provider=arguments['provider'])
+            if action == 'begin_relay':
+                return self.video_credential.begin('relay', base_url=arguments['base_url'])
             if action == 'begin':
                 return self.video_credential.begin(arguments.get('provider', 'ark'))
             if action == 'cancel':
@@ -153,7 +169,11 @@ class VideoRouter:
         if name == WORKSPACE:
             return self.workspace(arguments)
         attempt, project = arguments['generation_attempt_id'], arguments['project_id']
-        if name == H3_SUBMIT:
+        if name == RELAY_SUBMIT:
+            inputs = {key: arguments[key] for key in ('prompt', 'reference_images', *RELAY_OPTIONS)
+                      if key in arguments}
+            row = self.video_jobs.submit_relay(attempt, project, inputs)
+        elif name == H3_SUBMIT:
             workspace = {k: arguments[k] for k in ('mode', 'duration', 'resolution', 'ratio', 'provider_site', 'paths')}
             row = self.video_jobs.submit(attempt, project, None, None, arguments['prompt'], model=H3, workspace=workspace)
         elif name == SUBMIT and 'configuration' in arguments:
@@ -173,7 +193,7 @@ class VideoRouter:
         else:
             row = self.video_jobs.status(attempt, project, arguments.get('poll', False))
         return {key: value for key, value in row.items()
-                if key not in {'recipe', 'project_video_root', 'project_video_copy'}}
+                if key not in {'recipe', 'project_video_root', 'project_video_copy', 'relay_connection'}}
 
     def workspace(self, arguments):
         job = self.video_jobs

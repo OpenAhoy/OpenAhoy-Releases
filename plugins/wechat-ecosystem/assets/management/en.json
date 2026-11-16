@@ -1041,5 +1041,12 @@
   "找到了原恢复记录。请保持 macOS 已登录且解锁，再刷新检查。": "A recovery record was found. Keep macOS signed in and unlocked, then refresh.",
   "账号状态已变化，请关闭后查看最新列表。": "The account status changed. Close this dialog and check the updated list.",
   "本机存储编号已变，原账号仍在登记中。": "The local storage identifier changed. The original account is still registered.",
-  "请先检查已保存的本机恢复记录。": "Check the saved local recovery record first."
+  "请先检查已保存的本机恢复记录。": "Check the saved local recovery record first.",
+  "中转站 Base URL": "Relay base URL",
+  "默认使用 AutoDL 官方地址，可改为自己的中转站。": "Defaults to the official AutoDL address. You can enter your own relay.",
+  "请输入中转站 HTTPS 地址": "Enter the relay’s HTTPS address",
+  "中转站 Token": "Relay token",
+  "保存中转站配置": "Save relay settings",
+  "未配置中转站": "Relay not configured",
+  "中转站 Token 格式无效": "Invalid relay token"
 }

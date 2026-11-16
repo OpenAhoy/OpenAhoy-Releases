@@ -110,10 +110,21 @@ def native_page_body(logo, platform_settings):
 <label>凭据来源<select id="videoCredentialProvider"><option value="ark">火山方舟</option><option value="cn">MiniMax 中国站</option><option value="global">MiniMax 国际站</option></select></label>
 <p id="videoModelState" role="status" aria-live="polite"></p>
 <div id="videoCredentialForm">
-<label for="videoCredential">API Key</label>
+<label id="videoCredentialLabel" for="videoCredential">API Key</label>
 <input id="videoCredential" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" required disabled>
 <button id="videoCredentialSave" type="button" class="primary" disabled>保存 API Key</button>
-</div></div>'''
+</div></div>
+<section id="videoRelayCard" class="panel" aria-labelledby="videoRelayTitle">
+<div class="oa-video-relay-heading"><img src="'''+video_model_mark()+'''" alt="" width="86" height="32"><h2 id="videoRelayTitle">AutoDL · MiniMax H3</h2></div>
+<div id="videoRelayForm">
+<label for="videoRelayOrigin">中转站 Base URL</label>
+<input id="videoRelayOrigin" type="url" maxlength="512" autocomplete="off" spellcheck="false" placeholder="https://" data-default-origin="https://autodl.art" aria-describedby="videoRelayOriginHint" disabled>
+<p class="help" id="videoRelayOriginHint">默认使用 AutoDL 官方地址，可改为自己的中转站。</p>
+<label for="videoRelayCredential">中转站 Token</label>
+<input id="videoRelayCredential" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" required disabled>
+<div class="oa-video-relay-footer"><p id="videoRelayState" role="status" aria-live="polite"></p>
+<button id="videoRelaySave" type="button" class="primary" disabled>保存中转站配置</button></div>
+</div></section>'''
     return '''<body class="oa-management oa-platform-workspace oa-native"><div class="oa-shell">
 '''+platform_sidebar(logo, '<p class="help">正在读取平台…</p>', localized=True)+'''
 <main class="oa-content">'''+home+'''<div id="nativeWorkspace" hidden><header class="oa-account-header">

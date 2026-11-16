@@ -1,4 +1,5 @@
 """One-use, purpose-scoped Ark credential submission from the native app."""
+from hashlib import sha256
 import secrets
 import threading
 import time
@@ -6,15 +7,19 @@ import time
 from .contracts import WCEError
 from .own_inline_crypto import NativeCrypto
 from .video_keychain import save
+from .video_relay import relay_origin
+from .video_relay_keychain import save_relay
 
 PURPOSE = 'openahoy:video:ark:cn-beijing:key:v1'
+RELAY_PURPOSE = 'openahoy:video:comfyui-relay:key:v1:'
 TTL = 120
 
 
 class InlineVideoCredential:
-    def __init__(self, *, crypto_factory=NativeCrypto, writer=save, clock=time.monotonic):
+    def __init__(self, *, crypto_factory=NativeCrypto, writer=save, relay_writer=save_relay, clock=time.monotonic):
         self.crypto_factory = crypto_factory
         self.writer = writer
+        self.relay_writer = relay_writer
         self.clock = clock
         self.lock = threading.RLock()
         self.pending = None
@@ -31,20 +36,25 @@ class InlineVideoCredential:
             if self.pending and self.pending['session'] == session:
                 self._clear()
 
-    def begin(self, provider='ark'):
+    def begin(self, provider='ark', *, base_url=None):
+        origin = relay_origin(base_url) if provider == 'relay' else None
         with self.lock:
             if self.closed:
                 raise WCEError('VIDEO_CREDENTIAL_SESSION_EXPIRED')
             self._clear()
             crypto = self.crypto_factory()
             try:
-                purpose = PURPOSE if provider == 'ark' else 'openahoy:video:minimax:' + provider + ':key:v1'
+                if origin is not None:
+                    purpose = RELAY_PURPOSE + sha256(origin.encode()).hexdigest()
+                else:
+                    purpose = PURPOSE if provider == 'ark' else 'openahoy:video:minimax:' + provider + ':key:v1'
                 challenge = crypto.begin(purpose)
                 session = secrets.token_hex(32)
                 timer = threading.Timer(TTL, self._expire, args=(session,))
                 timer.daemon = True
                 self.pending = {'crypto': crypto, 'challenge': challenge, 'session': session,
-                                'created': self.clock(), 'timer': timer, 'purpose': purpose, 'provider': provider}
+                                'created': self.clock(), 'timer': timer, 'purpose': purpose,
+                                'provider': provider, 'origin': origin}
                 timer.start()
             except BaseException:
                 self.pending = None
@@ -68,6 +78,8 @@ class InlineVideoCredential:
                 # Spend the challenge before the Keychain call, including failure.
                 self._clear()
             try:
+                if item['provider'] == 'relay':
+                    return self.relay_writer(item['origin'], secret.reveal_for_adapter())
                 if item['provider'] == 'ark':
                     return self.writer(secret.reveal_for_adapter())
                 return self.writer(secret.reveal_for_adapter(), provider=item['provider'])

@@ -97,7 +97,7 @@ STYLE = '''
 .oa-video-asset-menu[open]>div{padding:0 5px 4px}
 .oa-video-library .oa-video-asset-menu:not([open])>div{display:none}
 #videoSettingsPage{max-width:600px;max-height:100%;margin-inline:auto;overflow:auto;overscroll-behavior:contain;padding:2px}
-#videoModel{margin-top:10px}
+#videoModel,#videoRelayCard{margin-top:10px}
 .oa-video-model-brands{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-block-end:12px}
 .oa-video-model-brand{min-width:0;min-height:48px;display:flex;flex-wrap:wrap;align-items:center;gap:2px 7px;padding:4px 7px;border-radius:8px;background:var(--oa-fill,var(--line))}
 .oa-video-model-brand img{display:block;object-fit:contain;width:86px;max-width:100%;height:auto;border-radius:4px;background:#fff}
@@ -107,6 +107,15 @@ STYLE = '''
 #videoCredentialForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 8px;align-items:center}
 #videoCredentialForm label{grid-column:1/-1;margin:0}
 #videoCredentialForm input{min-width:0;margin:0}
+.oa-video-relay-heading,.oa-video-relay-footer{display:flex;align-items:center;gap:6px 9px;flex-wrap:wrap}
+.oa-video-relay-heading img{width:70px;height:auto;object-fit:contain;border-radius:4px;background:#fff}
+.oa-video-relay-heading h2{margin:0;font-size:15px}
+#videoRelayForm{display:grid;grid-template-columns:minmax(0,1fr);gap:5px;margin-top:10px}
+#videoRelayForm :is(label,input){min-width:0;margin:0}
+#videoRelayOriginHint{margin:0 0 3px;font-size:12px}
+.oa-video-relay-footer{justify-content:space-between;margin-top:3px}
+.oa-video-relay-footer p{margin:0;font-size:12px;color:var(--muted)}
+
 @media(max-width:799px),(max-height:599px){
  .oa-management.oa-native.oa-video-open .oa-shell{display:grid;height:100dvh;min-height:0;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);overflow:hidden}
  .oa-management.oa-native.oa-video-open .oa-sidebar{display:flex;flex-flow:row wrap;justify-content:flex-start;align-items:center;gap:4px 10px;padding:5px 10px}
@@ -211,6 +220,7 @@ const OAVideoWorkspace = (call, credential, openBilling) => {
      const amount=new Intl.NumberFormat(undefined,{style:'currency',currency:row.list_price_usd!==undefined?'USD':'CNY'}).format(estimate);
      label('刊例估算 {0}',amount);
    }
+   if(row.model==='MiniMax-H3-Relay')return;
    const billing=document.createElement('button');billing.type='button';
    OAUI.set(billing,'查看实际账单');
    billing.onclick=async()=>{try{await openBilling(row.provider_site);}catch(_){notice('当前宿主无法打开账单。');}};
@@ -340,7 +350,7 @@ const OAVideoWorkspace = (call, credential, openBilling) => {
    const ready=versions.filter(row=>row.asset);
    primary.replaceChildren();compare.replaceChildren();
    const counts=new Map();
-   const names={frames:'首尾帧',first:'单首帧',last:'单尾帧',text:'文字生成',reference:'多图参考',edit:'修改画面',extend:'延长镜头'};
+   const names={frames:'首尾帧',first:'单首帧',last:'单尾帧',text:'文字生成',reference:'多图参考',edit:'修改画面',extend:'延长镜头',workflow:'AutoDL · MiniMax H3'};
    for(const row of [...ready].reverse()){
      const kind=row.mode||'frames';
      counts.set(kind,(counts.get(kind)||0)+1);
@@ -350,7 +360,8 @@ const OAVideoWorkspace = (call, credential, openBilling) => {
      for(const select of [primary,compare]){
        const option=document.createElement('option');
        option.value=row.generation_attempt_id;
-       OAUI.set(option,'{0} · 第 {1} 版',OAUI.message(names[row.mode]||'首尾帧'),row.displayVersion);
+       const modelName=row.model==='MiniMax-H3-Relay'?'AutoDL · MiniMax H3':names[row.mode]||'首尾帧';
+       OAUI.set(option,'{0} · 第 {1} 版',OAUI.message(modelName),row.displayVersion);
        select.append(option);
      }
    }

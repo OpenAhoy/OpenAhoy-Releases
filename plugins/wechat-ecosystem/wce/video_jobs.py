@@ -19,6 +19,8 @@ from .own_connection_registry import mkdir
 from .project_context import ProjectStore
 from .video_keychain import load
 from .video_minimax import H3, SITES, MiniMax, MiniMaxRejected, h3_body, h3_usage
+from .video_relay import RELAY_MODEL, Relay, workflow_body
+from .video_relay_keychain import load_relay
 from .video_seedance import Ark, ArkSubmitRejected, MINI, MODEL, PRO, STANDARD, MAX_REQUEST, MAX_RESULT, ark_error_code, request_body, result_url, validate_model
 
 ATTEMPT = re.compile(r'[A-Za-z0-9_-]{1,96}\Z')
@@ -97,13 +99,15 @@ def media_facts(path):
 
 class Jobs:
     def __init__(self, registry=None, *, api=None, credential=load, inspect=media_facts,
-                 minimax=MiniMax, minimax_credential=load):
+                 minimax=MiniMax, minimax_credential=load, relay=Relay, relay_credential=load_relay):
         self.projects = ProjectStore(registry)
         self.root = self.projects.root / 'video-ark'
         self.api = api if api is not None else Ark()
         self.credential = credential
         self.minimax = minimax
         self.minimax_credential = minimax_credential
+        self.relay = relay
+        self.relay_credential = relay_credential
         self.inspect = inspect
         self.playback_pin = None
 
@@ -319,7 +323,10 @@ class Jobs:
         value = {key: row[key] for key in ('generation_attempt_id', 'state', 'created_at')}
         value['model'] = request['model']
         value['mode'] = request.get('mode', 'frames')
-        value['duration'] = request.get('duration', 5)
+        if request['model'] != RELAY_MODEL:
+            value['duration'] = request.get('duration', 5)
+        elif 'duration' in request:
+            value['duration'] = request['duration']
         if 'source_attempt_id' in request:
             value['source_attempt_id'] = request['source_attempt_id']
         is_h3 = request['model'] == H3
@@ -545,7 +552,7 @@ class Jobs:
                 source_receipt, original = self._paths(identity['source_attempt_id'])
                 source = read_optional(source_receipt, RECEIPT_MAX)
                 if (source is None or source['state'] != 'ASSET_READY'
-                        or source['request']['model'] == H3 or source['request']['project_id'] != project_id
+                        or source['request']['model'] in (H3, RELAY_MODEL) or source['request']['project_id'] != project_id
                         or source['asset']['sha256'] != workspace['source_sha256']):
                     raise WCEError('VIDEO_REFERENCE_SOURCE_UNAVAILABLE')
                 if self._asset_digest(original, path_check(original)) != (source['asset']['sha256'], source['asset']['bytes']):
@@ -578,19 +585,53 @@ class Jobs:
                 row['recipe'] = {'mode': params.get('mode', 'frames'), 'duration': duration, 'resolution': '720p',
                                  'audio': False, 'prompt': prompt,
                                  'paths': [str(Path(frame['path']).relative_to(root)) for frame in frame_specs]}
-            atomic_write(receipt, row, maximum=RECEIPT_MAX)
-            try:
-                task = api.submit(key, body)
-            except WCEError as error:
-                if error.code == 'VIDEO_SUBMIT_REJECTED':
-                    row['state'] = 'SUBMIT_REJECTED'
-                    if isinstance(error, (ArkSubmitRejected, MiniMaxRejected)):
-                        row['rejection'] = error.diagnostic
-                    atomic_write(receipt, row, maximum=RECEIPT_MAX)
-                return row
-            row.update(provider_task_id=task, state='SUBMITTED')
-            atomic_write(receipt, row, maximum=RECEIPT_MAX)
+            return self._dispatch(receipt, row, api, key, body)
+
+    def _dispatch(self, receipt, row, api, key, body):
+        atomic_write(receipt, row, maximum=RECEIPT_MAX)
+        try:
+            task = api.submit(key, body)
+        except WCEError as error:
+            if error.code == 'VIDEO_SUBMIT_REJECTED':
+                row['state'] = 'SUBMIT_REJECTED'
+                if isinstance(error, (ArkSubmitRejected, MiniMaxRejected)):
+                    row['rejection'] = error.diagnostic
+                atomic_write(receipt, row, maximum=RECEIPT_MAX)
             return row
+        row.update(provider_task_id=task, state='SUBMITTED')
+        atomic_write(receipt, row, maximum=RECEIPT_MAX)
+        return row
+
+    def submit_relay(self, attempt, project_id, inputs):
+        receipt, _ = self._paths(attempt)
+        body = workflow_body(inputs)
+        request_hash = sha256(body).hexdigest()
+        identity = {'project_id': project_id, 'model': RELAY_MODEL, 'mode': 'workflow'}
+        if 'duration' in inputs:
+            identity['duration'] = inputs['duration']
+        self._directory()
+        with locked(self.root / 'generation.lock'):
+            old = read_optional(receipt, RECEIPT_MAX)
+            if old is not None:
+                if old['request'] != identity or old['request_sha256'] != request_hash:
+                    raise WCEError('VIDEO_ATTEMPT_CONFLICT')
+                return old
+            project = next((r for r in self.projects.view()['projects'] if r['id'] == project_id), None)
+            if project is None:
+                raise WCEError('VIDEO_PROJECT_NOT_REGISTERED')
+            root = Path(project['root'])
+            origin, connection, key = self._relay_connection()
+            info = root.stat(follow_symlinks=False)
+            row = {'generation_attempt_id': attempt, 'state': 'SUBMIT_UNKNOWN', 'request': identity,
+                   'relay_connection': connection, 'request_sha256': request_hash,
+                   'created_at': int(time.time()), 'project_video_root': [info.st_dev, info.st_ino]}
+            return self._dispatch(receipt, row, self.relay(origin), key, body)
+
+    def _relay_connection(self):
+        configured = self.relay_credential()
+        if configured is None:
+            raise WCEError('VIDEO_RELAY_NOT_CONFIGURED')
+        return configured
 
     def status(self, attempt, project_id, poll=False):
         receipt, artifact = self._paths(attempt)
@@ -625,9 +666,17 @@ class Jobs:
             site = request.get('provider_site') if is_h3 else None
             if is_h3 and site not in SITES:
                 raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
-            api = self.api if site is None else self.minimax(site)
+            is_relay = request['model'] == RELAY_MODEL
             try:
-                value = api.query(self._key(site), row['provider_task_id'], model=request['model'])
+                if is_relay:
+                    origin, connection, key = self._relay_connection()
+                    if connection != row.get('relay_connection'):
+                        raise WCEError('VIDEO_RELAY_CONNECTION_CHANGED')
+                    api = self.relay(origin)
+                else:
+                    api = self.api if site is None else self.minimax(site)
+                    key = self._key(site)
+                value = api.query(key, row['provider_task_id'], model=request['model'])
             except WCEError as error:
                 return dict(row, query_error=error.code)
             remote = value.get('status')
@@ -641,6 +690,8 @@ class Jobs:
             if remote == 'failed':
                 if is_h3:
                     row['failure'] = {'provider': 'minimax'}
+                elif is_relay:
+                    row['failure'] = {'provider': 'relay'}
                 elif code := ark_error_code(value):
                     row['failure'] = {'ark_error_code': code}
             parse_usage = h3_usage if is_h3 else provider_usage
@@ -694,10 +745,11 @@ class Jobs:
         digest, size = self._asset_digest(path, pin)
         facts = self.inspect(path)
         request = request or {}
-        if request.get('model') != H3 and not request.get('audio', False) and facts['audio_tracks'] != 0:
+        model = request.get('model')
+        if model not in (H3, RELAY_MODEL) and not request.get('audio', False) and facts['audio_tracks'] != 0:
             raise WCEError('VIDEO_RESULT_INVALID')
         duration = request.get('duration', 5)
-        if request.get('mode') != 'extend' and duration != -1:
+        if model != RELAY_MODEL and request.get('mode') != 'extend' and duration != -1:
             delta = facts['seconds'] - duration
             # Ark reports whole seconds rounded down while MP4 timing retains fractional seconds.
             if request.get('model') == MODEL:
@@ -711,7 +763,7 @@ class Jobs:
                 raise WCEError('VIDEO_RESULT_INVALID')
         if path_check(path) != pin:
             raise WCEError('VIDEO_ASSET_CHANGED')
-        prefix = 'minimax-' if request.get('model') == H3 else 'ark-'
+        prefix = {H3: 'minimax-', RELAY_MODEL: 'relay-'}.get(model, 'ark-')
         return dict(facts, asset_id=prefix + digest, sha256=digest, bytes=size, path=str(path))
 
     def _asset_digest(self, path, pin):
