@@ -1,37 +1,25 @@
-# 升级 OpenAhoy 至 0.6.60
+# 升级 OpenAhoy 至 0.6.61
 
-先等当前发文或生成任务结束。使用 [固定发行页](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.60) 和 [发行清单](https://github.com/OpenAhoy/OpenAhoy-Releases/blob/v0.6.60/RELEASE.json) 核对 ZIP、SHA256SUMS 和 package-manifest.json。保留原市场登记与回退包、账号资料、钥匙串、项目规则、排期、草稿、合组回执及已有恢复材料。未决业务按原请求 ID 查询。
+从 [固定发行页](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.61) 核对版本和安装包。等当前发文或生成任务结束，沿用原插件、市场、绑定、草稿、排期和未决回执。不要删除残留端点或手改插件缓存。
 
-## 从原管理页升级
+## 在 Codex 聊天里更新
 
-原账号状态正常时，在 OpenAhoy 管理页检查更新，确认目标 0.6.60 后执行一次。安装完成后按提示结束工作并完整重开 Codex，回到原 OpenAhoy，核对版本为 0.6.60、重启提示已消失、原账号仍在。账号列表与生产规则可先只读检查。0.6.55 旧页面可能在软件已安装后报告读回失败；遇到此情况，先对照下面的只读回执和准确版本，避免再点更新。若请求结果未知、状态仍不能确认，先按原回执查询和只读检查，不再次触发安装。
+把下面这段发给目标机器的 Codex：
 
-## 管理页无法完成时
+> 请在这台 Mac 把现有 OpenAhoy 同槽升级到官方公开 v0.6.61。用官方 Codex 插件管理核对当前市场名、来源、固定 ref 和已装插件 ID，保留原登记和软件包。核对 [固定发行页](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.61) 的 RELEASE.json、SHA256SUMS 和完整包清单。若原登记是仅含 OpenAhoy 的公开 Git 市场 openahoy-distribution，保留原来源 https://github.com/OpenAhoy/OpenAhoy-Releases.git，把原登记换到 v0.6.61，安装并读回同一个 wechat-ecosystem@openahoy-distribution。只更新软件，保留原绑定、草稿、排期和操作回执。若原来源不同，先报告原登记，由原市场维护方沿同一插件条目更新。
 
-先用官方 Codex CLI 只读查原插件 ID、市场来源、名称、固定 ref 和已装版本：
+旧 v0.6.60 的管理页在发现未运行的后台留下的文件时，可能报 `UPDATE_BUSINESS_BUSY`。遇到这个错误，使用上面的 Codex 插件管理路径。固定旧标签的普通刷新仍会装旧版。
 
-```sh
-codex plugin list --json
-codex plugin marketplace list --json
-```
+独占公开市场的同槽步骤是在 Codex 宿主以 `marketplace/remove` 移除原市场登记，再用 `marketplace/add` 对原 URL 登记 `v0.6.61`。登记成功并核对来源和 ref 后，使用 `plugin/install` 安装原插件。Codex 也可代为使用官方 `codex plugin marketplace` 与 `codex plugin add` 完成同一路径，用户无需自行打开终端。登记结果未知时先查实际登记和已装版本，再按原记录恢复登记。共享市场由维护者仅调整原 OpenAhoy 条目的固定 ref 与提交，保留市场和插件 ID。
 
-如果管理页因原绑定校验而中止，保留原账号恢复资料；切换软件不会自动恢复故障账号。若原来源为公开 Git 仓库 `https://github.com/OpenAhoy/OpenAhoy-Releases.git`，且 `openahoy-distribution` 市场只有 OpenAhoy，先保存可恢复的原登记来源、ref 与原软件包，再改为固定标签 `v0.6.60`：
+## 打开原账号恢复
 
-```sh
-codex plugin marketplace remove openahoy-distribution
-codex plugin marketplace add https://github.com/OpenAhoy/OpenAhoy-Releases.git --ref v0.6.60
-```
+插件安装后读回 v0.6.61。若当前 Codex 还在加载旧版，等当前任务结束后完整重开 Codex。回到原 OpenAhoy，看到 v0.6.61 后进入「公众号」。账号卡若提示本机绑定待恢复，点「查看恢复方法」。页面核对并列出两个原公众号 AppID 后，点击「在 macOS 中确认恢复」，由本人在系统弹窗确认一次。等页面显示「两个原绑定已恢复」，再刷新核对原账号、草稿和排期。若两号本来正常，直接检查原账号和业务回执。
 
-仅在市场登记成功且回读 ref 与来源一致后，才安装原插件 `codex plugin add wechat-ecosystem@openahoy-distribution`，然后执行上述只读核对。市场登记超时先停止，读回市场、已装版本和暂存状态，再按保存的原来源与 ref 恢复必要的登记。不要重复移除、切换到 main 或覆盖账户数据。公开固定标签制品下载和 Codex 市场成功登记是两项验证。
-
-共享市场由维护者仅更新 OpenAhoy 条目的 `git-subdir` ref 与提交 SHA，再从原市场安装。旧私有来源先按 [0.6.28 迁移说明](https://github.com/OpenAhoy/OpenAhoy-Releases/blob/5428de4f2c7d603a889863d2b8e5513d1b3066e0/UPDATE_PROMPT.md) 核对原插件 ID 与来源。全新安装用本标签的 INSTALL_PROMPT.md。
-
-如果公众号卡仍提示绑定待恢复，先点击「查看恢复方法」，沿原身份和恢复材料处理。身份恢复及列表刷新后，才使用原卡片菜单重绑或移除。升级不会重试未决业务操作。
+没有确认按钮，或者账号与本机登记不符时，保留当前界面，把错误交给 Codex 检查。恢复完成后，请原业务聊天先按原请求 ID 查两篇原稿的草稿及发表回执。结果未知时查原任务；已发表的稿件读回实际链接。
 
 ## 软件恢复
 
-优先用原市场和同一插件 ID 重装经校验的 [v0.6.60](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.60)。已通过新版提交 X 纯文字时，保留原请求与回执，用 v0.6.60 查询。旧版 v0.6.57 无法可靠核对纯文字帖子。若原帖 ID 未知，原请求保持待确认，勿因旧版显示异常重发。已保存的纯文字排期也需用支持纯文字的版本执行。
+首选同一市场、同一插件 ID 的 [v0.6.61](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.61) 校验包。已使用新版恢复，或机器重启后发生存储设备身份变化时，保留新旧凭据、快照、草稿及所有原回执。v0.6.60 可能仍会拒绝绑定读取和旧软件升级。不要用旧版的结果判断草稿丢失，不用旧快照覆盖本机状态，也不重新绑定。
 
-[v0.6.57](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.57) 是前一公开稳定版。只在原软件事务已核对到终态，且当前状态和任务可由旧版处理时考虑恢复 v0.6.57。保留原软件回执、账号资料、显示名及历史，不覆盖旧数据。旧版可能不能解释新版软件回执或提供新版绑定诊断，安装和实际加载以官方 CLI 及宿主读回为准。
-
-不要将 v0.6.54 用作当前回退包。它不能正确读取新版 X 绑定、小红书停用记录与 MiniMax H3 回执。更多见 [v0.6.55 升级说明](https://github.com/OpenAhoy/OpenAhoy-Releases/blob/v0.6.55/UPDATE_PROMPT.md)。
+[v0.6.60](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.60) 保留作前一稳定版。仅在原软件事务已核到终态，且未采用新版恢复或卷凭据、当前状态已确认兼容时考虑软件回退。

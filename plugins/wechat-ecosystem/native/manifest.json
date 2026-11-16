@@ -1,6 +1,7 @@
 {
   "schema": 1,
   "platform": "macos-arm64",
-  "sha256": "158f02ae5218d0ab9fb08ef9b40ed7163b6838b9a765bd9c47ccfe2bd6038e77",
-  "source_sha256": "6a2ebb37273e2ccb137d3463465324c0d683d2363e20bc9681fa72b97faa387c"
+  "sha256": "19fbc9bcda617b2d994d17227dfcaac881208fc1eb2db45cda49165359b88616",
+  "source_sha256": "4f4807ac268df4a673fbdf07411b3fbabfbc99d1727f6953adb36d8fd5d98fc0",
+  "storage_sha256": "17b9606a94b6b22a9b8252b769058640d6e48e6835a3250a781f98a148c16ae1"
 }

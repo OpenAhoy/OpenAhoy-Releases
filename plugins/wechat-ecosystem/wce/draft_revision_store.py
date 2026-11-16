@@ -140,9 +140,12 @@ class RevisionStore:
         with self.path.open('rb') as stream:os.fsync(stream.fileno())
         _sync(self.root)
         pin=self.path.lstat()
-        files.exclusive(self.anchor,{'schema':1,'profile':PROFILE,'binding':self.binding,
+        anchor={'schema':1,'profile':PROFILE,'binding':self.binding,
             'root':list(files.folder(self.root)),'database':[pin.st_dev,pin.st_ino],
-            'sql_sha':digest(sorted(DDL)),'seq':0,'event_sha':ZERO,'confirmed_seq':0})
+            'sql_sha':digest(sorted(DDL)),'seq':0,'event_sha':ZERO,'confirmed_seq':0}
+        files.exclusive(self.anchor,anchor)
+        from .own_volume_identity import record_revision
+        record_revision(self.root, anchor)
         self.guard()
         with self.connection():pass
 
@@ -169,7 +172,9 @@ class RevisionStore:
 
     def _pins(self,guard=None,*,_readonly_frame=None,_readonly_db=None):
         anchor,fixed=self._head(guard)
-        if any(canonical(anchor[k])!=canonical(fixed[k]) for k in ('root','database')):
+        from .own_volume_identity import revision_matches
+        matches_volume=revision_matches(self.root,anchor,fixed)
+        if not matches_volume and any(canonical(anchor[k])!=canonical(fixed[k]) for k in ('root','database')):
             from .own_revision_history import checked
             if _readonly_frame is None:hold()
             checked(_readonly_frame,self.account,_readonly_db).anchor(

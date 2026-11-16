@@ -176,15 +176,23 @@ class _CheckpointEvidence:
                 validate_registry(self.registry, data)
             parent_pin = self.files.directory(self.base)
             journal_pin = self.files.directory(path.parent)
-            hold(proof['registry_parent'] == [parent_pin['dev'], parent_pin['ino']]
-                 and proof['journal_parent'] == [journal_pin['dev'], journal_pin['ino']])
             change = proof['policies'].get(str(policy.path))
             hold(type(change) is dict and set(change) == {'before', 'after', 'pins'}
                  and change['after'] == expected and proof['after']['connections'].get(cid) == str(policy.path)
                  and proof['after']['entries'].get(cid) == entry
                  and entry == published_entry(expected, entry['label'])
                  and type(change['pins']) is dict
-                 and all(change['pins'].get(k) == v for k, v in live_pins.items()))
+                 and change['pins'].get('profile_sha256') == live_pins['profile_sha256'])
+            from .own_volume_identity import matches as match_volume
+            triples = [
+                (self.base, proof['registry_parent'], (parent_pin['dev'], parent_pin['ino'])),
+                (path.parent, proof['journal_parent'], (journal_pin['dev'], journal_pin['ino'])),
+                (policy.root, change['pins'].get('root'), policy.root_pin),
+                (policy.root/'images', change['pins'].get('images'), policy.image_pin),
+                (policy.root/'state.sqlite3', change['pins'].get('database'), policy.database_pin[:2]),
+            ]
+            witnessed = match_volume(self.registry, proof, triples)
+            hold(witnessed or all(old == list(current) for _, old, current in triples))
             before = change['before']
             hold(type(before) is dict and before.get('schema') == 2
                  and before.get('identity') == policy.data
@@ -221,21 +229,22 @@ class _CheckpointEvidence:
                 # checkpoint, even when this caller only needs a marker pin.
                 for key, target in (('root', policy.root), ('images', policy.root / 'images')):
                     adopted = case['directories'].get(str(target))
-                    hold(type(adopted) is dict and live_pins[key] == [adopted['dev'], adopted['ino']]
-                         and self.files.directory(target) == adopted)
+                    hold(self._observed(target,self.files.directory(target),adopted,proof if witnessed else None))
                 adopted_db = case['files'].get(str(policy.root / 'state.sqlite3'))
                 adopted_profile = case['files'].get(str(policy.root / 'profile.json'))
                 hold(type(adopted_db) is dict and type(adopted_profile) is dict
-                     and live_pins['database'] == [adopted_db['dev'], adopted_db['ino']]
+                     and (witnessed or live_pins['database'] == [adopted_db['dev'], adopted_db['ino']])
                      and live_pins['profile_sha256'] == adopted_profile['sha256'])
-                self._pin({'data': case, 'prior': prior, 'policy': policy},
+                result = {'data': case, 'prior': prior, 'policy': policy}
+                if witnessed:
+                    result['volume_proof'] = proof
+                self._pin(result,
                           prior['policies'][str(policy.path)]['pins']['database'],
                           policy.root / 'state.sqlite3', 'database')
                 for old_path, checksum in proof['relocation']['prior_proofs'].items():
                     old_meta, _ = self.reader.read(Path(old_path))
                     pin = case['files'].get(old_path)
                     hold(type(pin) is dict and pin['sha256'] == checksum == old_meta['sha256'])
-                result = {'data': case, 'prior': prior, 'policy': policy}
                 self.cases[cid] = result
                 return result
             expected = before
@@ -266,7 +275,7 @@ class _CheckpointEvidence:
             hold(len(self.records) < 64)
         meta, raw = self.files.read(path, maximum, 'record')
         pin = case['data']['files'].get(str(path))
-        hold(type(pin) is dict and pin == meta and raw == (canonical(value) + '\n').encode())
+        hold(self._observed(path,meta,pin,case.get('volume_proof')) and raw == (canonical(value) + '\n').encode())
         previous = self.records.get(path)
         if previous is not None:
             hold(previous[1] == raw)
@@ -284,13 +293,14 @@ class _CheckpointEvidence:
         directory = str(target) in data['directories']
         if directory:
             pin = data['directories'][str(target)]
-            hold(self.files.directory(target) == pin)
+            hold(self._observed(target,self.files.directory(target),pin,case.get('volume_proof')))
         else:
             hold(target == policy.root / 'state.sqlite3')
             pin = data['files'].get(str(target))
             hold(type(pin) is dict)
             current = self.files.file(target, mutable=True)['pin']
-            hold(all(current[k] == pin[k] for k in ('dev', 'ino', 'mode', 'uid', 'gid', 'nlink')))
+            keys = ('dev', 'ino', 'mode', 'uid', 'gid', 'nlink')
+            hold(self._observed(target,{k:current[k] for k in keys},{k:pin[k] for k in keys},case.get('volume_proof')))
         hold(old[1] == pin['ino'])
         if direct == 'registry':
             hold(old == prior['registry_parent'])
@@ -300,6 +310,16 @@ class _CheckpointEvidence:
             # This is only an additional old numeric constraint. It is not a
             # claim about historical volume authenticity or a device alias.
             hold(old[0] == prior['registry_parent'][0])
+
+    def _observed(self, path, current, expected, proof):
+        if current == expected:
+            return True
+        if (proof is None or type(expected) is not dict
+                or current != expected | {'dev': current['dev']}):
+            return False
+        from .own_volume_identity import matches as match_volume
+        return match_volume(self.registry,proof,[(path,[expected['dev'],expected['ino']],
+                                                  (current['dev'],current['ino']))]) is True
 
 
 

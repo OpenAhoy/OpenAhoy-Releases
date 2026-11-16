@@ -143,9 +143,8 @@ def native_page_body(logo, platform_settings):
 <h2 id="accountRecoveryTitle">恢复本机绑定</h2>
 <p id="accountRecoveryTarget"></p>
 <p id="accountRecoveryReason"></p>
-<p>请在 Codex 检查本机是否有可核验的恢复入口。按可信终端的提示恢复原绑定后，刷新账号列表即可重新绑定或移除。</p>
 <div class="actions"><button id="accountRecoveryClose" type="button" autofocus>关闭</button>
-<button id="accountRecoveryAsk" type="button" class="primary">在 Codex 中检查</button></div>
+<button id="accountRecoveryAsk" type="button" class="primary" hidden>在 macOS 中确认恢复</button></div>
 <p id="accountRecoveryStatus" role="status"></p>
 </dialog>
 <footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div>'''+video_html.replace('__CREDENTIAL__', credential)+binding_html+'''</main></div>'''

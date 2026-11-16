@@ -22,7 +22,7 @@ SCRIPT = r'''
    const menu=document.querySelector(floatingMenus);if(!menu)return;
    event.preventDefault();closeFloatingMenus();menu.querySelector(':scope > summary')?.focus();
  });
- const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','wce.ui.video.credential','wce.ui.video.workspace']);
+ const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','wce.ui.video.credential','wce.ui.video.workspace','wce.ui.wechat.storage_recovery']);
 
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
  let view='home',initialView='',explicitNavigation=false;
@@ -223,7 +223,35 @@ SCRIPT = r'''
    OAUI.set($('accountNameStatus'),'名称未能确认。请关闭并重新打开此账号的编辑窗口，查看当前名称。');
  };
  const recoveryDialog=$('accountRecoveryDialog');
- let recoveryTarget=null;
+ let recoveryTarget=null,recoveryCheck=null;
+ async function storageRecovery(row,action){
+   if(recoveryTarget!==row)return;
+   const button=$('accountRecoveryAsk'),status=$('accountRecoveryStatus');
+   try{
+     const result=content(await tool('wce.ui.wechat.storage_recovery',{action}));
+     if(recoveryTarget!==row)return;
+     button.hidden=result.state!=='READY_FOR_CONFIRMATION';
+     button.disabled=false;
+     if(result.state==='READY_FOR_CONFIRMATION'){
+       OAUI.raw($('accountRecoveryTarget'),result.appids.join(' · '));
+       OAUI.set(status,'已核对两个原绑定。请在 macOS 中确认恢复。');
+     }else if(result.state==='PENDING'){
+       OAUI.set(status,'等待 macOS 本人确认。');
+       recoveryCheck=setTimeout(()=>void storageRecovery(row,'status'),1000);
+     }else if(result.state==='COMMITTED'){
+       OAUI.set(status,'两个原绑定已恢复。');
+       await refresh();
+     }else if(result.code==='CONNECTION_RECOVERY_CONFIRMATION_CANCELLED'){
+       OAUI.set(status,'已取消。关闭后可重新检查。');
+     }else if(result.code==='CONNECTION_RECOVERY_WITNESS_UNAVAILABLE'){
+       OAUI.set(status,'当前安装无法保护恢复凭据。请等待可用的更新。');
+     }else{
+       OAUI.set(status,'暂时无法恢复原绑定。');
+     }
+   }catch(_){
+     if(recoveryTarget===row)OAUI.set(status,'暂时无法检查本机恢复。');
+   }
+ }
  function recoveryAction(row){
    const button=document.createElement('button');
    button.type='button';button.className='oa-account-recovery';
@@ -236,27 +264,20 @@ SCRIPT = r'''
        ?'本机绑定证明与当前存储位置不一致，原账号仍在登记中。'
        :'暂时无法核实本机绑定，需先检查原登记。');
      OAUI.set($('accountRecoveryStatus'),'');
-     $('accountRecoveryAsk').hidden=!hostCapabilities.message?.text;
+     $('accountRecoveryAsk').hidden=true;
      $('accountRecoveryAsk').disabled=false;
      recoveryDialog.showModal();
+     void storageRecovery(row,'inspect');
    };
    return button;
  }
  $('accountRecoveryClose').onclick=()=>recoveryDialog.close();
- recoveryDialog.addEventListener('close',()=>{recoveryTarget=null;});
+ recoveryDialog.addEventListener('close',()=>{clearTimeout(recoveryCheck);recoveryTarget=null;});
  $('accountRecoveryAsk').onclick=async event=>{
    const row=recoveryTarget;
    if(!event.isTrusted||!row||!rows.includes(row)||row.platform_id!==activePlatform)return;
-   const button=$('accountRecoveryAsk');button.disabled=true;
-   try{
-     const prompt=OAUI.format('请只读核对这个 OpenAhoy 公众号原绑定及本机恢复入口。连接 ID 为 {0}。请保留原账号、草稿、配置和回执。',[row.connection_id]);
-     await sendChatRequest(prompt);
-     if(recoveryTarget===row)OAUI.set($('accountRecoveryStatus'),'已在当前对话发起只读检查。');
-   }catch(_){
-     if(recoveryTarget===row)OAUI.set($('accountRecoveryStatus'),'请在 Codex 对话里直接发起恢复检查。');
-   }finally{
-     if(recoveryTarget===row)button.disabled=false;
-   }
+   $('accountRecoveryAsk').disabled=true;
+   await storageRecovery(row,'confirm');
  };
  function accountMenu(row){
    const menu=document.createElement('details'),toggle=document.createElement('summary');

@@ -258,11 +258,14 @@ def publish(reviewed, pending, held_roots=frozenset()):
             policies.enter_context(locked(registry.parent / 'connections.lock', nonblocking=True))
             policies.enter_context(locked(path.with_suffix('.lock'), nonblocking=True))
             pending.check()
+            committed = value | {'state': 'COMMITTED'}
+            from .own_volume_identity import record_current
             exclusive(path, value, value['journal_parent'])
+            record_current(registry, committed)
             for p, change in value['policies'].items():
                 write(p, change['after'], change['pins']['root'])
             write(registry, value['after'], value['registry_parent'])
-            write(path, value | {'state': 'COMMITTED'}, value['journal_parent'])
+            write(path, committed, value['journal_parent'])
         policy = load_policy(pending.root / 'connection-policy.json')
         return policy, retained, lifetime
     except BaseException:
@@ -428,13 +431,16 @@ def _update_existing_under_replacement_gate(reviewed, upgrade_only):
         with publication_locks({Path(p).parent for p in value['policies']}, registry), \
                 locked(path.with_suffix('.lock'), nonblocking=True):
             check_snapshot(reviewed['base'])
+            committed = value | {'state': 'COMMITTED'}
+            from .own_volume_identity import record_current
             if reviewed['base']['owner_disk'] is None:
                 exclusive(registry.parent / OWNER, reviewed['base']['owner'], reviewed['base']['parent'])
             exclusive(path, value, value['journal_parent'])
+            record_current(registry, committed)
             for p, change in value['policies'].items():
                 write(p, change['after'], change['pins']['root'])
             write(registry, value['after'], value['registry_parent'])
-            write(path, value | {'state': 'COMMITTED'}, value['journal_parent'])
+            write(path, committed, value['journal_parent'])
         # An upgrade of an entirely revoked set is valid. Reading it as active
         # would incorrectly report failure after the local commit already succeeded.
         return value['after']

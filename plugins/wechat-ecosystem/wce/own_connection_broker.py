@@ -593,10 +593,26 @@ def read_runtime(policy, active=True):
             or value['identity_digest'] != digest(policy.data)
             or type(value['root_pin']) is not list or len(value['root_pin']) != 2
             or any(type(x) is not int or x < 0 for x in value['root_pin'])
-            or value['root_pin'] != list(policy.root_pin)
             or (active and (value['policy_digest'] != policy.fingerprint
                             or value['candidate_scope'] != policy.value['candidate_scope']))):
         raise WCEError('CONNECTION_RUNTIME_CHANGED')
+    if value['root_pin'] != list(policy.root_pin):
+        # Only dead-instance cleanup may inspect a pre-reboot root pin.
+        # The ordinary active-runtime path still requires current device and inode.
+        if active or policy.value['schema'] != 2:
+            raise WCEError('CONNECTION_RUNTIME_CHANGED')
+        from .own_connection_registry import metadata, transaction_path
+        from .own_volume_identity import matches as match_volume
+        registry = Path(policy.value['registry_path'])
+        proof_path = transaction_path(registry, policy.value['transaction'])
+        with locked(proof_path.with_suffix('.lock'), shared=True, existing=True,
+                    readonly=True, nonblocking=True):
+            proof = metadata(proof_path)
+            if (not proof or proof['state'] != 'COMMITTED'
+                    or proof['policies'][str(policy.path)]['pins']['root'] != value['root_pin']
+                    or match_volume(registry,proof,[(policy.root,value['root_pin'],policy.root_pin)]) is not True):
+                raise WCEError('CONNECTION_RUNTIME_CHANGED')
+        policy.check()
     return value, pin
 
 

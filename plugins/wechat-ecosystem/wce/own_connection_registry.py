@@ -281,7 +281,10 @@ def check_member(policy, revocation=True, durable=False, *, readonly=False, proo
             proof = decode_metadata(raw)
         if type(proof) is not dict or proof.get('state') != 'COMMITTED':
             raise MembershipProofError('COMMIT_STATE')
-        if proof.get('journal_parent') != list(path_check(path.parent, True)):
+        from .own_volume_identity import matches as match_volume
+        journal_pin = path_check(path.parent, True)
+        volume_pins = match_volume(registry, proof, [(path.parent, proof.get('journal_parent'), journal_pin)])
+        if volume_pins is None and proof.get('journal_parent') != list(journal_pin):
             raise MembershipProofError('JOURNAL_DIRECTORY')
         if proof.get('owner') != owner or proof.get('registry') != str(registry):
             raise MembershipProofError('PROOF_OWNER_OR_REGISTRY')
@@ -293,11 +296,17 @@ def check_member(policy, revocation=True, durable=False, *, readonly=False, proo
         if type(change) is not dict or change.get('after') != value:
             raise MembershipProofError('PROOF_POLICY')
         pins = change.get('pins')
-        if type(pins) is not dict or pins.get('root') != list(policy.root_pin):
+        if volume_pins is not None and type(pins) is dict:
+            match_volume(registry, proof, [
+                (policy.root, pins.get('root'), policy.root_pin),
+                (policy.root / 'images', pins.get('images'), policy.image_pin),
+                (policy.root / 'state.sqlite3', pins.get('database'), policy.database_pin[:2]),
+            ])
+        if type(pins) is not dict or (volume_pins is None and pins.get('root') != list(policy.root_pin)):
             raise MembershipProofError('ACCOUNT_ROOT', identity_changed=True)
-        if pins.get('images') != list(policy.image_pin):
+        if volume_pins is None and pins.get('images') != list(policy.image_pin):
             raise MembershipProofError('IMAGE_DIRECTORY', identity_changed=True)
-        if pins.get('database') != list(policy.database_pin[:2]):
+        if volume_pins is None and pins.get('database') != list(policy.database_pin[:2]):
             raise MembershipProofError('DATABASE', identity_changed=True)
         if pins.get('profile_sha256') != sha256(private_read(policy.root / 'profile.json')[0]).hexdigest():
             raise MembershipProofError('PROFILE', identity_changed=True)

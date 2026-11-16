@@ -10,26 +10,43 @@ import threading
 import time
 
 IO_TIMEOUT = 20
+STORAGE_APP = 'OpenAhoyStorageRecovery.app'
+STORAGE_EXECUTABLE = 'Contents/MacOS/OpenAhoyStorageRecovery'
+STORAGE_REQUIREMENT = (
+    'anchor apple generic and identifier "ai.openahoy.storage-recovery" '
+    'and certificate leaf[subject.OU] = "96NDFJJHRY" '
+    'and certificate leaf[field.1.2.840.113635.100.6.1.13] exists'
+)
 from .contracts import Secret, WCEError
 from .own_keychain import valid_secret
 from .own_bootstrap_security import unique
 
 
 class NativeCrypto:
-    def __init__(self, artifacts=None):
+    def __init__(self, artifacts=None, *, storage=False):
         directory = Path(artifacts) if artifacts is not None else Path(__file__).resolve().parents[1] / 'native'
         try:
             # All paths are fixed package inputs, never caller supplied locators.
-            for p in (directory, directory / 'manifest.json', directory / 'inline-binding-crypto'):
+            binary = directory / 'inline-binding-crypto'
+            private_paths = [directory, directory / 'manifest.json']
+            if storage:
+                app = directory / STORAGE_APP
+                binary = app / STORAGE_EXECUTABLE
+                private_paths.extend((app, app / 'Contents', binary.parent))
+            for p in (*private_paths, binary):
                 st = p.lstat()
                 if stat.S_ISLNK(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o022:
                     raise ValueError()
             manifest = json.loads((directory / 'manifest.json').read_bytes(), object_pairs_hook=unique)
-            binary = directory / 'inline-binding-crypto'
             if (manifest.get('schema') != 1 or manifest.get('platform') != 'macos-arm64'
-                    or hashlib.sha256(binary.read_bytes()).hexdigest() != manifest['sha256']
+                    or hashlib.sha256(binary.read_bytes()).hexdigest() !=
+                        manifest['storage_sha256' if storage else 'sha256']
                     or not stat.S_ISREG(binary.stat().st_mode) or binary.stat().st_nlink != 1):
                 raise ValueError()
+            if storage:
+                subprocess.run(['/usr/bin/codesign','--verify','--strict',
+                    '-R='+STORAGE_REQUIREMENT,str(app)],check=True,timeout=3,
+                    stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             self.process = subprocess.Popen([str(binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, close_fds=True, bufsize=0, env={'PATH': '/usr/bin:/bin'})
             os.set_blocking(self.process.stdin.fileno(), False)
@@ -48,7 +65,7 @@ class NativeCrypto:
         finally:
             self.process.stdout.close()
 
-    def call(self, value):
+    def call(self, value, *, timeout=None):
         with self.lock:
             if self.closed or self.process.poll() is not None:
                 raise WCEError('INLINE_BINDING_KEY_EXPIRED')
@@ -56,7 +73,7 @@ class NativeCrypto:
                 raw = json.dumps(value, separators=(',', ':'), ensure_ascii=True).encode() + b'\n'
                 if len(raw) > 32768:
                     raise ValueError()
-                deadline = time.monotonic() + IO_TIMEOUT
+                deadline = time.monotonic() + (IO_TIMEOUT if timeout is None else timeout)
                 incoming, outgoing = self.process.stdout.fileno(), self.process.stdin.fileno()
                 offset = 0
                 while offset < len(raw):
@@ -91,7 +108,10 @@ class NativeCrypto:
                     raise ValueError()
                 if result['ok'] is False:
                     if set(result) != {'ok', 'error'} or result['error'] not in {
-                            'ENVELOPE_REJECTED', 'INVALID_REQUEST', 'CRYPTO_UNAVAILABLE', 'KEY_UNAVAILABLE'}:
+                            'ENVELOPE_REJECTED', 'INVALID_REQUEST', 'CRYPTO_UNAVAILABLE', 'KEY_UNAVAILABLE',
+                            'RECOVERY_WITNESS_UNAVAILABLE',
+                            'RECOVERY_CONFIRMATION_UNAVAILABLE', 'RECOVERY_CONFIRMATION_EXPIRED',
+                            'RECOVERY_CONFIRMATION_CANCELLED'}:
                         raise ValueError()
                     return result
                 return result

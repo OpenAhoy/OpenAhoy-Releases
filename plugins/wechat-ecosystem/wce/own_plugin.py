@@ -170,11 +170,13 @@ class PersonalStdioServer(OperatorStdioServer):
         from .support_protocol import SupportRouter, LOCAL_ONLY_TOOLS
         from .current_draft_management_protocol import DraftManagementRouter
         from .video_protocol import VideoRouter
+        from .own_storage_adoption_protocol import AdoptionRouter
         self._inline_open_lock = threading.Lock()
         self._last_tools_list_observation = {'state': 'NOT_OBSERVED_IN_THIS_SERVER'}
         self._management_resources = {}
         support=SupportRouter(TemplateRouter(ProjectContextRouter(UpdateRouter(XHSRouter(XPlatformRouter(DisplayNameRouter(SettingsRouter(router, settings_manager))))), registry=router.registry), registry=router.registry), registry=router.registry, instrument=False)
-        managed=DraftManagementRouter(VideoRouter(support, router.registry), registry=router.registry, launcher=router.launcher)
+        managed=AdoptionRouter(DraftManagementRouter(VideoRouter(support, router.registry),
+            registry=router.registry, launcher=router.launcher), router.registry)
         self._tool_observer=support
         rows=managed.list_tools()
         support.tool_names=frozenset(t['name']for t in rows)
