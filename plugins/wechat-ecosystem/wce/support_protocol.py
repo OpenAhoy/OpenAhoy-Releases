@@ -29,7 +29,7 @@ CHAT_DESCRIPTIONS = {
     STATUS: 'Check the original conversation feedback receipt. Returns the actual Issue URL, a GitHub draft link, or the current submission state. Does not create an Issue.',
 }
 # readOnlyHint does not exclude refresh-token rotation or metadata writes.
-LOCAL_ONLY_TOOLS=frozenset({PREVIEW,STATUS,'own.connections.list','x.connections.list','own.drafts.current.read','own.drafts.current.status'})
+LOCAL_ONLY_TOOLS=frozenset({PREVIEW,STATUS,'own.connections.list','x.connections.list','own.drafts.current.read','own.drafts.current.status','wce.ui.management.overview'})
 
 
 def descriptor():
@@ -100,6 +100,23 @@ class SupportRouter:
                     if type(failure_kind) is str and failure_kind in X_RESPONSE_ERROR_KINDS:
                         kind=failure_kind
                 details=management_details(value)
+                if name=='wce.ui.wechat.storage_recovery':
+                    recovery_state=value.get('state')
+                    if recovery_state=='BLOCKED':state='TOOL_ERROR'
+                    if recovery_state in ('VERIFY_REQUIRED','BLOCKED','RESULT_UNKNOWN'):
+                        candidate=value.get('code')
+                        if type(candidate) is str and candidate in CODES:code=candidate
+                if name=='wce.ui.management.overview' and type(value.get('connections')) is list:
+                    recoveries=[row['recovery'] for row in value['connections'] if type(row) is dict
+                                and row.get('error')=='CONNECTION_ENTRY_UNAVAILABLE'
+                                and type(row.get('recovery')) is dict]
+                    if recoveries:
+                        state='ACTION_REQUIRED'
+                        causes={row.get('diagnostic') for row in recoveries}
+                        code=causes.pop() if len(causes)==1 else None
+                        if code not in CODES:code='CONNECTION_ENTRY_UNAVAILABLE'
+                        checks={row.get('proof_check') for row in recoveries}
+                        if len(checks)==1:details['proof_check']=checks.pop()
                 if details.get('candidate_created')is True:effect='POSSIBLE'
                 if state=='UNKNOWN':effect='POSSIBLE'
             return original

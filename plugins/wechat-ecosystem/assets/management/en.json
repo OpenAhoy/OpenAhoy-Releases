@@ -1030,5 +1030,16 @@
   "视频任务排队中。": "Video job queued.",
   "供应商拒绝了任务。": "The provider rejected the job.",
   "视频任务失败。": "Video job failed.",
-  "视频任务已过期。": "Video job expired."
+  "视频任务已过期。": "Video job expired.",
+  "已刷新，{0} 个账号需要处理。": "Refreshed. {0} accounts need attention.",
+  "已刷新，账号状态无变化。": "Refreshed. No changes to account status.",
+  "已刷新，当前显示 {0} 个账号。": "Refreshed. Showing {0} accounts.",
+  "账号刷新超时，仍显示上次读取结果。": "Account refresh timed out. Showing the previous results.",
+  "账号刷新失败，仍显示上次读取结果。": "Account refresh failed. Showing the previous results.",
+  "原公众号绑定已恢复，列表已更新。": "The original WeChat binding is restored and the list has been refreshed.",
+  "原恢复记录已验证。账号列表暂未确认，请刷新查看。": "The recovery record is verified. Refresh to check the current account list.",
+  "找到了原恢复记录。请保持 macOS 已登录且解锁，再刷新检查。": "A recovery record was found. Keep macOS signed in and unlocked, then refresh.",
+  "账号状态已变化，请关闭后查看最新列表。": "The account status changed. Close this dialog and check the updated list.",
+  "本机存储编号已变，原账号仍在登记中。": "The local storage identifier changed. The original account is still registered.",
+  "请先检查已保存的本机恢复记录。": "Check the saved local recovery record first."
 }

@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 import platform
 import re
 import shutil
+import socket
 import stat
 import subprocess
 import tempfile
@@ -31,6 +32,8 @@ SHA = re.compile(r'[0-9a-f]{64}')
 REQUEST_ID = re.compile(r'[0-9a-f]{32}')
 SELECTOR = re.compile(r'wechat-ecosystem@([A-Za-z0-9_-]+)')
 BUSY_CODES = {'CONNECTION_BUSY', 'CONNECTION_START_PENDING', 'UPDATE_BUSINESS_BUSY'}
+UPDATE_HISTORY = {('BUSY', code) for code in BUSY_CODES} | {
+    ('FAILED', 'CONNECTION_NOT_COMMITTED'), ('FAILED', 'UPDATE_ACTIVITY_UNVERIFIED')}
 RECEIPT_RACE_CODES = {'BOOTSTRAP_PATH_CHANGED', 'LOCAL_FILE_CHANGED', 'INVALID_LOCAL_FILE'}
 
 
@@ -115,7 +118,7 @@ def release(version, revision, folder, progress):
                 output.write(raw)
             path.chmod(0o700 if mode & 0o111 else 0o600)
     verify_package(target, version, metadata['package_manifest_sha256'])
-    require(os.access(target / 'scripts/wce_mcp.sh', os.X_OK), 'UPDATE_LAUNCHER_INVALID')
+    verify_launch_modes(target)
     return target, metadata['package_manifest_sha256']
 
 
@@ -134,6 +137,13 @@ def verify_package(root, version, manifest_sha=None):
             'UPDATE_PAYLOAD_MISMATCH')
     identity = json.loads((root / 'plugin.json').read_bytes())
     require(identity.get('name') == PLUGIN and identity.get('version') == version, 'UPDATE_PACKAGE_IDENTITY')
+
+
+def verify_launch_modes(root):
+    names = ('scripts/wce_mcp.sh', 'native/inline-binding-crypto', 'native/openahoy-video-inspect',
+             'native/OpenAhoyStorageRecovery.app/Contents/MacOS/OpenAhoyStorageRecovery')
+    require((root/names[0]).is_file() and all(os.access(root/name, os.X_OK)
+            for name in names if (root/name).is_file()), 'UPDATE_LAUNCHER_INVALID')
 
 
 def cli(*args, timeout=90):
@@ -177,9 +187,88 @@ def replace_market(path, original, raw):
         Path(temporary).unlink(missing_ok=True)
 
 
+def _present(path):
+    try:
+        path.lstat()
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def _displaced_quiescent(policy, registry):
+    """Prove an unadopted account has no serving broker without changing its files."""
+    from .own_base_domain import DOMAIN
+    from .own_bootstrap_ipc import socket_pin
+    from .own_bootstrap_security import decode, private_read
+    from .own_connection_broker import RUNTIME, SOCKET, socket_address
+    from .own_connection_registry import metadata, transaction_path
+    from .service import digest
+
+    unknown = 'UPDATE_ACTIVITY_UNVERIFIED'
+    root = policy.root
+    runtime, endpoint = root / RUNTIME, root / SOCKET
+    try:
+        # This legacy operator has a different lifecycle and no matching broker lock.
+        if any(_present(root / name) for name in ('runtime.json', 'operator.sock')):
+            raise WCEError(unknown)
+        present = (_present(runtime), _present(endpoint))
+        if not any(present):
+            return
+        endpoint_pin = socket_pin(endpoint) if present[1] else None
+        if endpoint_pin is not None:
+            with socket.socket(socket.AF_UNIX) as probe:
+                probe.settimeout(1)
+                try:
+                    probe.connect(socket_address(endpoint))
+                except ConnectionRefusedError:
+                    pass
+                else:
+                    raise WCEError('UPDATE_BUSINESS_BUSY')
+        if present[0]:
+            raw, runtime_pin = private_read(runtime)
+            value = decode(raw)
+            fields = {'schema', 'pid', 'instance', 'policy_digest', 'candidate_scope',
+                      'identity_digest', 'root_pin'}
+            valid = type(value) is dict and type(value.get('schema')) is int and (
+                (value['schema'] == 2 and value.keys() == fields)
+                or (value['schema'] == 3 and value.keys() == fields | {'domain'} and value.get('domain') == DOMAIN))
+            require(valid and type(value['pid']) is int and value['pid'] > 0
+                    and all(isinstance(value[key], str) and SHA.fullmatch(value[key])
+                            for key in ('instance', 'policy_digest', 'candidate_scope', 'identity_digest'))
+                    and type(value['root_pin']) is list and len(value['root_pin']) == 2
+                    and all(type(pin) is int and pin >= 0 for pin in value['root_pin'])
+                    and value['identity_digest'] == digest(policy.data), unknown)
+            matches_current = value['root_pin'] == list(policy.root_pin)
+            if not matches_current:
+                # The old exact pin is evidence about this file only. It grants no
+                # authority to use this account on the current storage volume.
+                proof_path = transaction_path(registry, policy.value['transaction'])
+                with locked(proof_path.with_suffix('.lock'), shared=True, existing=True,
+                            readonly=True, nonblocking=True):
+                    proof = metadata(proof_path) or {}
+                    entry = (proof.get('policies') or {}).get(str(policy.path)) or {}
+                    require(proof.get('state') == 'COMMITTED' and entry.get('after') == policy.value
+                            and value['root_pin'] == (entry.get('pins') or {}).get('root'), unknown)
+            try:
+                os.kill(value['pid'], 0)
+            except ProcessLookupError:
+                pass
+            else:
+                # A recycled PID without a listening endpoint cannot identify the broker.
+                raise WCEError(unknown)
+            require(path_check(runtime) == runtime_pin, unknown)
+        require((_present(runtime), _present(endpoint)) == present, unknown)
+        if endpoint_pin is not None:
+            require(socket_pin(endpoint) == endpoint_pin, unknown)
+    except (OSError, TypeError, ValueError, OverflowError, KeyError, AttributeError, WCEError) as error:
+        if getattr(error, 'code', None) == 'UPDATE_BUSINESS_BUSY':
+            raise
+        raise WCEError(unknown) from None
+
+
 @contextmanager
 def maintenance(registry):
-    from .own_connection_broker import (RUNTIME, SOCKET, STARTUP_SECONDS, _replace_idle_software_owner,
+    from .own_connection_broker import (STARTUP_SECONDS, _replace_idle_software_owner,
                                        _startup_gate, _startup_has_owner)
     from .own_connection_policy import load_policy
     from .own_connection_registry import MembershipProofError, inspect_storage_binding, revoked
@@ -200,8 +289,10 @@ def maintenance(registry):
         for cid, path in sorted(entries.items()):
             try:
                 policies.append(resolve(cid, registry, active=False))
-            except MembershipProofError as error:
-                if error.check not in {'JOURNAL_DIRECTORY', 'ACCOUNT_ROOT', 'IMAGE_DIRECTORY', 'DATABASE'}:
+            except WCEError as error:
+                displaced = isinstance(error, MembershipProofError) and error.check in {
+                    'JOURNAL_DIRECTORY', 'ACCOUNT_ROOT', 'IMAGE_DIRECTORY', 'DATABASE'}
+                if not displaced and error.code != 'CONNECTION_VOLUME_WITNESS_CHANGED':
                     raise
                 if inspect_storage_binding(registry, cid) == 'PROOF_INCOMPLETE':
                     raise
@@ -221,8 +312,7 @@ def maintenance(registry):
                          'draft-revision-journal.lock'):
                 if os.path.lexists(root / name):
                     held.enter_context(locked(root / name, nonblocking=True, existing=True))
-            require(not any(os.path.lexists(root / name) for name in (
-                RUNTIME, SOCKET, 'runtime.json', 'operator.sock')), 'UPDATE_BUSINESS_BUSY')
+            _displaced_quiescent(policy, registry)
             require(not any(os.path.lexists(str(root / db) + ext)
                             for db in ('state.sqlite3', 'draft-revisions/revision.sqlite3',
                                        'current-draft-management/operations.sqlite3')
@@ -255,7 +345,25 @@ def verify_installation(version, selector, manifest_sha, rows):
     codex_home = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex')))
     target = codex_home / 'plugins/cache' / match[1] / PLUGIN / version
     verify_package(target, version, manifest_sha)
-    require(os.access(target / 'scripts/wce_mcp.sh', os.X_OK), 'UPDATE_LAUNCHER_INVALID')
+    verify_launch_modes(target)
+
+
+def _verify_git_market(run, codex_home, name, source, ref, version, manifest):
+    raw, _ = read_market(codex_home / 'config.toml')
+    registration = tomllib.loads(raw.decode())['marketplaces'][name]
+    require(registration.get('source_type') == 'git' and registration.get('source') == source
+            and registration.get('ref') == ref, 'UPDATE_MARKETPLACE_CHANGED')
+    rows = [item for item in run('marketplace', 'list')['marketplaces'] if item['name'] == name]
+    require(len(rows) == 1 and rows[0].get('marketplaceSource', {}).get('source') == source
+            and rows[0]['marketplaceSource'].get('sourceType') == 'git', 'UPDATE_MARKETPLACE_CHANGED')
+    root = Path(rows[0]['root'])
+    data = json.loads(read_market(root / '.agents/plugins/marketplace.json')[0])
+    require(data['name'] == name and len(data['plugins']) == 1 and data['plugins'][0]['name'] == PLUGIN
+            and data['plugins'][0]['source'] == {'source': 'local', 'path': './plugins/' + PLUGIN},
+            'UPDATE_MARKETPLACE_CHANGED')
+    target = root / 'plugins' / PLUGIN
+    verify_package(target, version, manifest)
+    verify_launch_modes(target)
 
 
 def install(previous, version, target, manifest_sha, registry, folder, progress, *, run=cli):
@@ -281,8 +389,9 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
         config_raw, _ = read_market(codex_home / 'config.toml')
         registration = tomllib.loads(config_raw.decode())['marketplaces'][market_name]
         old_ref = registration.get('ref')
+        source = registration.get('source')
         require(registration.get('source_type') == 'git'
-                and registration.get('source') == market_source.get('source')
+                and source == market_source.get('source')
                 and market_source.get('source') in (REMOTE, REMOTE.removesuffix('.git'), REPOSITORY)
                 and type(old_ref) is str and (old_ref == 'v' + previous or OID.fullmatch(old_ref))
                 and len(data['plugins']) == 1, 'UPDATE_MARKETPLACE_UNSUPPORTED')
@@ -299,6 +408,7 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
     if not rollback.exists():
         shutil.copytree(old, rollback)
     verify_package(rollback, previous)
+    rollback_manifest = sha256((rollback / 'package-manifest.json').read_bytes()).hexdigest()
     progress('WAITING_FOR_IDLE')
     with maintenance(registry):
         require(read_market(path)[0] == raw and installed(run('list')) == active, 'UPDATE_MARKETPLACE_CHANGED')
@@ -319,26 +429,35 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
             target = staged_target
         progress('INSTALLING', plugin_id=selector, manifest_sha256=manifest_sha)
         if git_market:
-            (folder / '.agents/plugins').mkdir(parents=True, exist_ok=True)
-            (folder / '.agents/plugins/marketplace.json').write_bytes(raw)
-            previous_market = folder / 'previous-marketplace'
-            (previous_market / '.agents/plugins').mkdir(parents=True, exist_ok=True)
-            prior = json.loads(raw)
-            prior['plugins'][0]['source'] = {'source': 'local', 'path': './plugins/' + PLUGIN}
-            (previous_market / '.agents/plugins/marketplace.json').write_text(json.dumps(prior))
-            previous_target = previous_market / 'plugins' / PLUGIN
-            if not previous_target.exists():
-                shutil.copytree(rollback, previous_target)
-            verify_package(previous_target, previous)
+            def restore_git_market(remove_target=False):
+                if remove_target:
+                    # Only remove the Git registration we just selected.
+                    current = tomllib.loads(read_market(codex_home / 'config.toml')[0].decode())[
+                        'marketplaces'][market_name]
+                    require(current.get('source_type') == 'git' and current.get('source') == source
+                            and current.get('ref') == target_ref, 'UPDATE_MARKETPLACE_CHANGED')
+                    run('marketplace', 'remove', market_name)
+                run('marketplace', 'add', source, '--ref', old_ref)
+                _verify_git_market(run, codex_home, market_name, source, old_ref, previous, rollback_manifest)
+                if not installed(run('list')):
+                    run('add', selector)
+                verify_installation(previous, selector, rollback_manifest, run('list'))
+
+            target_ref = 'v' + version
             run('marketplace', 'remove', market_name)
             try:
-                run('marketplace', 'add', str(folder))
+                run('marketplace', 'add', source, '--ref', target_ref)
             except WCEError:
                 if not any(entry['name'] == market_name for entry in run('marketplace', 'list')['marketplaces']):
-                    run('marketplace', 'add', str(previous_market))
-                    if not installed(run('list')):
-                        run('add', selector)
-                    require(installed(run('list'))[0]['version'] == previous, 'UPDATE_ROLLBACK_UNVERIFIED')
+                    restore_git_market()
+                    raise WCEError('UPDATE_INSTALL_REJECTED') from None
+                raise
+            try:
+                # Verify the bytes the host will actually install, before activating them.
+                _verify_git_market(run, codex_home, market_name, source, target_ref, version, manifest_sha)
+            except (WCEError, OSError, ValueError, KeyError, TypeError):
+                if not (old.parent / version).exists():
+                    restore_git_market(remove_target=True)
                     raise WCEError('UPDATE_INSTALL_REJECTED') from None
                 raise
         else:
@@ -354,11 +473,7 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
             old_active = len(current) == 1 and current[0]['pluginId'] == selector and current[0]['version'] == previous
             if not new.exists() and (old_active or (git_market and not current)):
                 if git_market:
-                    run('marketplace', 'remove', market_name)
-                    run('marketplace', 'add', str(previous_market))
-                    if not installed(run('list')):
-                        run('add', selector)
-                    require(installed(run('list'))[0]['version'] == previous, 'UPDATE_ROLLBACK_UNVERIFIED')
+                    restore_git_market(remove_target=True)
                 else:
                     replace_market(path, updated, raw)
                 raise WCEError('UPDATE_INSTALL_REJECTED') from None
@@ -430,11 +545,10 @@ class UpdateInstaller:
             atomic_write(self.root / 'status.json', verified)
         return verified
 
-    def _historical_binding_failure(self, value):
+    def _historical_update_result(self, value):
         target = value.get('version')
-        if (value.get('state') != 'FAILED' or value.get('code') != 'CONNECTION_NOT_COMMITTED'
-                or not isinstance(target, str) or not VERSION.fullmatch(target)
-                or _version(self.version) < _version(target)):
+        if ((value.get('state'), value.get('code')) not in UPDATE_HISTORY
+                or not isinstance(target, str) or not VERSION.fullmatch(target)):
             return value
         try:
             home = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex')))
@@ -444,14 +558,33 @@ class UpdateInstaller:
             require(len(selectors) == 1, 'UPDATE_INSTALL_READBACK_FAILED')
             selector = selectors[0]
             marketplace = SELECTOR.fullmatch(selector)[1]
-            package = home / 'plugins/cache' / marketplace / PLUGIN / self.version
-            require(Path(__file__).resolve().parent.parent == package, 'UPDATE_INSTALL_READBACK_FAILED')
+            rows = self.run('list', '--marketplace', marketplace, timeout=12)
+            candidates = installed(rows)
+            require(len(candidates) == 1 and candidates[0].get('pluginId') == selector,
+                    'UPDATE_INSTALL_READBACK_FAILED')
+            current = candidates[0].get('version')
+            require(isinstance(current, str) and VERSION.fullmatch(current)
+                    and _version(current) >= max(_version(target), _version(self.version)),
+                    'UPDATE_INSTALL_READBACK_FAILED')
+            package = home / 'plugins/cache' / marketplace / PLUGIN / current
             manifest = sha256((package / 'package-manifest.json').read_bytes()).hexdigest()
-            self.readback(self.version, selector, manifest, self.run('list', '--marketplace', marketplace, timeout=12))
+            if current == self.version:
+                require(Path(__file__).resolve().parent.parent == package, 'UPDATE_INSTALL_READBACK_FAILED')
+                state = 'LOADED'
+            else:
+                # The running package may have been pruned after a host install.
+                # Validate the install at the original attempt's advertised revision.
+                revision = value.get('revision')
+                require(current == target and isinstance(revision, str) and OID.fullmatch(revision),
+                        'UPDATE_INSTALL_READBACK_FAILED')
+                staged = read_optional(self.root / (target + '-' + revision) / 'verified.json') or {}
+                require(staged.get('manifest') == manifest, 'UPDATE_INSTALL_READBACK_FAILED')
+                state = 'INSTALLED_RELOAD_REQUIRED'
+            self.readback(current, selector, manifest, rows)
             require(self._receipt() == value, 'UPDATE_INSTALL_RECEIPT_CHANGED')
         except (WCEError, OSError, ValueError, KeyError, IndexError, TypeError, subprocess.SubprocessError):
             return value
-        return {'state': 'LOADED', 'version': self.version,
+        return {'state': state, 'version': current,
                 'request_id': value.get('request_id'),
                 'history': {'version': target, 'code': value['code']}}
 
@@ -467,15 +600,16 @@ class UpdateInstaller:
                 raw = private_read(item)[0]
                 archived = json.loads(raw)
                 target = archived.get('version')
-                if (sha256(raw).hexdigest() == pin[0] and archived.get('state') == 'FAILED'
-                        and archived.get('code') == 'CONNECTION_NOT_COMMITTED' and isinstance(target, str)
+                if (sha256(raw).hexdigest() == pin[0]
+                        and (archived.get('state'), archived.get('code')) in UPDATE_HISTORY and isinstance(target, str)
                         and VERSION.fullmatch(target) and _version(target) <= _version(self.version)):
-                    records.append(target)
+                    records.append((target, archived['code']))
             except (WCEError, OSError, ValueError, TypeError, AttributeError):
                 continue
         if not records:
             return value
-        return dict(value, history={'version': max(records, key=_version), 'code': 'CONNECTION_NOT_COMMITTED'})
+        target, code = max(records, key=lambda item: (_version(item[0]), item[1]))
+        return dict(value, history={'version': target, 'code': code})
 
     def status(self):
         if not self.root.exists():
@@ -500,7 +634,7 @@ class UpdateInstaller:
                     value = dict(value, state='INSTALLING')
         if value['state'] == 'INSTALLED_RELOAD_REQUIRED' and value.get('version') == self.version:
             return self._loaded_history(dict(value, state='LOADED'))
-        return self._historical_binding_failure(value)
+        return self._historical_update_result(value)
 
     def start(self, version, revision, request_id=None):
         require(type(version) is str and VERSION.fullmatch(version) and type(revision) is str and OID.fullmatch(revision)
@@ -520,7 +654,11 @@ class UpdateInstaller:
                 prior = read_optional(self.root / 'status.json') or {}
                 if request_id is not None and prior.get('request_id') == request_id:
                     require(prior['version'] == version and prior['revision'] == revision, 'UPDATE_TARGET_INVALID')
-                    return prior
+                    return self._historical_update_result(prior)
+                if prior.get('version') == version and (prior.get('state'), prior.get('code')) in UPDATE_HISTORY:
+                    existing = self._historical_update_result(prior)
+                    if existing['state'] == 'INSTALLED_RELOAD_REQUIRED':
+                        return dict(existing, request_id=request_id)
                 if prior.get('state') in ('INSTALLING', 'INSTALL_UNKNOWN', 'INSTALLED_RELOAD_REQUIRED') and (
                         prior.get('state') != 'INSTALLED_RELOAD_REQUIRED' or prior.get('version') != self.version):
                     return dict(prior, state='INSTALL_UNKNOWN' if prior['state'] == 'INSTALLING' else prior['state'])
@@ -528,7 +666,7 @@ class UpdateInstaller:
                 if request_id is not None:
                     intent['request_id'] = request_id
                 row = dict(intent, state='CHECKING')
-                if prior.get('state') == 'FAILED' and prior.get('code') == 'CONNECTION_NOT_COMMITTED':
+                if (prior.get('state'), prior.get('code')) in UPDATE_HISTORY:
                     from .own_connection_policy import private_read
                     from .own_identity_recovery import atomic_raw
                     original = private_read(self.root / 'status.json')[0]

@@ -82,7 +82,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
   INSTALL_UNKNOWN:'安装结果待核实（{0}）。',
   INTERRUPTED:'升级已中断，可重新检查版本。',
   DOWNLOADED_NOT_INSTALLED:'更新文件已下载，安装尚未开始。可以继续升级。',
-  BUSY:'OpenAhoy 正在执行任务，请在任务结束后点击升级。',
+  BUSY:'升级等待业务空闲后停止。确认任务已结束后，可继续升级。',
   FAILED:'升级未完成（{0}）。',
   START_REJECTED:'升级未启动（{0}）。'
  };
@@ -91,10 +91,20 @@ window.OASoftwareUpdates={mount(rpc,installed){
   if(value.state==='INSTALLED_RELOAD_REQUIRED'&&
      (!versionPattern.test(value.version)||compare(value.version,installed)<=0))throw new Error('UPDATE_STATUS_INVALID');
   job=value.state;
+  if(job==='INSTALLED_RELOAD_REQUIRED')ui.set(version,'OpenAhoy {0} · 已安装 {1}',installed,value.version);
+  else version.textContent='OpenAhoy '+installed;
   helpButton.hidden=true;
   const old=value.history;
-  history.hidden=job!=='LOADED'||old?.code!=='CONNECTION_NOT_COMMITTED'||!versionPattern.test(old.version);
-  if(!history.hidden)ui.set(history.querySelector('span'),'{0} 的一次升级曾因公众号绑定检查停止。',old.version);
+  const historyText={
+   CONNECTION_NOT_COMMITTED:'{0} 的一次升级曾因公众号绑定检查停止。',
+   UPDATE_BUSINESS_BUSY:'{0} 的一次升级曾停在业务占用检查。',
+   CONNECTION_BUSY:'{0} 的一次升级曾停在业务占用检查。',
+   CONNECTION_START_PENDING:'{0} 的一次升级曾停在业务占用检查。',
+   UPDATE_ACTIVITY_UNVERIFIED:'{0} 的一次升级曾因无法确认后台状态而停止。'
+  };
+  history.hidden=!['LOADED','INSTALLED_RELOAD_REQUIRED'].includes(job)||
+   !Object.hasOwn(historyText,old?.code)||!versionPattern.test(old?.version);
+  if(!history.hidden)ui.set(history.querySelector('span'),historyText[old.code],old.version);
   ui.set(checkButton,terminal.has(job)?'查看升级状态':'检查更新');
   if(job==='IDLE'){buttons();return;}
   const code=typeof value.code==='string'&&/^(UPDATE|CONNECTION)_[A-Z0-9_]{1,65}$/.test(value.code)
@@ -102,6 +112,11 @@ window.OASoftwareUpdates={mount(rpc,installed){
   if(job==='FAILED'&&code==='CONNECTION_NOT_COMMITTED'){
    helpButton.hidden=!canOpenLinks;
    say('公众号绑定校验未通过（{0}）。请查看升级与恢复说明，可从原 Codex 市场登记升级。',job,code);
+   return;
+  }
+  if(job==='FAILED'&&code==='UPDATE_ACTIVITY_UNVERIFIED'){
+   helpButton.hidden=!canOpenLinks;
+   say('无法确认后台是否空闲（{0}）。请查看升级说明。',job,code);
    return;
   }
   if(job==='DOWNLOADING'&&Number.isSafeInteger(value.total)&&value.total>0&&
@@ -155,7 +170,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
    if(closed)return;
    if(result?.isError)throw new Error('UPDATE_START_UNCONFIRMED');
    const value=result?.structuredContent;
-   if(value?.request_id===request){
+   if(value?.request_id===request||(value?.state==='BUSY'&&!value.request_id)){
     renderJob(value);remember(null);
     if(active.has(job))schedule();
    }else{

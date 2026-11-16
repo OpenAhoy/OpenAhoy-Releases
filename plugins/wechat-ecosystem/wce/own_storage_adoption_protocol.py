@@ -7,7 +7,7 @@ from .contracts import WCEError
 from .own_connection_policy import registry_path
 from .own_inline_crypto import NativeCrypto
 from .own_storage_adoption import apply_reviewed, review, verify_adopted
-from .own_volume_identity import ADOPTION_FILE, read_adoption
+from .own_volume_identity import ADOPTION_FILE
 from .prepared_contracts import strict_validate
 from .service import digest
 from .tools import schema
@@ -76,8 +76,9 @@ class AdoptionRouter:
         return self.inspect()
 
     def inspect(self):
+        existing = os.path.lexists(self.registry.parent / ADOPTION_FILE)
         try:
-            if read_adoption(self.registry.parent) is not None:
+            if existing:
                 verify_adopted(self.registry)
                 return {'state':'COMMITTED'}
             _, _, _, appids=review(self.registry)
@@ -85,11 +86,14 @@ class AdoptionRouter:
                 return {'state':'BLOCKED','code':'CONNECTION_RECOVERY_WITNESS_UNAVAILABLE'}
             return {'state':'READY_FOR_CONFIRMATION','appids':appids}
         except (WCEError,OSError,ValueError,TypeError,KeyError) as error:
-            return {'state':'BLOCKED','code':getattr(error,'code','CONNECTION_RELOCATION_SOURCE_UNVERIFIED')}
+            code = getattr(error,'code','CONNECTION_RELOCATION_SOURCE_UNVERIFIED')
+            if existing and code in {'CONNECTION_VOLUME_WITNESS_UNVERIFIED','INLINE_BINDING_CRYPTO_UNAVAILABLE'}:
+                return {'state':'VERIFY_REQUIRED','code':code}
+            return {'state':'BLOCKED','code':code}
 
     def _run(self):
         try:
-            if read_adoption(self.registry.parent) is None:
+            if not os.path.lexists(self.registry.parent / ADOPTION_FILE):
                 proposed=review(self.registry)
                 if not native_available():
                     raise WCEError('CONNECTION_RECOVERY_WITNESS_UNAVAILABLE')
@@ -99,7 +103,10 @@ class AdoptionRouter:
             outcome={'state':'COMMITTED'}
         except (WCEError,OSError,ValueError,TypeError,KeyError) as error:
             state='RESULT_UNKNOWN' if os.path.lexists(self.registry.parent/ADOPTION_FILE) else 'BLOCKED'
-            outcome={'state':state,'code':getattr(error,'code','CONNECTION_RELOCATION_SOURCE_UNVERIFIED')}
+            code=getattr(error,'code','CONNECTION_RELOCATION_SOURCE_UNVERIFIED')
+            if state=='RESULT_UNKNOWN' and code in {'CONNECTION_VOLUME_WITNESS_UNVERIFIED','INLINE_BINDING_CRYPTO_UNAVAILABLE'}:
+                state='VERIFY_REQUIRED'
+            outcome={'state':state,'code':code}
         finally:
             with self.lock:
                 self.result=outcome if 'outcome' in locals() else {'state':'RESULT_UNKNOWN'}

@@ -7,7 +7,7 @@ from .contracts import WCEError
 from .own_contracts import SPECS as LEGACY, DOCUMENT_SPECS, validate as validate_legacy
 from .own_connection_policy import read_registry, resolve, disconnect
 from .own_connection_input import stage
-from .own_connection_broker import call, ensure_started, SOCKET, RUNTIME
+from .own_connection_broker import call, ensure_started, stale_endpoint, SOCKET, RUNTIME
 from .prepared_contracts import ID, MIME, ROLE, strict_validate
 from .tools import schema
 
@@ -55,22 +55,37 @@ def validate(name, args):
 
 
 def status(connection_id, registry=None):
-    policy = resolve(connection_id, registry, active=False)
+    policy = resolve(connection_id, registry, active=False, readonly=True)
     base = {'connection_id': connection_id, 'account_id': policy.data['appid'],
         'capabilities': policy.value['capabilities'], 'platform_business_capabilities': 'NOT_VERIFIED',
         'provider_kind': 'OWN_DIRECT', 'label': connection_id}
     if policy.value['schema'] == 2:
         from .own_connection_registry import check_member, revoked
-        entry = check_member(policy, revocation=False)
+        entry = check_member(policy, revocation=False, readonly=True)
         base['label'] = entry['label']
         if revoked(policy): return base | {'state': 'DISCONNECTED'}
     if not policy.value['enabled']: return base | {'state': 'DISCONNECTED'}
-    try: policy.check()
+    try: policy.check(readonly=True)
     except WCEError as error: return base | {'state': 'ACTION_REQUIRED', 'error': error.code}
     if not any(os.path.lexists(policy.root / p) for p in (SOCKET, RUNTIME)):
         return base | {'state': 'BOUND_IDLE'}
-    try: return base | call(policy, 'own.connections.status', {'connection_id': connection_id})
-    except (OSError, EOFError): return base | {'state': 'BOUND_IDLE', 'broker': 'STOPPED_OR_STARTING'}
+    try:
+        return base | call(policy, 'own.connections.status', {'connection_id': connection_id})
+    except WCEError as error:
+        if error.code not in {'CONNECTION_RUNTIME_CHANGED', 'CONNECTION_START_PENDING',
+                              'CONNECTION_RESULT_UNDETERMINED'}:
+            raise
+    except (OSError, EOFError):
+        pass
+    # A broker can disappear or retain pre-restart pins after membership was
+    # authenticated. Check membership again before projecting this independently.
+    policy.check(readonly=True)
+    try:
+        stale_endpoint(policy, readonly=True)
+    except (WCEError, OSError, EOFError):
+        policy.check(readonly=True)
+        return base | {'state': 'BOUND', 'broker': 'STATUS_UNVERIFIED'}
+    return base | {'state': 'BOUND_IDLE', 'broker': 'STOPPED_OR_STARTING'}
 
 
 class ConnectionRouter:

@@ -29,7 +29,7 @@ SCRIPT = r'''
  const notice=(text,error=false,...values)=>{OAUI.set($('notice'),text,...values);$('notice').className='notice'+(error?' error':'');};
  const key=row=>JSON.stringify([row.platform_id,row.connection_id]);
  const platform=id=>directory.find(p=>p.id===id);
- const current=()=>rows.find(row=>key(row)===selected);
+ const current=()=>rows.find(row=>key(row)===selected&&row.platform_id===activePlatform);
  const name=row=>row.presentation?.display_name||'';
  const platformNames=new Map([['wechat_official_account','公众号'],['x','X'],['xiaohongshu','小红书']]);
  const platformName=id=>platformNames.get(id);
@@ -55,12 +55,12 @@ SCRIPT = r'''
    }catch(_){}
  }
  const initializedEditors=new Set();let binding=null,xManagement=null,xhsManagement=null,projectContext=null,contextOpen=false;
- const localExports=new Map(),selectedByPlatform=new Map();let selectEpoch=0,platformEpoch=0,selectionIntent=0;
+ const localExports=new Map(),selectedByPlatform=new Map();let selectEpoch=0,platformEpoch=0,selectionIntent=0,pendingSelection=null;
  const hostDownloadsUnknown=new Set();
  const originalSelection={platform:'',account:''};
  const editors=new Map(Object.entries(OAPlatformSettings).map(([id,adapter])=>[id,adapter.mount((operation,args)=>platformCall(id,operation,args),()=>{navigationEpoch++;},{
   templateCall:(name,args)=>tool(name,args),
-  templateTarget(){const row=current(),capture=navigationEpoch;return row&&row.platform_id===id?{connection_id:row.connection_id,name:name(row),isCurrent:()=>!closed&&ready&&navigationEpoch===capture&&current()===row}:null;},
+  templateTarget(){const row=current(),capture=navigationEpoch;return row&&row.platform_id===id?{connection_id:row.connection_id,name:name(row),isCurrent:()=>{const live=current();return !closed&&ready&&navigationEpoch===capture&&live&&key(live)===key(row)&&live.account_id===row.account_id&&live.binding_revision===row.binding_revision;}}:null;},
   async templateDownload(m,getBytes,{queryOnly=false,onDispatch=()=>{}}={}){
    if(hostCapabilities.downloadFile){
     if(queryOnly)throw new Error('TEMPLATE_DOWNLOAD_UNKNOWN');
@@ -194,7 +194,7 @@ SCRIPT = r'''
  const nameDialog=$('accountNameDialog'),displayName=$('accountDisplayName'),saveName=$('accountNameSave');
  let nameTarget=null;
  function canEditName(row){
-   return row.platform_id==='wechat_official_account'&&['BOUND_IDLE','BUSY','CONNECTED'].includes(row.state)
+   return row.platform_id==='wechat_official_account'&&['BOUND','BOUND_IDLE','BUSY','CONNECTED'].includes(row.state)
      &&['MISSING','SAVED'].includes(row.presentation?.state)&&Number.isSafeInteger(row.presentation.revision);
  }
  function currentNameTarget(row){
@@ -214,7 +214,7 @@ SCRIPT = r'''
        account_id:row.account_id,binding_revision:row.binding_revision,
        expected_revision:row.presentation.revision,display_name:desired});
    }catch(_){/* Read back the scoped account after a lost or failed response. */}
-   try{observed=await refresh();}catch(_){}
+   try{observed=await refresh({afterWrite:true});}catch(_){}
    if(closed||nameTarget!==row||!nameDialog.open)return;
    const found=observed?.find(item=>key(item)===key(row)&&item.account_id===row.account_id&&item.binding_revision===row.binding_revision);
    if(found?.presentation?.display_name===desired&&found.presentation.revision>row.presentation.revision){
@@ -239,8 +239,13 @@ SCRIPT = r'''
        OAUI.set(status,'等待 macOS 本人确认。');
        recoveryCheck=setTimeout(()=>void storageRecovery(row,'status'),1000);
      }else if(result.state==='COMMITTED'){
-       OAUI.set(status,'两个原绑定已恢复。');
-       await refresh();
+       const observed=await refresh({afterWrite:true});
+       if(recoveryTarget!==row)return;
+       const live=observed?.find(item=>key(item)===key(row));
+       OAUI.set(status,live&&['BOUND','BOUND_IDLE','CONNECTED','BUSY'].includes(live.state)
+         ?'原公众号绑定已恢复，列表已更新。':'原恢复记录已验证。账号列表暂未确认，请刷新查看。');
+     }else if(result.state==='VERIFY_REQUIRED'){
+       OAUI.set(status,'找到了原恢复记录。请保持 macOS 已登录且解锁，再刷新检查。');
      }else if(result.code==='CONNECTION_RECOVERY_CONFIRMATION_CANCELLED'){
        OAUI.set(status,'已取消。关闭后可重新检查。');
      }else if(result.code==='CONNECTION_RECOVERY_WITNESS_UNAVAILABLE'){
@@ -260,9 +265,9 @@ SCRIPT = r'''
      if(closed||activePlatform!==row.platform_id||!rows.includes(row))return;
      recoveryTarget=row;
      OAUI.raw($('accountRecoveryTarget'),[row.label,row.recovery.registered_appid].filter(Boolean).join(' · '));
-     OAUI.set($('accountRecoveryReason'),row.recovery.kind==='STORAGE_IDENTITY_CHANGED'
-       ?'本机绑定证明与当前存储位置不一致，原账号仍在登记中。'
-       :'暂时无法核实本机绑定，需先检查原登记。');
+     const reason={STORAGE_IDENTITY_CHANGED:'本机存储编号已变，原账号仍在登记中。',
+                   CHECK_RECOVERY_WITNESS:'请先检查已保存的本机恢复记录。'};
+     OAUI.set($('accountRecoveryReason'),reason[row.recovery.kind]||'暂时无法核实本机绑定，需先检查原登记。');
      OAUI.set($('accountRecoveryStatus'),'');
      $('accountRecoveryAsk').hidden=true;
      $('accountRecoveryAsk').disabled=false;
@@ -275,7 +280,14 @@ SCRIPT = r'''
  recoveryDialog.addEventListener('close',()=>{clearTimeout(recoveryCheck);recoveryTarget=null;});
  $('accountRecoveryAsk').onclick=async event=>{
    const row=recoveryTarget;
-   if(!event.isTrusted||!row||!rows.includes(row)||row.platform_id!==activePlatform)return;
+   if(!event.isTrusted||!row||row.platform_id!==activePlatform)return;
+   const live=rows.find(item=>key(item)===key(row));
+   if(!live?.recovery||live.recovery.kind!==row.recovery.kind||
+      live.recovery.registered_appid!==row.recovery.registered_appid){
+     $('accountRecoveryAsk').hidden=true;
+     OAUI.set($('accountRecoveryStatus'),'账号状态已变化，请关闭后查看最新列表。');
+     return;
+   }
    $('accountRecoveryAsk').disabled=true;
    await storageRecovery(row,'confirm');
  };
@@ -336,7 +348,7 @@ SCRIPT = r'''
    finally{
      removing=false;
      if(!closed){
-       const observed=await refresh();
+       const observed=await refresh({afterWrite:true});
        const confirmed=observed?.some(item=>key(item)===key(row)&&item.state==='DISCONNECTED');
        const stillVisible=rows.some(item=>key(item)===key(row));
        if(view==='platform'&&activePlatform===row.platform_id){
@@ -351,7 +363,7 @@ SCRIPT = r'''
    const body=document.createElement('div');body.style.minWidth='0';const title=document.createElement(choose?'button':'strong');title.className=choose?'account-select':'account-title';const display=row.recovery?row.label:name(row);if(display)OAUI.raw(title,display);else OAUI.set(title,'账号资料暂不可用');title.title=display||'';
    if(choose){el.tabIndex=0;el.setAttribute('role','option');el.addEventListener('click',e=>{if(!e.target.closest('button,a,summary,.oa-account-menu')){selectionIntent++;select(key(row));}});el.addEventListener('keydown',e=>{if(e.target===el&&['Enter',' '].includes(e.key)){e.preventDefault();selectionIntent++;select(key(row));}});title.setAttribute('aria-pressed',String(key(row)===selected));title.addEventListener('click',()=>{selectionIntent++;select(key(row));});}
    const attribution=document.createElement('span');attribution.className='help';attribution.style.display='block';if(platformName(row.platform_id))OAUI.set(attribution,platformName(row.platform_id));else OAUI.raw(attribution,platform(row.platform_id)?.name||'');
-   const state=document.createElement('span');state.className='status'+(['CONNECTED','BOUND_IDLE'].includes(row.state)?' good':'');OAUI.set(state,({CONNECTED:'已连接',BOUND_IDLE:'已绑定 · 空闲',DISCONNECTED:'已断开',ACTION_REQUIRED:'需要处理',BUSY:'正在使用'}[row.state]||'状态待核对'));
+   const state=document.createElement('span');state.className='status'+(['CONNECTED','BOUND','BOUND_IDLE'].includes(row.state)?' good':'');OAUI.set(state,accountState(row));
    if(row.platform_id==='x'){
     el.classList.add('oa-x-account');
     body.append(title,xCardLine('X','oa-x-oauth-state'),xCardLine('X Developer Console','oa-x-console-state',choose?row:null));
@@ -392,6 +404,12 @@ SCRIPT = r'''
    updateXDeveloper();
  }
  async function select(id){
+   const selecting={platform:activePlatform};
+   pendingSelection=selecting;
+   try{return await selectAccount(id);}
+   finally{if(pendingSelection===selecting)pendingSelection=null;}
+ }
+ async function selectAccount(id){
    const requested=rows.find(row=>key(row)===id),token=++selectEpoch;
    let target=requested;
    const editor=requested&&editors.get(requested.platform_id);
@@ -400,27 +418,51 @@ SCRIPT = r'''
      if(closed||token!==selectEpoch)return false;
      if(ok===false){target=rows.find(row=>row.platform_id===requested.platform_id&&row.connection_id===editor.scope?.());notice('原规则正在处理或结果待确认；已保留原规则目标，请先接续原操作。',true);}
    }
+   if(target)target=rows.find(row=>key(row)===key(target)&&row.platform_id===activePlatform);
    id=target?key(target):'';
    if(id!==selected)navigationEpoch++;
    for(const editor of editors.values())editor.closeCreator();
    selected=rows.some(row=>key(row)===id)?id:'';if(selected)selectedByPlatform.set(activePlatform,selected);
-   for(const el of $('accounts').children){const chosen=el.dataset.accountKey===selected;el.classList.toggle('is-selected',chosen);el.setAttribute('aria-selected',String(chosen));el.querySelector('button')?.setAttribute('aria-pressed',String(chosen));}
-   const row=current();$('accountCurrent').replaceChildren();if(row){const text=document.createElement('span'),title=document.createElement('strong'),sub=document.createElement('small');if(name(row))OAUI.raw(title,name(row));else OAUI.set(title,'账号资料暂不可用');if(row.platform_id==='x'&&row.username)OAUI.raw(sub,'@'+row.username);else OAUI.set(sub,({CONNECTED:'已连接',BOUND_IDLE:'已绑定 · 空闲',DISCONNECTED:'已断开',BUSY:'正在使用',ACTION_REQUIRED:'需要处理'}[row.state]||'状态待核对'));text.append(title,sub);$('accountCurrent').append(avatar(row),text);}else OAUI.set($('accountCurrent'),'平台默认规则 / 尚未选择账号');
-   $('selectedAccount').replaceChildren();
-   if(row){const line=document.createElement('p');line.className='account-id';line.textContent=typeof row.account_id==='string'?(platform(row.platform_id)?.account_id_label||'账号标识')+' '+row.account_id:'账号资料暂不可用';$('selectedAccount').append(line);}
-   else{const p=document.createElement('p');OAUI.set(p,'选择一个账号，查看所属平台与设置。');$('selectedAccount').append(p);}
+   paintSelection();
+   const row=current();
    projectContext?.target(activePlatform,row?.connection_id||'',rows);for(const editor of editors.values())editor.targetChanged?.();
    xManagement?.setupTargetChanged();
    if(activePlatform==='x')xManagement?.updateBilling();
    updateXDeveloper();
    if(activePlatform==='xiaohongshu')xhsManagement.updateControls();else buttons();
  }
- async function renderAccounts(){
+ function accountState(row){
+   return {CONNECTED:'已连接',BOUND:'已绑定',BOUND_IDLE:'已绑定 · 空闲',DISCONNECTED:'已断开',
+           ACTION_REQUIRED:'需要处理',BUSY:'正在使用'}[row.state]||'状态待核对';
+ }
+ function paintSelection(){
+   for(const el of $('accounts').children){const chosen=el.dataset.accountKey===selected;el.classList.toggle('is-selected',chosen);el.setAttribute('aria-selected',String(chosen));el.querySelector('button')?.setAttribute('aria-pressed',String(chosen));}
+   const row=current();$('accountCurrent').replaceChildren();if(row){const text=document.createElement('span'),title=document.createElement('strong'),sub=document.createElement('small');if(name(row))OAUI.raw(title,name(row));else OAUI.set(title,'账号资料暂不可用');if(row.platform_id==='x'&&row.username)OAUI.raw(sub,'@'+row.username);else OAUI.set(sub,accountState(row));text.append(title,sub);$('accountCurrent').append(avatar(row),text);}else OAUI.set($('accountCurrent'),'平台默认规则 / 尚未选择账号');
+   $('selectedAccount').replaceChildren();
+   if(row){const line=document.createElement('p');line.className='account-id';line.textContent=typeof row.account_id==='string'?(platform(row.platform_id)?.account_id_label||'账号标识')+' '+row.account_id:'账号资料暂不可用';$('selectedAccount').append(line);}
+   else{const p=document.createElement('p');OAUI.set(p,'选择一个账号，查看所属平台与设置。');$('selectedAccount').append(p);}
+ }
+ async function renderAccounts({preserveSelection=false}={}){
    const visible=rows.filter(row=>row.platform_id===activePlatform);
    $('accounts').replaceChildren();for(const row of visible)$('accounts').append(card(row,true));
    if(!visible.length){const p=document.createElement('p');p.className='empty';OAUI.set(p,'尚未绑定账号');$('accounts').append(p);}
    $('accountCount').textContent=String(visible.length);
-   const remembered=selectedByPlatform.get(activePlatform)||selected;await select(visible.some(row=>key(row)===remembered)?remembered:(visible[0]?key(visible[0]):''));
+   if(preserveSelection&&pendingSelection?.platform===activePlatform){
+     paintSelection();buttons();return;
+   }
+   if(preserveSelection&&visible.some(row=>key(row)===selected)){
+     paintSelection();updateXDeveloper();buttons();return;
+   }
+   const prior=selectedByPlatform.get(activePlatform);
+   if(preserveSelection&&prior&&!visible.some(row=>key(row)===prior)){
+     if(selected===prior){
+       selected='';navigationEpoch++;
+       projectContext?.target(activePlatform,'',rows);
+     }
+     paintSelection();updateXDeveloper();buttons();return;
+   }
+   const remembered=prior||selected;
+   await select(visible.some(row=>key(row)===remembered)?remembered:(visible[0]?key(visible[0]):''));
  }
  function renderPlatforms(){
    const ids=[...new Set([...directory.map(p=>p.id),...rows.map(row=>row.platform_id),...(activePlatform?[activePlatform]:[])])];
@@ -445,34 +487,69 @@ SCRIPT = r'''
      card.onclick=()=>openView(id,{user:true,focus:true});grid.append(card);
    }
  }
- async function refresh(){
-   if(!ready||refreshing||launching)return;refreshing=true;buttons();notice('正在读取账号…');
+ let refreshTask=null;
+ function refresh({afterWrite=false}={}){
+   if(!ready||closed||launching)return Promise.resolve();
+   if(refreshTask)return afterWrite?refreshTask.then(()=>refresh()):refreshTask;
+   refreshTask=readAccounts().finally(()=>{refreshTask=null;refreshing=false;if(!closed)buttons();});
+   return refreshTask;
+ }
+ async function prepareEditors(){
+   for(const [id,editor]of editors){
+     if(closed)return;
+     if(!platform(id)?.settings_supported||initializedEditors.has(id))continue;
+     initializedEditors.add(id);
+     try{
+       await editor.setReady(true);
+       const row=current();
+       if(!closed&&view==='platform'&&row?.platform_id===id&&pendingSelection?.platform!==id)
+         await editor.selectScope(row.connection_id);
+     }catch(_){initializedEditors.delete(id);}
+   }
+ }
+ async function readAccounts(){
+   const origin={view,platformEpoch,platform:activePlatform};
+   const sameView=()=>!closed&&view===origin.view&&platformEpoch===origin.platformEpoch;
+   const visibleRows=all=>all.filter(row=>origin.view!=='platform'||row.platform_id===origin.platform);
+   const before=JSON.stringify(visibleRows(rows));
+   refreshing=true;buttons();notice('正在读取账号…');
    try{
      const value=content(await tool('wce.ui.management.overview',{}));if(closed)return;
      if(!Array.isArray(value.platforms)||value.platforms.some(p=>!p||typeof p.id!=='string'||typeof p.name!=='string'||typeof p.settings_supported!=='boolean'||typeof p.binding_supported!=='boolean')||new Set(value.platforms.map(p=>p.id)).size!==value.platforms.length)throw new Error('PLATFORM_INVALID_DIRECTORY');
      if(!Array.isArray(value.connections)||value.connections.some(row=>!row||typeof row.platform_id!=='string'||typeof row.connection_id!=='string'||(row.account_id!==undefined&&typeof row.account_id!=='string')||typeof row.state!=='string')||new Set(value.connections.map(key)).size!==value.connections.length)throw new Error('MANAGEMENT_INVALID_SNAPSHOT');
-     directory=value.platforms;rows=value.connections.filter(row=>row.state!=='DISCONNECTED');
-     renderPlatforms();renderFeatures();
-     if(view==='platform'){
-       const intent=platformEpoch;await renderAccounts();
-       if(view==='platform'&&intent===platformEpoch)showSettings(activePlatform);
-     }
-     for(const [id,editor]of editors){const own=rows.filter(row=>row.platform_id===id);editor.accounts(own,new Map(own.map(row=>[row.connection_id,name(row)])));}
-     OAUI.set($('homeStatus'),'');notice('已读取 {0} 个账号；绑定状态不代表所有平台接口已实测。',false,rows.length);
+     const directoryChanged=JSON.stringify(directory)!==JSON.stringify(value.platforms);
+     directory=value.platforms;
+     const previous=new Map(rows.map(row=>[key(row),row]));
+     rows=value.connections.filter(row=>row.state!=='DISCONNECTED').map(row=>{
+       const old=previous.get(key(row));
+       return JSON.stringify(old)===JSON.stringify(row)?old:row;
+     });
+     if(directoryChanged){renderPlatforms();renderFeatures();if(view==='platform')showSettings(activePlatform);}
      for(const [id,editor]of editors){
-       if(closed)return;
-       if(platform(id)?.settings_supported&&!initializedEditors.has(id)){
-         await editor.setReady(true);initializedEditors.add(id);const row=current();if(view==='platform'&&row?.platform_id===id)await select(key(row));
-       }
+       const own=rows.filter(row=>row.platform_id===id);
+       editor.accounts(own,new Map(own.map(row=>[row.connection_id,name(row)])));
+     }
+     if(view==='platform')void renderAccounts({preserveSelection:true});
+     void prepareEditors();
+     OAUI.set($('homeStatus'),'');
+     if(sameView()){
+       const visible=visibleRows(rows),attention=visible.filter(row=>row.state==='ACTION_REQUIRED').length;
+       if(attention)notice('已刷新，{0} 个账号需要处理。',true,attention);
+       else if(before===JSON.stringify(visible))notice('已刷新，账号状态无变化。');
+       else notice('已刷新，当前显示 {0} 个账号。',false,visible.length);
      }
      return value.connections;
-   }catch(_){if(!closed){notice('账号读取失败，已有显示可能不是最新状态；可点击刷新重试。',true);OAUI.set($('homeStatus'),'暂时无法读取平台。');}}
-   finally{refreshing=false;buttons();}
+   }catch(error){
+     if(sameView()){
+       notice(error.message==='HOST_TIMEOUT'?'账号刷新超时，仍显示上次读取结果。':'账号刷新失败，仍显示上次读取结果。',true);
+       if(view==='home')OAUI.set($('homeStatus'),'暂时无法读取平台。');
+     }
+   }
  }
  binding=OAInlineBinding.mount(async(operation,args)=>content(await platformCall(originalSelection.platform,operation,args)),{
   enter(){originalSelection.platform=activePlatform;originalSelection.account=selected;$('nativeWorkspace').hidden=true;},
   leave(){$('nativeWorkspace').hidden=false;activePlatform=originalSelection.platform;select(originalSelection.account);},
-  async complete(cid,existing=false,state='BOUND_IDLE'){$('nativeWorkspace').hidden=false;activePlatform=originalSelection.platform;await refresh();const row=rows.find(r=>r.connection_id===cid&&r.platform_id===activePlatform);if(row)await select(key(row));notice(state==='DISCONNECTED'?'原绑定已提交，账号当前已断开。':state==='ACTION_REQUIRED'?'原绑定已提交，当前账号需要处理，请查看账号状态。':existing?'账号已绑定，已选中原账号。':'已验证并绑定。');}
+  async complete(cid,existing=false,state='BOUND_IDLE'){$('nativeWorkspace').hidden=false;activePlatform=originalSelection.platform;await refresh({afterWrite:true});const row=rows.find(r=>r.connection_id===cid&&r.platform_id===activePlatform);if(row)await select(key(row));notice(state==='DISCONNECTED'?'原绑定已提交，账号当前已断开。':state==='ACTION_REQUIRED'?'原绑定已提交，当前账号需要处理，请查看账号状态。':existing?'账号已绑定，已选中原账号。':'已验证并绑定。');}
  });
  async function sendChatRequest(text){
   if(!hostCapabilities.message?.text)throw new Error('HOST_MESSAGE_UNAVAILABLE');
@@ -481,9 +558,14 @@ SCRIPT = r'''
  async function openXLink(url){
   if(!hostCapabilities.openLinks)throw new Error('HOST_OPEN_LINK_UNAVAILABLE');const result=await rpc('ui/open-link',{url});if(!result||result.isError)throw new Error('HOST_OPEN_LINK_FAILED');return result;
  }
- xManagement=OAXManagement.mount((operation,args)=>tool('x.ui.action',{operation,arguments:args}),openXLink,async(cid,original)=>{await refresh();if(!closed&&original?.platform==='x'&&activePlatform==='x'&&original.epoch===platformEpoch&&original.intent===selectionIntent){const row=rows.find(r=>r.platform_id==='x'&&r.connection_id===cid);if(row)await select(key(row));}},{captureSelection:()=>({platform:activePlatform,epoch:platformEpoch,intent:selectionIntent}),selectedAccount:()=>current()?.platform_id==='x'?current().connection_id:null,sendChatRequest,canSendChatRequest:()=>!!hostCapabilities.message?.text,onStatusChange:updateXCards});
- xhsManagement=OAXHSManagement.mount((operation,args)=>tool('xhs.ui.action',{operation,...args}),refresh,()=>current()?.platform_id==='xiaohongshu'?current().connection_id:null,buttons);
- projectContext=OAProjectContext.mount((operation,args)=>tool('wce.ui.projects.action',{operation,arguments:args}),sendChatRequest,{readPost:(cid,attempt)=>tool('x.attempt.status',{connection_id:cid,kind:'post',attempt_id:attempt}),
+ xManagement=OAXManagement.mount((operation,args)=>tool('x.ui.action',{operation,arguments:args}),openXLink,async(cid,original)=>{await refresh({afterWrite:true});if(!closed&&original?.platform==='x'&&activePlatform==='x'&&original.epoch===platformEpoch&&original.intent===selectionIntent){const row=rows.find(r=>r.platform_id==='x'&&r.connection_id===cid);if(row)await select(key(row));}},{captureSelection:()=>({platform:activePlatform,epoch:platformEpoch,intent:selectionIntent}),selectedAccount:()=>current()?.platform_id==='x'?current().connection_id:null,sendChatRequest,canSendChatRequest:()=>!!hostCapabilities.message?.text,onStatusChange:updateXCards});
+ xhsManagement=OAXHSManagement.mount((operation,args)=>tool('xhs.ui.action',{operation,...args}),()=>refresh({afterWrite:true}),()=>current()?.platform_id==='xiaohongshu'?current().connection_id:null,buttons);
+ projectContext=OAProjectContext.mount(async(operation,args)=>{
+   if(args?.platform_id&&args.connection_id&&!rows.some(row=>
+     row.platform_id===args.platform_id&&row.connection_id===args.connection_id))
+     return {isError:true,structuredContent:{error:'PROJECT_ACCOUNT_MISMATCH'}};
+   return tool('wce.ui.projects.action',{operation,arguments:args});
+ },sendChatRequest,{readPost:(cid,attempt)=>tool('x.attempt.status',{connection_id:cid,kind:'post',attempt_id:attempt}),
   async downloadArtifact(raw,filename,a){
    const row=current();if(!row||row.platform_id!=='x'||row.connection_id!==a.connection_id)throw new Error('X_CONFIG_TARGET_CHANGED');
    if(hostCapabilities.downloadFile){
@@ -587,6 +669,7 @@ SCRIPT = r'''
  async function openView(target,{user=false,focus=false}={}){
    closeFloatingMenus();
    if(closed||!ready||!$('inlineBinding').hidden)return;
+   if(activePlatform!==target||view!=='platform')notice('');
    if(user){explicitNavigation=true;rememberView(target);}
    if(target==='home'||target==='video'){
      platformEpoch++;selectionIntent++;selectEpoch++;navigationEpoch++;
@@ -600,7 +683,7 @@ SCRIPT = r'''
  }
  $('openHome').onclick=()=>openView('home',{user:true,focus:true});
  for(const id of ['openVideoWorkspace','homeVideo'])$(id).onclick=()=>openView('video',{user:true,focus:true});
- $('refresh').addEventListener('click',refresh);$('showAdd').addEventListener('click',secure);
+ $('refresh').addEventListener('click',()=>void refresh());$('showAdd').addEventListener('click',secure);
  $('accountCreate').addEventListener('click',async()=>{
    const row=current(),original=selected,editor=row&&editors.get(row.platform_id);if(!editor||!platform(row.platform_id)?.settings_supported)return;
    const epoch=++navigationEpoch;

@@ -1,5 +1,7 @@
 """Bind a committed account proof to the filesystem of an owned open path."""
 from ctypes import CDLL, POINTER, Structure, byref, c_int, c_size_t, c_uint16, c_uint32, c_ulong, c_void_p
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 import os
 from pathlib import Path
@@ -12,6 +14,17 @@ from .service import digest
 DIRECTORY = 'connection-volume-witnesses'
 REVISION_FILE = 'volume-witness.json'
 ADOPTION_FILE = 'confirmed-storage-volume.json'
+_snapshot_proof = ContextVar('openahoy_storage_read_snapshot', default=None)
+
+
+@contextmanager
+def snapshot_witnesses():
+    """Reuse only a digest verification during one management snapshot."""
+    token = _snapshot_proof.set({})
+    try:
+        yield
+    finally:
+        _snapshot_proof.reset(token)
 
 
 class _Attributes(Structure):
@@ -101,10 +114,26 @@ def read_adoption(base):
 
 
 def verify_confirmation(fingerprint):
+    observed = _snapshot_proof.get()
+    if observed is not None and fingerprint in observed:
+        if observed[fingerprint] is not None:
+            raise WCEError(observed[fingerprint])
+        return
+    try:
+        _verify_confirmation(fingerprint, timeout=4 if observed is not None else None)
+    except WCEError as error:
+        if observed is not None:
+            observed[fingerprint] = error.code
+        raise
+    if observed is not None:
+        observed[fingerprint] = None
+
+
+def _verify_confirmation(fingerprint, *, timeout):
     from .own_inline_crypto import NativeCrypto
     helper = NativeCrypto(storage=True)
     try:
-        reply = helper.call({'operation':'storage_verify','context':fingerprint})
+        reply = helper.call({'operation':'storage_verify','context':fingerprint}, timeout=timeout)
     finally:
         helper.close()
     if reply != {'ok':True,'context':fingerprint}:

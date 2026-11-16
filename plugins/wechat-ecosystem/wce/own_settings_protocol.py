@@ -91,12 +91,13 @@ def descriptors():
 
 
 def overview(router, *, native=False):
-    from .own_connection_policy import read_registry, resolve
-    from .own_connection_registry import MembershipProofError
+    if native:
+        from .own_volume_identity import snapshot_witnesses
+        with snapshot_witnesses():
+            return native_overview(router.registry)
+    from .own_connection_policy import resolve
     from .own_presentation import read
     raw = router.call('own.connections.list', {})
-    entries = (read_registry(router.registry).get('entries', {}) if native and
-               any(item.get('error') == 'CONNECTION_ENTRY_UNAVAILABLE' for item in raw['connections']) else {})
     projected = []
     for item in raw['connections']:
         # Deliberately avoid private roots, dynamic lease details and opaque handles.
@@ -104,35 +105,75 @@ def overview(router, *, native=False):
             ('connection_id', 'account_id', 'label', 'state', 'error') if key in item}
         try:
             policy = resolve(item['connection_id'], router.registry, active=False, readonly=native)
-        except (WCEError, OSError, EOFError) as error:
+        except (WCEError, OSError, EOFError):
             policy = None
-            if native:
-                storage_pin = isinstance(error, MembershipProofError) and error.check in {
-                    'JOURNAL_DIRECTORY', 'ACCOUNT_ROOT', 'IMAGE_DIRECTORY', 'DATABASE'}
-                row['recovery'] = {'kind': 'STORAGE_IDENTITY_CHANGED' if storage_pin else 'CHECK_LOCAL_BINDING'}
-                entry = entries.get(item['connection_id'])
-                if entry:
-                    row['label'] = entry['label']
-                    row['recovery']['registered_appid'] = entry['appid']
-                row.pop('account_id', None)
         if policy is not None:
             try:
                 row['presentation'] = read(item['connection_id'], router.registry)
             except (WCEError, OSError, EOFError):
                 pass
             else:
-                if native and item.get('error') != 'CONNECTION_ENTRY_UNAVAILABLE':
-                    row['binding_revision'] = policy.fingerprint
                 projected.append(row)
                 continue
-            if native and item.get('error') != 'CONNECTION_ENTRY_UNAVAILABLE':
-                row['binding_revision'] = policy.fingerprint
         else:
             row['state'] = 'ACTION_REQUIRED'
             row['error'] = 'CONNECTION_ENTRY_UNAVAILABLE'
         row['presentation'] = {
             'display_name': '账号资料不可用', 'avatar': None, 'revision': None,
             'state': 'UNAVAILABLE', 'name_source': 'UNSET', 'avatar_source': 'UNSET'}
+        projected.append(row)
+    return {'connections': projected, 'platform_business_capabilities': 'NOT_VERIFIED'}
+
+
+def native_overview(registry):
+    """Read the local binding view without queuing behind live business calls."""
+    import os
+    from pathlib import Path
+    from .own_connection_policy import read_registry, registry_path, resolve
+    from .own_connection_registry import MembershipProofError, revoked
+    from .own_connection_broker import RUNTIME, SOCKET
+    from .own_presentation import project
+    from .service import digest
+
+    registry = Path(registry) if registry is not None else registry_path()
+    registered = read_registry(registry)
+    projected = []
+    for cid in registered['connections']:
+        entry = registered.get('entries', {}).get(cid)
+        row = {'connection_id': cid, 'label': entry['label'] if entry else cid}
+        try:
+            policy = resolve(cid, registry, active=False, readonly=True)
+            enabled = policy.value['enabled'] and (policy.value['schema'] != 2 or not revoked(policy))
+        except (WCEError, OSError, EOFError) as error:
+            check = error.check if isinstance(error, MembershipProofError) else None
+            code = getattr(error, 'code', '')
+            witness = code in {'CONNECTION_VOLUME_WITNESS_UNVERIFIED', 'INLINE_BINDING_CRYPTO_UNAVAILABLE'}
+            storage = check in {'JOURNAL_DIRECTORY', 'ACCOUNT_ROOT', 'IMAGE_DIRECTORY', 'DATABASE'}
+            kind = 'CHECK_LOCAL_BINDING'
+            if witness:
+                kind = 'CHECK_RECOVERY_WITNESS'
+            elif storage:
+                kind = 'STORAGE_IDENTITY_CHANGED'
+            recovery = {'kind': kind}
+            if witness:
+                recovery['diagnostic'] = code
+            if entry:
+                recovery['registered_appid'] = entry['appid']
+            if check:
+                recovery['proof_check'] = check
+            row.update(state='ACTION_REQUIRED', error='CONNECTION_ENTRY_UNAVAILABLE', recovery=recovery)
+        else:
+            endpoints = any(os.path.lexists(policy.root/name) for name in (SOCKET, RUNTIME))
+            state = ('BOUND' if endpoints else 'BOUND_IDLE') if enabled else 'DISCONNECTED'
+            row.update(state=state, account_id=policy.data['appid'], binding_revision=policy.fingerprint)
+            binding = digest({'registry': str(registry), 'identity': policy.data,
+                              'owner_digest': policy.value.get('owner_digest')})
+            try:
+                row['presentation'] = project(policy, binding, entry)
+            except (WCEError, OSError, EOFError):
+                pass
+        row.setdefault('presentation', {'display_name': '账号资料不可用', 'avatar': None, 'revision': None,
+                        'state': 'UNAVAILABLE', 'name_source': 'UNSET', 'avatar_source': 'UNSET'})
         projected.append(row)
     return {'connections': projected, 'platform_business_capabilities': 'NOT_VERIFIED'}
 

@@ -575,8 +575,8 @@ class AccountService:
 
 
 
-def read_runtime(policy, active=True):
-    policy.check()
+def read_runtime(policy, active=True, *, readonly=False):
+    policy.check(readonly=readonly)
     raw, pin = private_read(policy.root / RUNTIME)
     value = decode(raw)
     from .own_base_domain import DOMAIN
@@ -612,11 +612,11 @@ def read_runtime(policy, active=True):
                     or proof['policies'][str(policy.path)]['pins']['root'] != value['root_pin']
                     or match_volume(registry,proof,[(policy.root,value['root_pin'],policy.root_pin)]) is not True):
                 raise WCEError('CONNECTION_RUNTIME_CHANGED')
-        policy.check()
+        policy.check(readonly=readonly)
     return value, pin
 
 
-def stale_endpoint(policy):
+def stale_endpoint(policy, *, readonly=False):
     """Read-only proof for reclaiming a dead instance of this same identity/root.
 
     A newly human-enabled policy may have a different revision/code scope. These
@@ -626,7 +626,7 @@ def stale_endpoint(policy):
     info, endpoint = policy.root / RUNTIME, policy.root / SOCKET
     info_pin = endpoint_pin = None
     if os.path.lexists(info):
-        old, info_pin = read_runtime(policy, active=False)
+        old, info_pin = read_runtime(policy, active=False, readonly=readonly)
         try: os.kill(old['pid'], 0)
         except ProcessLookupError: pass
         except OSError: raise WCEError('CONNECTION_ENDPOINT_CONFLICT') from None
@@ -640,7 +640,7 @@ def stale_endpoint(policy):
             except OSError: raise WCEError('CONNECTION_ENDPOINT_CONFLICT') from None
             else: raise WCEError('CONNECTION_ENDPOINT_CONFLICT')
         if socket_pin(endpoint) != endpoint_pin: raise WCEError('CONNECTION_ENDPOINT_CONFLICT')
-    policy.check()
+    policy.check(readonly=readonly)
     return info_pin, endpoint_pin
 
 

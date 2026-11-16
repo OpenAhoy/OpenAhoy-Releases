@@ -13,10 +13,12 @@ import os
 import re
 import sqlite3
 import time
+from urllib.parse import urlsplit
 
 from .contracts import WCEError
 from .http_transport import HTTPSender
 from .own_bootstrap_security import path_check
+from .own_wire import image_url
 from .publication_contract import binding, stable_account
 from .publication_store import read_file, sync_directory
 from . import current_draft_inventory as inventory
@@ -296,11 +298,20 @@ def _equivalent_image_terminators(before,after):
     return None
 
 
-def _same_cover_material(before,after):
+def _equivalent_cover_url(before, after):
     # The surrounding operation pins the real account; never compare media IDs
     # across connections. Every observed crop/cover_info field is still checked.
-    original=before.get('thumb_media_id');actual=after.get('thumb_media_id')
-    return type(original)is str and bool(original) and type(actual)is str and actual==original
+    media_id = before.get('thumb_media_id')
+    if type(media_id) is not str or not media_id or after.get('thumb_media_id') != media_id:
+        return False
+    original, observed = before.get('thumb_url'), after.get('thumb_url')
+    if not all(image_url(url, synthetic=False) for url in (original, observed)):
+        return False
+    left, right = urlsplit(original), urlsplit(observed)
+    # Issue #3 observed a path rewrite, with the origin and query unchanged.
+    return (left.scheme == right.scheme and left.netloc == right.netloc
+            and left.query == right.query and bool(left.path and right.path)
+            and left.path != right.path)
 
 
 def preservation(expected_rows, actual_rows):
@@ -329,9 +340,7 @@ def preservation(expected_rows, actual_rows):
                         'transformation':'HTML_IMG_TERMINATOR_EQUIVALENT','image_count':images,
                         'original_snapshot':'OPERATION_TARGETS'})
                     continue
-            if (key=='thumb_url' and different and key in actual
-                    and type(value)is str and type(actual[key])is str
-                    and _same_cover_material(expected,actual)):
+            if key == 'thumb_url' and different and _equivalent_cover_url(expected, actual):
                 representations.append({'article_index':i,'field':key,
                     'transformation':'SAME_ACCOUNT_PERMANENT_COVER_DERIVED_URL',
                     'material_identity':'THUMB_MEDIA_ID_EQUAL','original_snapshot':'OPERATION_TARGETS'})
