@@ -147,6 +147,7 @@ class Support:
         if url_length(web_body)>7500:
             compact={e['report_id']:e for e in failures[-5:]+events[-3:]}
             lines=[e['at']+' '+e.get('tool',e['module'])+' '+e['result']+' '+e.get('code','')+
+                (' http_status='+str(e['http_status'])if 'http_status'in e else '')+
                 (' phase='+e['operation_phase']if 'operation_phase'in e else '')+
                 (' error_kind='+e['error_kind']if 'error_kind'in e else '')+
                 (' proof_check='+e['proof_check']if 'proof_check'in e else '')+

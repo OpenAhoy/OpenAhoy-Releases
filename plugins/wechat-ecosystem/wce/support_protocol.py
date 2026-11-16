@@ -9,6 +9,7 @@ from .prepared_contracts import strict_validate
 from .tools import schema
 from .support_feedback import Support
 from .support_diagnostics import RESULTS, CODES, PRESERVATION_FIELDS, OPERATION_PHASES
+from .video_relay import PUBLIC_DNS_REQUIRED, RELAY_MODEL, SUBMIT_DIAGNOSTIC_CODES, TRANSPORT_PHASES
 from .x_api import X_RESPONSE_ERROR_KINDS, XResponseUnknown
 
 ACTION = 'wce.ui.support.action'
@@ -90,8 +91,25 @@ class SupportRouter:
                     if type(candidate)is str and candidate in CODES:code=candidate
                     http_status=diagnostic.get('http_status');wechat_code=diagnostic.get('wechat_code')
             if type(value)is dict:
+                transport_phase=None
                 projection=outcome(value)
                 if projection is not None:state,code=projection
+                request=value.get('request')
+                if (name in {'video.relay.generation.submit', 'video.ark.generation.status'}
+                        and type(request) is dict and request.get('model') == RELAY_MODEL):
+                    receipt_state=value.get('state')
+                    if receipt_state in ('SUBMIT_UNKNOWN', 'SUBMIT_REJECTED'):
+                        state='UNKNOWN' if receipt_state=='SUBMIT_UNKNOWN' else 'TOOL_ERROR'
+                        code='TRANSPORT_UNDETERMINED' if state=='UNKNOWN' else 'PLATFORM_ERROR'
+                        diagnostic=value.get('submit_diagnostic')
+                        if type(diagnostic) is dict:
+                            candidate=diagnostic.get('code')
+                            if type(candidate) is str and candidate in SUBMIT_DIAGNOSTIC_CODES:
+                                code=candidate
+                                http_status=diagnostic.get('http_status')
+                                transport_phase=diagnostic.get('operation_phase')
+                    elif name=='video.ark.generation.status' and value.get('query_error')==PUBLIC_DNS_REQUIRED:
+                        state,code='CHECK_UNAVAILABLE',PUBLIC_DNS_REQUIRED
                 if type(value.get('error_code'))is int and value['error_code']!=0:wechat_code=value['error_code']
                 if code=='PRESERVATION_MISMATCH':kind='LOCAL_COMPARISON';wechat_code=None
                 if name in {'x.media.upload', 'x.attempt.status'} and value.get('kind')=='upload':
@@ -100,6 +118,8 @@ class SupportRouter:
                     if type(failure_kind) is str and failure_kind in X_RESPONSE_ERROR_KINDS:
                         kind=failure_kind
                 details=management_details(value)
+                if type(transport_phase) is str and transport_phase in TRANSPORT_PHASES:
+                    details['operation_phase']=transport_phase
                 if name=='wce.ui.wechat.storage_recovery':
                     recovery_state=value.get('state')
                     if recovery_state=='BLOCKED':state='TOOL_ERROR'

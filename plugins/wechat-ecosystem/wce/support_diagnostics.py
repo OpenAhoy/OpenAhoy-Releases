@@ -14,6 +14,7 @@ import time
 import uuid
 from .own_connection_registry import PROOF_CHECKS
 from .own_binding_failure import SAFE_ERRORS as BINDING_ERROR_CODES
+from .video_relay import SUBMIT_DIAGNOSTIC_CODES, TRANSPORT_PHASES
 
 MAX_BYTES = 256 * 1024
 FILES = 4
@@ -32,8 +33,9 @@ CODES = CODES | {'CONNECTION_ENTRY_UNAVAILABLE','CONNECTION_VOLUME_WITNESS_UNVER
                  'CONNECTION_RECOVERY_WITNESS_UNAVAILABLE','UPDATE_ACTIVITY_UNVERIFIED',
                  'UPDATE_BUSINESS_BUSY'}
 CODES=CODES|{'PRESERVATION_MISMATCH','CURRENT_DRAFT_SOURCE_CHANGED','CURRENT_DRAFT_SOURCE_UNAVAILABLE','X_MEDIA_PROCESSING_FAILED','X_MEDIA_SOURCE_UNAVAILABLE','X_MEDIA_EXPIRED','X_MEDIA_RESPONSE_INCOMPLETE','X_MEDIA_IDENTITY_MISMATCH','X_MEDIA_SEGMENT_INVALID','X_RESPONSE_UNKNOWN','X_HTTP_400','X_HTTP_401','X_HTTP_402','X_HTTP_403','X_HTTP_408','X_HTTP_413','X_HTTP_415','X_HTTP_422','X_HTTP_429','X_HTTP_500','X_HTTP_502','X_HTTP_503','X_HTTP_504'}
+CODES = CODES | SUBMIT_DIAGNOSTIC_CODES
 PRESERVATION_FIELDS=frozenset({'article_count','article_type','title','author','digest','content','content_source_url','thumb_media_id','thumb_url','cover_info','need_open_comment','only_fans_can_comment','show_cover_pic','image_info','product_info','other'})
-OPERATION_PHASES=frozenset({'PREPARED','READ_SOURCE','ADD','VERIFY_NEW_GROUP','RETIRE_SOURCES','COMPLETED','INIT_UNKNOWN','APPENDING','APPEND_UNKNOWN','FINALIZE_UNKNOWN','PROCESSING','READY'})
+OPERATION_PHASES=frozenset({'PREPARED','READ_SOURCE','ADD','VERIFY_NEW_GROUP','RETIRE_SOURCES','COMPLETED','INIT_UNKNOWN','APPENDING','APPEND_UNKNOWN','FINALIZE_UNKNOWN','PROCESSING','READY'}) | TRANSPORT_PHASES
 MODULES = frozenset({'mcp', 'updates', 'support', 'binding'})
 STAGES = frozenset({'TOOL_CALL', 'SOURCE_CHECK', 'TAG_READ', 'PREVIEW', 'SEND', 'QUERY', 'VALIDATION'})
 
@@ -74,7 +76,7 @@ class Diagnostics:
             'report_id': uuid.uuid4().hex, 'module': module, 'stage': stage, 'result': result}
         # tool is selected from the router's immutable descriptor names.
         if tool is not None:
-            if type(tool) is not str or not re.fullmatch(r'(?:(?:own|wce|x)\.[a-z._]+|openahoy\.feedback\.(?:preview|submit|status))', tool):
+            if type(tool) is not str or not re.fullmatch(r'(?:(?:own|wce|x|video)\.[a-z._]+|openahoy\.feedback\.(?:preview|submit|status))', tool):
                 raise ValueError('SUPPORT_EVENT_INVALID')
             value['tool'] = tool
         if code in CODES:
@@ -168,7 +170,7 @@ class Diagnostics:
             for row in result:
                 if row.get('code')not in {None,'PARSED_SUCCESS'} or row['result']in {'TOOL_ERROR','CHECK_UNAVAILABLE','UNKNOWN','ACTION_REQUIRED'}:
                     failure_ids.add(row['report_id'])
-                    key=json.dumps({k:row[k]for k in ('module','stage','tool','result','code','site','error_kind','possible_side_effect','operation_phase','different_fields','candidate_created')if k in row},sort_keys=True)
+                    key=json.dumps({k:row[k]for k in ('module','stage','tool','result','code','http_status','site','error_kind','possible_side_effect','operation_phase','different_fields','candidate_created')if k in row},sort_keys=True)
                     failures.pop(key,None);failures[key]=row
             selected={row['report_id']for row in list(failures.values())[-20:]+[row for row in result if row['report_id']not in failure_ids][-180:]}
             return {'schema': 1, 'events': [row for row in result if row['report_id']in selected], 'storage': 'LOCAL_ONLY',

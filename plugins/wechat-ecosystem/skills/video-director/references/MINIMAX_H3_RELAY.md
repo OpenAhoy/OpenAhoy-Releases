@@ -11,4 +11,10 @@
 
 以原项目 ID 和 attempt 调用 `video.ark.generation.status`，用 `poll: true` 查询原任务。成功后成片进入原视频资产库。遇到 `SUBMIT_UNKNOWN` 时保留原 attempt，向服务商核对原请求。原站和原 Token 用于查询未结束的旧任务。用量和实际扣费以该站账单为准。
 
+官方 `https://autodl.art` 的提交、查询及已确认的官方结果桶下载遇到系统 DNS 仅返回 Fake IP 时，会通过 Cloudflare HTTPS DNS 查询对应公开域名，并按原域名校验证书。自定义中转站和其他结果域名继续使用本机 DNS。下载不带 AutoDL Token。
+
+官方生成每个 attempt 只提交一次。发送完请求后，客户端最多等到提交开始后的 50 秒接收响应头。超时保留同一个未知回执，回执中的 `operation_phase` 可用于诊断。这个等待时间不影响其他中转站的提交或原任务轮询。
+
+`VIDEO_RELAY_PUBLIC_DNS_REQUIRED` 表示未能获得符合要求的公网地址，插件在连接服务站前停止了这次调用。已有任务 ID 时，网络恢复后继续查询原任务。
+
 [AutoDL 工作流协议](https://autodl.art/docs/comfyui_api/)给出通用提交、鉴权和轮询格式。[官方工作流元数据](https://www.autodl.art/api/v1/comfyui/workflows/minimax_h3_zm_nono)提供此工作流的精确参数及结果示例。其他中转站兼容性以实际验证为准。

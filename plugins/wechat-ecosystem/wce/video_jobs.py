@@ -19,7 +19,7 @@ from .own_connection_registry import mkdir
 from .project_context import ProjectStore
 from .video_keychain import load
 from .video_minimax import H3, SITES, MiniMax, MiniMaxRejected, h3_body, h3_usage
-from .video_relay import RELAY_MODEL, Relay, workflow_body
+from .video_relay import RELAY_MODEL, Relay, RelaySubmitError, workflow_body
 from .video_relay_keychain import load_relay
 from .video_seedance import Ark, ArkSubmitRejected, MINI, MODEL, PRO, STANDARD, MAX_REQUEST, MAX_RESULT, ark_error_code, request_body, result_url, validate_model
 
@@ -355,7 +355,7 @@ class Jobs:
                 value['list_price_cny'] = (tokens * rate[video_input] + 5_000) // 10_000 / 100
         if recipe and 'recipe' in row:
             value['recipe'] = row['recipe']
-        for key in ('rejection', 'failure', 'query_error', 'download_error'):
+        for key in ('rejection', 'failure', 'query_error', 'download_error', 'submit_diagnostic'):
             if key in row:
                 value[key] = row[key]
         return value
@@ -591,6 +591,12 @@ class Jobs:
         atomic_write(receipt, row, maximum=RECEIPT_MAX)
         try:
             task = api.submit(key, body)
+        except RelaySubmitError as error:
+            if error.rejected:
+                row['state'] = 'SUBMIT_REJECTED'
+            row['submit_diagnostic'] = error.diagnostic
+            atomic_write(receipt, row, maximum=RECEIPT_MAX)
+            return row
         except WCEError as error:
             if error.code == 'VIDEO_SUBMIT_REJECTED':
                 row['state'] = 'SUBMIT_REJECTED'
