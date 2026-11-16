@@ -1,4 +1,4 @@
-# OpenAhoy 0.6.61
+# OpenAhoy 0.6.62
 
 OpenAhoy 是 Codex 中的账号与内容工作台，提供内嵌管理页、项目规则/Skills、创作模板、反馈诊断及软件更新入口。
 
@@ -15,22 +15,24 @@ OpenAhoy 是 Codex 中的账号与内容工作台，提供内嵌管理页、项�
 
 在符合原存储证明的机器上，OpenAhoy 可在管理页恢复两个原公众号绑定，由本人在 macOS 确认。
 
+0.6.62 修复 v0.6.61 的启动问题，原市场和插件 ID 保持。
+
 ## 安装与升级
 
 当前支持 macOS Apple Silicon（arm64）。需要较新的 Codex（含官方 plugin 命令）和 arm64 Python 3.11+，Git 可用。插件不会自动安装 Python/浏览器或读取其他浏览器的登录态。
 
 复制下列文字到目标电脑 Codex：
 
-> 请先用官方 plugin list / marketplace list 查本机是否已有 OpenAhoy。已有安装先读取 https://github.com/OpenAhoy/OpenAhoy-Releases/blob/v0.6.61/UPDATE_PROMPT.md 的迁移分类，只更新原 OpenAhoy 并保留 namespace，不移除共享市场、不另启第二份；只有从未安装时才读取固定 v0.6.61/INSTALL_PROMPT.md。目标运行包始终为正式公开0.6.61，核对其 RELEASE.json、SHA256SUMS 和完整manifest，保留账号、系统钥匙串、项目规则和原稿。安装后检查工具与管理页；此次不生产、上传、发表或启用定时任务，不索取Secret。
+> 请先用官方 plugin list / marketplace list 查本机是否已有 OpenAhoy。已有安装先读取 https://github.com/OpenAhoy/OpenAhoy-Releases/blob/v0.6.62/UPDATE_PROMPT.md 的迁移分类，只更新原 OpenAhoy 并保留 namespace，不移除共享市场、不另启第二份；只有从未安装时才读取固定 v0.6.62/INSTALL_PROMPT.md。目标运行包始终为正式公开0.6.62，核对其 RELEASE.json、SHA256SUMS 和完整manifest，保留账号、系统钥匙串、项目规则和原稿。安装后检查工具与管理页；此次不生产、上传、发表或启用定时任务，不索取Secret。
 
 已安装用户按固定版 UPDATE_PROMPT.md 从 Codex 聊天同槽升级。公开安装源无需 GitHub 账号、token 或私库邀请。全新安装时先登记固定市场，登记成功后再安装：
 
 ```sh
-codex plugin marketplace add https://github.com/OpenAhoy/OpenAhoy-Releases.git --ref v0.6.61
+codex plugin marketplace add https://github.com/OpenAhoy/OpenAhoy-Releases.git --ref v0.6.62
 codex plugin add wechat-ecosystem@openahoy-distribution
 ```
 
-已有安装先读本仓库 UPDATE_PROMPT.md 的迁移分类：共享市场只更新 OpenAhoy 条目并保持原namespace，禁止remove整个共享市场；独占源才按实际登记切换。不要卸载插件、删除用户数据或手改缓存。`--ref v0.6.61` 固定本版，登记超时时先只读对账，完整步骤见 UPDATE_PROMPT.md。
+已有安装先读本仓库 UPDATE_PROMPT.md 的迁移分类：共享市场只更新 OpenAhoy 条目并保持原namespace，禁止remove整个共享市场；独占源才按实际登记切换。不要卸载插件、删除用户数据或手改缓存。`--ref v0.6.62` 固定本版，登记超时时先只读对账，完整步骤见 UPDATE_PROMPT.md。
 
 安装后的当前聊天是否立即加载由 Codex 宿主决定；只有确实需要且没有单插件刷新入口时再集中提示一次，不承诺所有宿主免重开。桌面插件卡片/入口以实际宿主显示为准。
 

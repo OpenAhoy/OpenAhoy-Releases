@@ -4,6 +4,7 @@ import os
 import threading
 
 from .contracts import WCEError
+from .own_connection_policy import registry_path
 from .own_inline_crypto import NativeCrypto
 from .own_storage_adoption import apply_reviewed, review, verify_adopted
 from .own_volume_identity import ADOPTION_FILE, read_adoption
@@ -38,7 +39,7 @@ def native_available():
 class AdoptionRouter:
     def __init__(self, inner, registry):
         self.inner = inner
-        self.registry = Path(registry)
+        self.registry = Path(registry) if registry is not None else registry_path()
         self.lock = threading.Lock()
         self.result = None
 
