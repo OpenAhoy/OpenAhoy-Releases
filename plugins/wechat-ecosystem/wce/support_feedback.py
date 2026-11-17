@@ -149,6 +149,7 @@ class Support:
             lines=[e['at']+' '+e.get('tool',e['module'])+' '+e['result']+' '+e.get('code','')+
                 (' http_status='+str(e['http_status'])if 'http_status'in e else '')+
                 (' phase='+e['operation_phase']if 'operation_phase'in e else '')+
+                (' response='+','.join(k+':'+v for k,v in e['relay_response'].items())if e.get('relay_response') else '')+
                 (' error_kind='+e['error_kind']if 'error_kind'in e else '')+
                 (' proof_check='+e['proof_check']if 'proof_check'in e else '')+
                 (' fields='+','.join(e['different_fields'])if e.get('different_fields')else '')+

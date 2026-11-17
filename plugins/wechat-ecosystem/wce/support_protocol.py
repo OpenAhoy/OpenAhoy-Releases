@@ -94,6 +94,7 @@ class SupportRouter:
                     http_status=diagnostic.get('http_status');wechat_code=diagnostic.get('wechat_code')
             if type(value)is dict:
                 transport_phase=None
+                relay_response=None
                 projection=outcome(value)
                 if projection is not None:state,code=projection
                 if name in {'image.openai.gif.submit', 'image.openai.gif.status'}:
@@ -120,6 +121,7 @@ class SupportRouter:
                                 code=candidate
                                 http_status=diagnostic.get('http_status')
                                 transport_phase=diagnostic.get('operation_phase')
+                                relay_response=diagnostic.get('relay_response')
                     elif name=='video.ark.generation.status' and value.get('query_error')==PUBLIC_DNS_REQUIRED:
                         state,code='CHECK_UNAVAILABLE',PUBLIC_DNS_REQUIRED
                 if type(value.get('error_code'))is int and value['error_code']!=0:wechat_code=value['error_code']
@@ -130,6 +132,8 @@ class SupportRouter:
                     if type(failure_kind) is str and failure_kind in X_RESPONSE_ERROR_KINDS:
                         kind=failure_kind
                 details=management_details(value)
+                if relay_response is not None:
+                    details['relay_response']=relay_response
                 if type(transport_phase) is str and transport_phase in (TRANSPORT_PHASES | GIF_TRANSPORT_PHASES):
                     details['operation_phase']=transport_phase
                 if name=='wce.ui.wechat.storage_recovery':

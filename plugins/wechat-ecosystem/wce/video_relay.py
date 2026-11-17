@@ -63,13 +63,15 @@ def timeout_phase(phase):
 
 
 class RelaySubmitError(WCEError):
-    def __init__(self, code, http_status=None, *, phase=None):
+    def __init__(self, code, http_status=None, *, phase=None, response=None):
         self.rejected = http_status in SUBMIT_REJECTIONS or code == PUBLIC_DNS_REQUIRED
         self.diagnostic = {'code': code}
         if type(http_status) is int and 100 <= http_status <= 599:
             self.diagnostic['http_status'] = http_status
         if phase in TRANSPORT_PHASES:
             self.diagnostic['operation_phase'] = phase
+        if response:
+            self.diagnostic['relay_response'] = response
         super().__init__('VIDEO_SUBMIT_REJECTED' if self.rejected else code)
 
 
@@ -97,6 +99,69 @@ def success_data(value):
     if type(value) is dict and value.get('code') == 'Success' and type(value.get('data')) is dict:
         return value['data']
     return None
+
+
+JSON_SHAPES = {dict:'OBJECT', list:'ARRAY', str:'STRING', int:'NUMBER', float:'NUMBER',
+               bool:'BOOLEAN', type(None):'NULL'}
+RESPONSE_LABELS = {
+    'media': {'JSON','HTML','TEXT','OTHER','MISSING'},
+    'body': set(JSON_SHAPES.values()) | {'MALFORMED','TOO_LARGE','INCOMPLETE'},
+    'code': {'SUCCESS','OTHER_STRING','NUMBER','OTHER','MISSING'},
+    'data': set(JSON_SHAPES.values()) | {'MISSING'},
+    'task': {'VALID_SHAPE','INVALID_SHAPE','ALTERNATE_FIELD','MISSING'},
+}
+
+
+def safe_submit_response(value):
+    if type(value) is not dict:
+        return {}
+    return {key: value[key] for key, labels in RESPONSE_LABELS.items()
+            if type(value.get(key)) is str and value[key] in labels}
+
+
+def submit_response_headers(response):
+    media = (getattr(response, 'headers', None) or {}).get('Content-Type', '')
+    media = media.partition(';')[0].strip().lower() if type(media) is str else ''
+    if media == 'application/json' or media.endswith('+json'):
+        label = 'JSON'
+    elif media in {'text/html', 'application/xhtml+xml'}:
+        label = 'HTML'
+    elif media.startswith('text/'):
+        label = 'TEXT'
+    else:
+        label = 'OTHER' if media else 'MISSING'
+    status = getattr(response, 'status', getattr(response, 'code', None))
+    return status, {'media': label}
+
+
+def read_submit_response(response, shape, authorization):
+    raw = response.read(MAX_JSON + 1)
+    if len(raw) > MAX_JSON:
+        shape['body'] = 'TOO_LARGE'
+        return None
+    try:
+        value = json.loads(raw)
+    except (ValueError, RecursionError):
+        shape['body'] = 'MALFORMED'
+        return None
+    shape['body'] = JSON_SHAPES[type(value)]
+    if type(value) is dict:
+        code = value.get('code')
+        shape['code'] = ('MISSING' if 'code' not in value else 'SUCCESS' if code == 'Success' else
+                         'OTHER_STRING' if type(code) is str else 'NUMBER' if type(code) in (int, float) else 'OTHER')
+        data = value.get('data')
+        shape['data'] = JSON_SHAPES[type(data)] if 'data' in value else 'MISSING'
+        if type(data) is dict and 'task_id' in data:
+            shape['task'] = 'VALID_SHAPE' if valid_task_id(data['task_id'], authorization) else 'INVALID_SHAPE'
+        elif {'task_id', 'taskId'} & value.keys() or (type(data) is dict and 'taskId' in data):
+            shape['task'] = 'ALTERNATE_FIELD'
+        else:
+            shape['task'] = 'MISSING'
+    return value
+
+
+def valid_task_id(task, authorization):
+    return type(task) is str and TASK.fullmatch(task) and authorization not in task
 
 
 def https_url(value, error):
@@ -289,45 +354,47 @@ class Relay(Ark):
 
     def submit(self, key, body):
         authorization = key.reveal_for_adapter()
+        status = None
+        shape = {}
         try:
             with self._request('minimax_h3_zm_nono', authorization, body) as response:
+                status, shape = submit_response_headers(response)
                 with timeout_phase('READ_RESPONSE_BODY'):
-                    value = response_json(response)
+                    value = read_submit_response(response, shape, authorization)
         except HTTPError as error:
-            status = error.code
-            # A documented task receipt from this origin permits querying that original task.
+            status, shape = submit_response_headers(error)
+            # Only the documented envelope may authorize querying an original task.
             with error:
                 try:
-                    task = self._submit_task(success_data(response_json(error)), authorization)
-                except (OSError, HTTPException, ValueError, RecursionError, EOFError):
-                    task = None
-            if task is not None:
+                    value = read_submit_response(error, shape, authorization)
+                except (OSError, HTTPException, EOFError):
+                    value = None
+                    shape['body'] = 'INCOMPLETE'
+            if task := self._submit_task(success_data(value), authorization):
                 return task
             code = SUBMIT_REJECTIONS.get(status, 'VIDEO_RELAY_RATE_LIMITED' if status == 429
                                          else 'VIDEO_RELAY_HTTP_UNCERTAIN')
-            raise RelaySubmitError(code, status) from None
-        except (ValueError, RecursionError):
-            raise RelaySubmitError('VIDEO_RELAY_RESPONSE_INVALID') from None
+            raise RelaySubmitError(code, status, response=shape) from None
         except (OSError, HTTPException, EOFError) as error:
             reason = error.reason if isinstance(error, URLError) else error
             phase = reason.phase if isinstance(reason, RelayTransportTimeout) else None
-            raise RelaySubmitError(transport_code(error), phase=phase) from None
+            if shape:
+                shape['body'] = 'INCOMPLETE'
+            raise RelaySubmitError(transport_code(error), status, phase=phase, response=shape) from None
         if value is None:
-            raise RelaySubmitError('VIDEO_RELAY_RESPONSE_INVALID')
+            raise RelaySubmitError('VIDEO_RELAY_RESPONSE_INVALID', status, response=shape)
         data = success_data(value)
         if data is None:
-            raise RelaySubmitError('VIDEO_RELAY_RESPONSE_UNRECOGNIZED')
+            raise RelaySubmitError('VIDEO_RELAY_RESPONSE_UNRECOGNIZED', status, response=shape)
         task = self._submit_task(data, authorization)
         if task is None:
-            raise RelaySubmitError('VIDEO_TASK_ID_UNKNOWN')
+            raise RelaySubmitError('VIDEO_TASK_ID_UNKNOWN', status, response=shape)
         return task
 
     @staticmethod
     def _submit_task(data, authorization):
         task = data.get('task_id') if data is not None else None
-        if type(task) is str and TASK.fullmatch(task) and authorization not in task:
-            return task
-        return None
+        return task if valid_task_id(task, authorization) else None
 
     def query(self, key, task, *, model=RELAY_MODEL):
         if type(task) is not str or not TASK.fullmatch(task):

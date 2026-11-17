@@ -14,7 +14,7 @@ import time
 import uuid
 from .own_connection_registry import PROOF_CHECKS
 from .own_binding_failure import SAFE_ERRORS as BINDING_ERROR_CODES
-from .video_relay import SUBMIT_DIAGNOSTIC_CODES, TRANSPORT_PHASES
+from .video_relay import SUBMIT_DIAGNOSTIC_CODES, TRANSPORT_PHASES, safe_submit_response
 from .openai_gif_api import DIAGNOSTICS as GIF_DIAGNOSTICS, TRANSPORT_PHASES as GIF_TRANSPORT_PHASES
 
 MAX_BYTES = 256 * 1024
@@ -70,7 +70,7 @@ class Diagnostics:
 
     @staticmethod
     def event(module, stage, result, *, tool=None, code=None, elapsed_ms=None,
-              http_status=None, wechat_code=None, site=None, error_kind=None, possible_side_effect=None, operation_phase=None, different_fields=None, difference_count=None, candidate_created=None, source_container_count=None, source_retired_count=None, proof_check=None):
+              http_status=None, wechat_code=None, site=None, error_kind=None, possible_side_effect=None, operation_phase=None, different_fields=None, difference_count=None, candidate_created=None, source_container_count=None, source_retired_count=None, proof_check=None, relay_response=None):
         if module not in MODULES or stage not in STAGES or result not in RESULTS:
             raise ValueError('SUPPORT_EVENT_INVALID')
         value = {'schema': 1, 'at': datetime.now(timezone.utc).isoformat(),
@@ -99,6 +99,9 @@ class Diagnostics:
         if type(candidate_created)is bool:value['candidate_created']=candidate_created
         for key,number in [('source_container_count',source_container_count),('source_retired_count',source_retired_count)]:
             if type(number)is int and 0<=number<=8:value[key]=number
+        if tool in {'video.relay.generation.submit', 'video.ark.generation.status'} and code in SUBMIT_DIAGNOSTIC_CODES:
+            if safe := safe_submit_response(relay_response):
+                value['relay_response'] = safe
         if type(proof_check) is str and proof_check in PROOF_CHECKS:
             value['proof_check'] = proof_check
         return value
@@ -155,7 +158,7 @@ class Diagnostics:
                 for line in raw.splitlines():
                     try:
                         row = json.loads(line)
-                        allowed = {'schema','at','report_id','module','stage','result','tool','code','elapsed_ms','http_status','wechat_code','site','error_kind','possible_side_effect','operation_phase','different_fields','difference_count','candidate_created','source_container_count','source_retired_count','proof_check'}
+                        allowed = {'schema','at','report_id','module','stage','result','tool','code','elapsed_ms','http_status','wechat_code','site','error_kind','possible_side_effect','operation_phase','different_fields','difference_count','candidate_created','source_container_count','source_retired_count','proof_check','relay_response'}
                         if type(row) is not dict or set(row)-allowed or row.get('schema') != 1:
                             continue
                         if not re.fullmatch('[a-f0-9]{32}', row['report_id']) or not re.fullmatch(r'[0-9T:.+Z-]{20,40}', row['at']):
@@ -171,7 +174,7 @@ class Diagnostics:
             for row in result:
                 if row.get('code')not in {None,'PARSED_SUCCESS'} or row['result']in {'TOOL_ERROR','CHECK_UNAVAILABLE','UNKNOWN','ACTION_REQUIRED'}:
                     failure_ids.add(row['report_id'])
-                    key=json.dumps({k:row[k]for k in ('module','stage','tool','result','code','http_status','site','error_kind','possible_side_effect','operation_phase','different_fields','candidate_created')if k in row},sort_keys=True)
+                    key=json.dumps({k:row[k]for k in ('module','stage','tool','result','code','http_status','site','error_kind','possible_side_effect','operation_phase','different_fields','candidate_created','relay_response')if k in row},sort_keys=True)
                     failures.pop(key,None);failures[key]=row
             selected={row['report_id']for row in list(failures.values())[-20:]+[row for row in result if row['report_id']not in failure_ids][-180:]}
             return {'schema': 1, 'events': [row for row in result if row['report_id']in selected], 'storage': 'LOCAL_ONLY',
