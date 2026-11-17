@@ -1,12 +1,11 @@
-# OpenAhoy 0.6.75 更新指引
+# OpenAhoy 0.6.76 更新指引
 
-手头业务到安全点后，在 OpenAhoy 管理页用原更新入口检查更新，选择 0.6.75。按提示重开 Codex 后，确认管理页运行版本为 0.6.75。已有账号、业务项目和排期继续沿原入口使用。
+在 OpenAhoy 管理页选择「检查更新」和「立即升级」。按提示重开 Codex，再核对实际运行版本为 0.6.76。
 
-如果只显示「查看升级状态」或更新不可点，把这段发给本机 Codex：
+如果原页只显示「查看升级状态」或按钮不可用，把下面这段发给本机 Codex：
 
-> 请用 Codex 官方插件管理，把现有 OpenAhoy 沿原市场及插件 ID 更新到正式版 v0.6.75。先确认原市场来源、ref、插件 ID 和已装版本，再核对本版发行清单。保留原绑定、草稿、配置、排期和业务回执。更新后核对实际加载版本。 [正式发行](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.75)
+> 请通过官方 Codex 插件管理，沿本机原市场和原插件 ID 更新现有 OpenAhoy 到固定版 v0.6.76。先核对原来源、ref、插件 ID、实际安装版本与发行清单。更新时保留账号绑定、草稿、配置、排期和业务回执。更新后核对实际加载版本。 [正式发行](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.76)
 
-- 如果原插件来自专属公开市场 `openahoy-distribution`，核实来源为 `https://github.com/OpenAhoy/OpenAhoy-Releases.git`，记录旧来源和 ref。仅移除该市场登记，用同一 URL 登记固定标签 `v0.6.75`，再安装原 `wechat-ecosystem@openahoy-distribution`。共享市场由维护者更新原条目并保留原插件 ID。安装结果未知时，先查原市场和已装版本。
-- 新版增加 AutoDL 新提交的脱敏诊断。有响应时可记录 HTTP 状态及响应类型。升级无法补回旧请求当时的响应，也无法确认旧请求有无接单或计费。旧请求继续保留原回执，结果未知时不要重发。
-- 升级后如在正常使用中再次遇到同类错误，仅在原聊天回传版本、发生时间、是否拿到任务 ID，以及「诊断日志」可见的 HTTP 状态、操作阶段和响应类型。不要附原响应正文、素材地址、提示词或密钥。
-- 如需软件回退，先查原槽的实际安装结果。确认安装已结束后，如需保留本次新增诊断，先用 0.6.75 读取或导出脱敏字段，再沿原市场和原插件 ID 回退到 0.6.74。旧业务回执继续按原任务查询。 [0.6.74 回退版](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.74)
+- 原市场为来自 `https://github.com/OpenAhoy/OpenAhoy-Releases.git` 的专属 `openahoy-distribution` 时，记录原 ref，仅移除对应市场登记，用同一来源登记固定标签 `v0.6.76`，然后用官方 `codex plugin add wechat-ecosystem@openahoy-distribution` 安装到原槽位。共享市场由维护者更新原条目并沿用原插件 ID。安装结果未知时，先读回原市场和已装版本。
+- 升级后可在原聊天检查 `x.profile.read`、`x.posts.read` 和 `x.posts.readback`。已有帖子直接读原帖或原发布回执，无需重发。其他插件配置可能影响 Codex 最终分配的工具描述预算。
+- 如需软件回退，先读回原安装结果并确认无未决安装，再沿同一市场及插件 ID 采用固定 v0.6.75，继续保留原业务数据与回执。0.6.75 在相同隔离配置下仍会出现工具预算不足。 [0.6.75 回退版](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.75)

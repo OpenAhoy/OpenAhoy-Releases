@@ -12,8 +12,22 @@ from .own_bootstrap_security import FLAGS, load_config
 from .own_contracts import list_tools, validate
 
 
-INSTRUCTIONS = ('Follow OpenAhoy Skill and account rules. Use authorized tools only. '
-                'UNKNOWN: query original, never resend. Keep credentials private.')
+# Codex budgets the namespace instructions once per model-facing tool.
+# The packaged Skill holds the shared account, authorization and retry rules.
+INSTRUCTIONS = 'OpenAhoy Skill.'
+
+PUBLICATION_DESCRIPTIONS = {
+    'own.publications.current.dispatch': (
+        'Publish an explicitly requested draft once without follower push. Use its original '
+        'successful save attempt_id or completed merge intent_handle. Never resend UNKNOWN.'
+    ),
+    'own.publications.current.poll': (
+        'Query WeChat for the original publication task. Polling never submits or resends.'
+    ),
+    'own.publications.current.status': (
+        'Read the local status of the original save or publication. Does not contact WeChat.'
+    ),
+}
 
 
 def _mcp_tools(catalog):
@@ -38,8 +52,9 @@ def _mcp_tools(catalog):
             # The old generic paragraph repeats the same workflow guidance for
             # every legacy tool, including ordinary-publication tools. Keep the
             # complete workflow in the packaged Skill, not each budgeted spec.
-            row['description'] = ('Use an enabled account and original request IDs. Follow OpenAhoy Skill and actual tool permissions. '
-                                  'UNKNOWN: query the original; never resend or change keys.')
+            row['description'] = 'Use the enabled account and original IDs. Never resend UNKNOWN.'
+        if row['name'] in PUBLICATION_DESCRIPTIONS:
+            row['description'] = PUBLICATION_DESCRIPTIONS[row['name']]
     return rows
 
 
