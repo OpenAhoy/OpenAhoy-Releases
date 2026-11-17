@@ -110,7 +110,7 @@ def native_page_body(logo, platform_settings):
     from .video_jobs import PROMO_DIR
     from base64 import b64encode
     cover = PROMO_DIR / 'openahoy-intro-cover.jpg'
-    promo = ('<section id="homeIntro" aria-labelledby="homeIntroTitle"><h2 id="homeIntroTitle">OpenAhoy 宣传片</h2>'
+    promo = ('<section id="homeIntro" aria-labelledby="homeIntroTitle"><header class="oa-home-intro-heading"><h2 id="homeIntroTitle">OpenAhoy 宣传片</h2><button id="homeIntroToggle" type="button" aria-controls="homeIntroPlayer" disabled>播放</button></header>'
              '<div id="homeIntroPlayer" class="oa-frame-player" data-poster="data:image/jpeg;base64,'
              + b64encode(cover.read_bytes()).decode('ascii') + '"></div>'
              '<p id="homeIntroStatus" role="status"></p></section>') if cover.is_file() else ''

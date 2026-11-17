@@ -58,6 +58,18 @@ SCRIPT = r'''
  const initializedEditors=new Set();let binding=null,xManagement=null,xhsManagement=null,projectContext=null,contextOpen=false;
  const localExports=new Map(),selectedByPlatform=new Map();let selectEpoch=0,platformEpoch=0,selectionIntent=0,pendingSelection=null;
  const hostDownloadsUnknown=new Set();
+ async function hostDownload(resource, onUnknown){
+   let result;
+   try{result=await rpc('ui/download-file',{contents:[{type:'resource',resource}]});}
+   catch(error){
+     if(error.rpcCode===-32601||error.rpcCode===-32602)return {state:'HOST_DOWNLOAD_REJECTED'};
+     onUnknown();return {state:'HOST_DOWNLOAD_UNCONFIRMED'};
+   }
+   if(result?.isError===true)return {state:'HOST_DOWNLOAD_REJECTED'};
+   if(result&&typeof result==='object'&&!Array.isArray(result)&&
+      (result.isError===false||result.isError===undefined))return {state:'HOST_DOWNLOADED'};
+   onUnknown();return {state:'HOST_DOWNLOAD_UNCONFIRMED'};
+ }
  const originalSelection={platform:'',account:''};
  const editors=new Map(Object.entries(OAPlatformSettings).map(([id,adapter])=>[id,adapter.mount((operation,args)=>platformCall(id,operation,args),()=>{navigationEpoch++;},{
   templateCall:(name,args)=>tool(name,args),
@@ -66,9 +78,8 @@ SCRIPT = r'''
    if(hostCapabilities.downloadFile){
     if(queryOnly)throw new Error('TEMPLATE_DOWNLOAD_UNKNOWN');
     const raw=await getBytes();let binary='';for(const byte of raw)binary+=String.fromCharCode(byte);
-    onDispatch();
-    const result=await rpc('ui/download-file',{contents:[{type:'resource',resource:{uri:'openahoy-template://download/'+m.id+'/'+m.version,mimeType:'application/zip',blob:btoa(binary)}}]});
-    if(!result||result.isError)throw new Error('TEMPLATE_DOWNLOAD_UNKNOWN');return {state:'HOST_DOWNLOADED'};
+    return hostDownload({uri:'openahoy-template://download/'+encodeURIComponent(m.id+'-'+m.version+'.zip'),
+      mimeType:'application/zip',blob:btoa(binary)},onDispatch);
    }
    onDispatch();return content(await tool('wce.ui.templates.download',{template_id:m.id,version:m.version,manifest_sha256:m.manifest_sha256,action:queryOnly?'query':'write'}));
   },
@@ -80,9 +91,11 @@ SCRIPT = r'''
    const row=current();if(!row||row.connection_id!==connection_id)throw new Error('RULES_CONFIG_TARGET_CHANGED');
    if(hostCapabilities.downloadFile){
     if(queryOnly||hostDownloadsUnknown.has(row.connection_id))throw new Error('RULES_DOWNLOAD_UNKNOWN');
-    let result;try{result=await rpc('ui/download-file',{contents:[{type:'resource',resource:{uri:'openahoy-config://download/'+encodeURIComponent(filename),mimeType:'application/json',text}}]});}
-    catch(_){hostDownloadsUnknown.add(row.connection_id);throw new Error('RULES_DOWNLOAD_UNKNOWN');}
-    if(!result||result.isError)throw new Error('RULES_DOWNLOAD_FAILED');return result;
+    const result=await hostDownload({uri:'openahoy-config://download/'+encodeURIComponent(filename),
+      mimeType:'application/json',text},()=>hostDownloadsUnknown.add(row.connection_id));
+    if(result.state==='HOST_DOWNLOAD_REJECTED')throw new Error('RULES_DOWNLOAD_FAILED');
+    if(result.state==='HOST_DOWNLOAD_UNCONFIRMED')throw new Error('RULES_DOWNLOAD_UNKNOWN');
+    return result;
    }
    // Only absent host capability uses the separately declared app-only export.
    // A refused or uncertain host download never comes through this path.
@@ -135,7 +148,11 @@ SCRIPT = r'''
      dispose();bridge.postMessage({jsonrpc:'2.0',id:v.id,result:{}},'*');return;
    }
    const item=pending.get(v.id);if(!item)return;clearTimeout(item.timer);pending.delete(v.id);
-   if(v.method||v.error||!Object.hasOwn(v,'result'))item.reject(new Error('HOST_ERROR'));else item.resolve(v.result);
+   if(v.method||v.error||!Object.hasOwn(v,'result')){
+     const error=new Error('HOST_ERROR');
+     if(!v.method&&!Object.hasOwn(v,'result')&&Number.isInteger(v.error?.code))error.rpcCode=v.error.code;
+     item.reject(error);
+   }else item.resolve(v.result);
  });
  async function tool(name,args){if(!ready||!allowed.has(name))throw new Error('UI_TOOL_UNAVAILABLE');return rpc('tools/call',{name,arguments:args});}
  function content(result){if(result?.isError||!result?.structuredContent)throw new Error('MANAGEMENT_READ_FAILED');return result.structuredContent;}
@@ -570,9 +587,9 @@ SCRIPT = r'''
   async downloadArtifact(raw,filename,a){
    const row=current();if(!row||row.platform_id!=='x'||row.connection_id!==a.connection_id)throw new Error('X_CONFIG_TARGET_CHANGED');
    if(hostCapabilities.downloadFile){
-    if(a.queryOnly)throw new Error('X_CONFIG_DOWNLOAD_UNKNOWN');a.onDispatch();
-    const result=await rpc('ui/download-file',{contents:[{type:'resource',resource:{uri:'openahoy-config://download/'+encodeURIComponent(filename),mimeType:a.artifact==='skill'?'text/markdown':'application/json',text:raw}}]});
-    if(!result||result.isError)throw new Error('X_CONFIG_DOWNLOAD_UNKNOWN');return {state:'HOST_DOWNLOADED'};
+    if(a.queryOnly)throw new Error('X_CONFIG_DOWNLOAD_UNKNOWN');
+    return hostDownload({uri:'openahoy-config://download/'+encodeURIComponent(filename),
+      mimeType:a.artifact==='skill'?'text/markdown':'application/json',text:raw},a.onDispatch);
    }
    const args={connection_id:a.connection_id,configuration:a.configuration,export_id:a.export_id,artifact:a.artifact,action:a.queryOnly?'query':'write'};a.onDispatch();
    const value=content(await tool('wce.ui.projects.action',{operation:'X_CONFIG_EXPORT',arguments:args}));
@@ -667,11 +684,30 @@ SCRIPT = r'''
       $('audioWorkspace').hidden=!open;
       if(open)audioWorkspace.open(null,{providerOnly:true});else audioWorkspace.close();
     });
- const intro=$('homeIntroPlayer');
+ const intro=$('homeIntroPlayer'),introToggle=$('homeIntroToggle');
+ const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
+ let introPreference=null;
  const homeIntro=intro?OAFramePlayer(intro,async start=>{
    OAUI.set($('homeIntroStatus'),'');
    return content(await tool('wce.ui.video.workspace',{action:'intro_frames',start}));
- },10.5,{poster:intro.dataset.poster,showControls:false,loop:true,failed:()=>OAUI.set($('homeIntroStatus'),'宣传片暂时无法播放。')}):null;
+ },10.5,{poster:intro.dataset.poster,showControls:false,loop:true,failed:()=>{
+   introPreference=false;
+   OAUI.set($('homeIntroStatus'),'宣传片暂时无法播放。');
+   syncIntro();
+ }}):null;
+ function syncIntro(){
+   if(!homeIntro)return;
+   const visible=ready&&!closed&&view==='home'&&!document.hidden;
+   if(visible&&(introPreference??!reduceMotion.matches))homeIntro.play();
+   else if(homeIntro.isPlaying())homeIntro.pause();
+   introToggle.disabled=!visible;
+   OAUI.set(introToggle,homeIntro.isPlaying()?'暂停':'播放');
+ }
+ if(introToggle){
+   introToggle.onclick=()=>{introPreference=!homeIntro.isPlaying();syncIntro();};
+   reduceMotion.addEventListener('change',()=>{introPreference=null;syncIntro();});
+   document.addEventListener('visibilitychange',syncIntro);
+ }
  let mediaView='';
  function showMedia(target){
    if(target===mediaView)return;
@@ -683,7 +719,7 @@ SCRIPT = r'''
    else monitor.close();
  }
  function renderView(){
-   if(view==='home'&&ready)homeIntro?.play();else homeIntro?.pause();
+   syncIntro();
    $('openAhoyHome').hidden=view!=='home';
    $('nativeWorkspace').hidden=view!=='platform'||!$('inlineBinding').hidden;
    $('openHome').setAttribute('aria-current',view==='home'?'page':'false');

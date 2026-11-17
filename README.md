@@ -1,4 +1,4 @@
-# OpenAhoy 0.6.80
+# OpenAhoy 0.6.81
 
 OpenAhoy 是 Codex 中的账号与内容工作台，提供内嵌管理页、项目规则/Skills、创作模板、反馈诊断及软件更新入口。
 
@@ -23,7 +23,7 @@ AutoDL · MiniMax H3 的模型配置沿用原入口，可查询原项目任务�
 
 「媒体工坊」统一浏览动图、视频和音频，支持预览、下载、版本对比和按版本查看配乐关联。已连接的 Suno 可查看用量、额度和曲库。本机配乐合成需要 FFmpeg 和 ffprobe。
 
-0.6.80 提高深色模式下 OpenAhoy 菜单图标的辨识度，并补齐内嵌页的悬停、按下、键盘焦点和提示气泡。
+0.6.81 修复公众号发表、X 刷新与排期、小红书笔记读回、升级与下载状态的恢复问题。媒体工坊改进双视频读取、窄窗播放管理和原件状态显示，支持带内嵌封面的音频。首页宣传片支持暂停，并遵循系统的减少动态效果设置。
 
 ## 安装与升级
 
@@ -31,20 +31,30 @@ AutoDL · MiniMax H3 的模型配置沿用原入口，可查询原项目任务�
 
 复制下列文字到目标电脑 Codex：
 
-> 请先用官方 plugin list / marketplace list 查本机是否已有 OpenAhoy。已有安装先读取 https://github.com/OpenAhoy/OpenAhoy-Releases/blob/v0.6.80/UPDATE_PROMPT.md 的迁移分类，只更新原 OpenAhoy 并保留 namespace，不移除共享市场、不另启第二份；只有从未安装时才读取固定 v0.6.80/INSTALL_PROMPT.md。目标运行包始终为正式公开0.6.80，核对其 RELEASE.json、SHA256SUMS 和完整manifest，保留账号、系统钥匙串、项目规则和原稿。安装后检查工具与管理页；此次不生产、上传、发表或启用定时任务，不索取Secret。
+> 请先用官方 plugin list / marketplace list 查本机是否已有 OpenAhoy。已有安装先读取 https://github.com/OpenAhoy/OpenAhoy-Releases/blob/v0.6.81/UPDATE_PROMPT.md 的迁移分类，只更新原 OpenAhoy 并保留 namespace，不移除共享市场、不另启第二份；只有从未安装时才读取固定 v0.6.81/INSTALL_PROMPT.md。目标运行包始终为正式公开0.6.81，核对其 RELEASE.json、SHA256SUMS 和完整manifest，保留账号、系统钥匙串、项目规则和原稿。安装后检查工具与管理页；此次不生产、上传、发表或启用定时任务，不索取Secret。
 
 已安装用户按固定版 UPDATE_PROMPT.md 从 Codex 聊天同槽升级。公开安装源无需 GitHub 账号、token 或私库邀请。全新安装时先登记固定市场，登记成功后再安装：
 
 ```sh
-codex plugin marketplace add https://github.com/OpenAhoy/OpenAhoy-Releases.git --ref v0.6.80
+codex plugin marketplace add https://github.com/OpenAhoy/OpenAhoy-Releases.git --ref v0.6.81
 codex plugin add wechat-ecosystem@openahoy-distribution
 ```
 
-已有安装先读本仓库 UPDATE_PROMPT.md 的迁移分类：共享市场只更新 OpenAhoy 条目并保持原namespace，禁止remove整个共享市场；独占源才按实际登记切换。不要卸载插件、删除用户数据或手改缓存。`--ref v0.6.80` 固定本版，登记超时时先只读对账，完整步骤见 UPDATE_PROMPT.md。
+已有安装先读本仓库 UPDATE_PROMPT.md 的迁移分类：共享市场只更新 OpenAhoy 条目并保持原namespace，禁止remove整个共享市场；独占源才按实际登记切换。不要卸载插件、删除用户数据或手改缓存。`--ref v0.6.81` 固定本版，登记超时时先只读对账，完整步骤见 UPDATE_PROMPT.md。
 
 安装后的当前聊天是否立即加载由 Codex 宿主决定；只有确实需要且没有单插件刷新入口时再集中提示一次，不承诺所有宿主免重开。桌面插件卡片/入口以实际宿主显示为准。
 
 小红书还需要本机 Google Chrome 和 Codex 已有的 managed Node/Playwright 运行时；缺少时会报告依赖不可用，不自动下载安装。账号权限/平台挑战、X 官方资费与应用可用性不是软件安装成功的保证。作者、选题、Skills 和发文规则均由用户自己的项目配置决定。
+
+## 本地构建
+
+从目标版本的发行源码检出运行构建器。ZIP 直接使用该检出中 Git 市场的运行文件和已检入的原生助手。同一份源码生成相同字节的 ZIP。
+
+```sh
+python3 -B scripts/build_codex_plugin.py /absolute/path/openahoy-0.6.81-macos-arm64
+```
+
+修改发行源码后，先用 `python3 -B scripts/build_codex_plugin.py --refresh-manifest` 更新两份清单。该命令只更新本检出的清单。构建要求目标目录和 ZIP 均待创建。
 
 ## 发行与隐私
 

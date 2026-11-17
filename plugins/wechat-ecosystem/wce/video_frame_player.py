@@ -9,7 +9,9 @@ STYLE = '''
 .oa-frame-player .oa-frame-controls input{flex:1;min-width:0;accent-color:var(--accent)}
 .oa-frame-player .oa-frame-controls output{font-size:12px;font-variant-numeric:tabular-nums}
 #homeIntro{width:100%;min-width:0;margin:20px 0 0}
-#homeIntro h2{font-size:15px;margin:0 0 8px}
+#homeIntro h2{font-size:15px;margin:0}
+.oa-home-intro-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+#homeIntroToggle{min-height:32px;padding:3px 9px}
 '''
 
 SCRIPT = r'''
@@ -85,6 +87,6 @@ function OAFramePlayer(root, call, seconds, {poster='', showControls=true, loop=
    void show(index,++revision);if(notify)seeked(index/rate);
  }
  update();
- return {play,pause,jump,first(){void show(0,revision);},close(){pause();disposed=true;root.replaceChildren();}};
+ return {play,pause,jump,isPlaying:()=>running,first(){void show(0,revision);},close(){pause();disposed=true;root.replaceChildren();}};
 }
 '''

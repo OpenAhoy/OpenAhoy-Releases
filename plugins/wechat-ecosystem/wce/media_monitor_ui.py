@@ -107,6 +107,7 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
  const $=id=>document.getElementById(id);
  const root=$('mediaMonitor'),list=$('monitorList'),detail=$('monitorDetail'),body=$('monitorBody');
  const filters=$('monitorFilters'),states=$('monitorStates'),search=$('monitorSearch');
+ const narrow=matchMedia('(max-width:690px)');
  const medium={video:'视频',audio:'音频',gif:'动图'};
  const stateName={complete:'已完成',failed:'失败',running:'进行中',pending:'待核实'};
  const stageName={ASSET_READY:'成片可用',UNAVAILABLE:'源文件不可用',SUBMITTED:'已提交',
@@ -384,10 +385,11 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
        query.disabled=true;OAUI.set(status,'正在查询原任务…');
        try{
          const snapshot=await invoke('media_monitor_task',scope(row));
-         OAUI.set(status,'供应商 · {0} · {1}',message(stageName[snapshot.state]||'记录状态待核实'),stamp(snapshot.read_at));
-         const reading=usageSummary(snapshot.usage);
-         if(reading.length)OAUI.set(status,'供应商 · {0} · {1} · {2}',
-           message(stageName[snapshot.state]||'记录状态待核实'),stamp(snapshot.read_at),reading);
+         const source=message(snapshot.source==='LOCAL_ASSET'?'本机原件':'供应商');
+         const state=message(stageName[snapshot.state]||'记录状态待核实');
+         const checked=stamp(snapshot.read_at),reading=usageSummary(snapshot.usage);
+         OAUI.set(status,reading.length?'{0} · {1} · {2} · {3}':'{0} · {1} · {2}',
+                   source,state,checked,reading);
        }catch(_){OAUI.set(status,'原任务暂不可查询，已保留本机回执。');}
        finally{query.disabled=false;}
      });
@@ -405,6 +407,10 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
    controls.append(use);fold.append(controls);body.append(fold);
  }
  function renderDetail(force=false,run=false){
+   if(root.hidden||narrow.matches&&root.dataset.detail!=='true'){
+     clearPlayers();loaded='';activateSuno(false);
+     return;
+   }
    const row=byKey(selected);
    const snapshot=JSON.stringify([row,compare,kind==='audio']);
    $('monitorRelationBack').hidden=!history.length;
@@ -472,13 +478,14 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
  };
  search.oninput=()=>{renderFiltered();list.scrollTop=0;};
  $('monitorListBack').onclick=()=>{
-   root.dataset.detail='false';(Array.from(list.querySelectorAll('button')).find(item=>item.dataset.asset===selected)||list).focus({preventScroll:true});
+   root.dataset.detail='false';renderDetail();(Array.from(list.querySelectorAll('button')).find(item=>item.dataset.asset===selected)||list).focus({preventScroll:true});
  };
  $('monitorRelationBack').onclick=restore;
  $('monitorSunoJump').onclick=()=>{
-   root.dataset.detail='true';
+   root.dataset.detail='true';renderDetail();
    $('sunoRefresh').focus({preventScroll:true});$('monitorSuno').scrollIntoView({block:'start'});
  };
+ narrow.addEventListener('change',()=>{if(active)renderDetail();});
  $('monitorRefresh').onclick=()=>void refresh();
  $('monitorSettings').onclick=()=>{clearPlayers();loaded='';activateSuno(false);activateSettings(true);};
  $('monitorSettingsBack').onclick=()=>{activateSettings(false);renderDetail(true);$('monitorSettings').focus();};

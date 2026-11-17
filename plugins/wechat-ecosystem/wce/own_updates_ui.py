@@ -160,7 +160,9 @@ window.OASoftwareUpdates={mount(rpc,installed){
   DOWNLOADED_NOT_INSTALLED:'更新文件已下载，安装尚未开始。可以继续升级。',
   BUSY:'升级等待业务空闲后停止。确认任务已结束后，可继续升级。',
   FAILED:'升级未完成。',
-  START_REJECTED:'升级未启动。'
+  START_REJECTED:'升级未启动。',
+  START_NOT_RECORDED:'本机没有受理这次升级。可重新发起。',
+  START_ARCHIVED:'这次升级已归档。可核对当前版本。'
  };
  function renderJob(value){
   if(!value||!(value.state==='IDLE'||Object.hasOwn(messages,value.state)))throw new Error('UPDATE_STATUS_INVALID');
@@ -198,6 +200,8 @@ window.OASoftwareUpdates={mount(rpc,installed){
   }else if(job==='DOWNLOADING'&&Number.isSafeInteger(value.total)&&value.total>0&&
      Number.isSafeInteger(value.downloaded)&&value.downloaded>=0&&value.downloaded<=value.total){
    sayJob('正在下载更新 {0}%',job,Math.floor(value.downloaded*100/value.total));
+  }else if(job==='LOADED'&&historyText[old?.code]&&versionPattern.test(old?.version)&&compare(old.version,installed)>0){
+   sayJob('已核对当前运行版本 {0}。',job,installed);
   }else if(job==='FAILED'&&value.downloaded===true){
    sayJob('更新文件已下载，安装未完成。',job);
   }else{
@@ -213,7 +217,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
   installedRow.hidden=true;history.hidden=true;
   helpButton.hidden=!canOpenLinks;
   detail(jobDetail,'UPDATE_STATUS_UNAVAILABLE');
-  sayJob(pendingRequest?'升级请求的结果尚未确认。正在查询原请求。':'暂时无法读取升级进度。',job);
+  sayJob(pendingRequest?'升级请求的结果尚未确认。可查看原请求状态。':'暂时无法读取升级进度。',job);
  }
  const visible=()=>document.visibilityState!=='hidden';
  const canPoll=()=>!closed&&visible()&&!blurred;
@@ -227,12 +231,13 @@ window.OASoftwareUpdates={mount(rpc,installed){
   const wasActive=active.has(job);
   reading=true;buttons();
   try{
-   const result=await rpc('tools/call',{name:'wce.ui.updates.install',arguments:{action:'status'}});
+   const result=await rpc('tools/call',{name:'wce.ui.updates.install',arguments:{action:'status',
+    ...(pendingRequest?{request_id:pendingRequest}:{})}});
    if(closed)return;
    if(result?.isError)throw new Error('UPDATE_STATUS_UNAVAILABLE');
    const value=result?.structuredContent;
-   if(pendingRequest&&value?.request_id!==pendingRequest){
-    statusUnavailable();schedule(3000);return;
+   if(pendingRequest&&(value?.request_id!==pendingRequest||value.state==='START_UNCONFIRMED')){
+    statusUnavailable();return;
    }
    renderJob(value);
    if(pendingRequest)remember(null);
@@ -240,7 +245,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
   }catch(_){
    if(closed)return;
    statusUnavailable();
-   if(pendingRequest||wasActive)schedule(3000);
+   if(wasActive&&!pendingRequest)schedule(3000);
   }finally{reading=false;if(!closed)buttons();}
  }
  async function start(event){
@@ -261,7 +266,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
     // A successful tool reply can return the receipt of an existing worker.
     // Re-read its current state instead of treating it as this request.
     if(!value||!Object.hasOwn(messages,value.state))throw new Error('UPDATE_STATUS_INVALID');
-    remember(null);statusUnavailable();schedule();
+    statusUnavailable();schedule();
    }
   }catch(_){if(!closed){statusUnavailable();schedule();}}
   finally{starting=false;if(!closed)buttons();}

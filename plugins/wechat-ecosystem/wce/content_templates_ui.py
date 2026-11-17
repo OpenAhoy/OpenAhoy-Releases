@@ -98,8 +98,10 @@ window.OACreativeTemplates={mount(rules,host){
   const queryOnly=downloadUnknown.has(key);
   const result=await host.templateDownload(m,()=>bytes(m,'@bundle',m.bundle),{queryOnly,onDispatch:()=>downloadUnknown.add(key)});
   if(result?.state==='TEMPLATE_EXPORTED'){if(result.sha256!==m.bundle.sha256||result.bytes!==m.bundle.bytes||result.destination!=='Downloads')throw Error('TEMPLATE_DOWNLOAD_UNKNOWN');downloadUnknown.delete(key);say('已保存到下载文件夹：'+result.filename);}
+  else if(result?.state==='HOST_DOWNLOAD_REJECTED'){downloadUnknown.delete(key);say('宿主拒绝了下载，可再次点击。');}
   else if(result?.state==='HOST_DOWNLOADED'){downloadUnknown.delete(key);say('宿主已接受模板包下载，请查看下载结果。');}
   else if(result?.state==='TEMPLATE_EXPORT_NOT_FOUND'){downloadUnknown.delete(key);say('未找到原下载文件；没有自动重写，可再次点击下载。');}
+  else if(result?.state==='HOST_DOWNLOAD_UNCONFIRMED')say('宿主下载结果待确认，请查看下载目录。');
   else say('下载结果待确认，点击下载只查询原文件，不重复写入。');
  }
  async function run(fn){if(!ready||busy)return;busy=true;buttons();try{await fn();}catch(e){say('未完成：'+e.message+'。请核对原操作结果，不要重复提交。');}finally{busy=false;buttons();if(reloadPending&&ready){reloadPending=false;void load();}}}

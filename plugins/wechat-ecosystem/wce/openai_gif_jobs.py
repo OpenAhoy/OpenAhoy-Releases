@@ -290,6 +290,13 @@ class GifJobs:
                 results.append(row)
         return sorted(results, key=lambda row: (row['created_at'], row['generation_attempt_id']), reverse=True)
 
+    def source_present(self, attempt, expected_bytes):
+        _, artifact, _ = self.paths(attempt)
+        try:
+            return path_check(artifact)[2] == expected_bytes
+        except (WCEError, OSError):
+            return False
+
     def available(self, attempt, project_id):
         receipt, artifact, _ = self.paths(attempt)
         row = self.read(receipt, project_id)

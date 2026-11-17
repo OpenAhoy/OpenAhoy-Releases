@@ -1,6 +1,7 @@
 """Project audio imports and local soundtracks. This module makes no network request."""
 from array import array
 from base64 import b64encode
+from functools import lru_cache
 from hashlib import sha256
 import json
 import math
@@ -45,7 +46,7 @@ def invoke(program, args, timeout):
 
 def inspect(path, demuxer):
     data = invoke('ffprobe', ['-v', 'error', '-protocol_whitelist', 'file,pipe',
-        '-f', demuxer, '-show_entries', 'format=duration:stream=codec_type,width,height',
+        '-f', demuxer, '-show_entries', 'format=duration:stream=codec_type,width,height:stream_disposition=attached_pic',
         '-of', 'json', str(path)], 15)
     try:
         value = json.loads(data)
@@ -63,7 +64,6 @@ class AudioJobs:
         self.videos = videos
         self.media = MediaLibrary(videos.projects)
         self.root = videos.projects.root / 'project-audio'
-        self._pinned = None
 
     def inspect_video(self, attempt, project_id, frame_start=None, include_audio=False):
         path, facts, pin = self.videos._playable(attempt, project_id)
@@ -190,7 +190,9 @@ class AudioJobs:
                 if digest.hexdigest()!=selected['sha256']:
                     raise WCEError('AUDIO_ASSET_CHANGED')
                 seconds,streams=inspect(stage,demuxer)
-                if [s['codec_type'] for s in streams]!=['audio']:
+                essence = [stream['codec_type'] for stream in streams if not
+                           (stream['codec_type'] == 'video' and stream.get('disposition', {}).get('attached_pic') == 1)]
+                if essence != ['audio']:
                     raise WCEError('AUDIO_FILE_INVALID')
                 invoke('ffmpeg',['-v','error','-protocol_whitelist','file,pipe','-f',demuxer,
                                  '-i',str(stage),'-map','0:a:0','-f','null','-'],60)
@@ -205,19 +207,29 @@ class AudioJobs:
         source=FileSource(self.project(row['project_id'])['root'])
         return source, source.root / row['file']
 
+    def source_present(self, row):
+        try:
+            source, path = self.file(row)
+            return (path.is_relative_to(source.root) and '..' not in path.parts
+                    and path_check(path)[2] == row['bytes'])
+        except (WCEError, OSError):
+            return False
+
     def pin(self, source, row):
-        path=source.root/row['file']
-        state=path_check(path)
-        signature=(path,state,row['sha256'])
-        if self._pinned==signature:return state
-        digest=sha256()
-        size=0
-        for chunk in source.iter_html(row['file'],expected_state=state):
-            digest.update(chunk);size+=len(chunk)
-        if digest.hexdigest()!=row['sha256'] or size!=row['bytes']:
-            raise WCEError('AUDIO_ASSET_CHANGED')
-        self._pinned=signature
+        path = source.root / row['file']
+        state = path_check(path)
+        self._verify_source(source.root, row['file'], state, row['sha256'], row['bytes'])
         return state
+
+    @lru_cache(maxsize=2)
+    def _verify_source(self, root, relative, state, expected_digest, expected_bytes):
+        digest = sha256()
+        size = 0
+        for chunk in FileSource(root).iter_html(relative, expected_state=state):
+            digest.update(chunk)
+            size += len(chunk)
+        if digest.hexdigest() != expected_digest or size != expected_bytes:
+            raise WCEError('AUDIO_ASSET_CHANGED')
 
     def mix(self, attempt, project_id, video_id, song_id, title, settings, score_plan=None, *,
             song_project_id=None, video_project_id=None):

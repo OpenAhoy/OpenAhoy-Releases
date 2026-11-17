@@ -26,7 +26,8 @@ def install_descriptor():
     return {'name': INSTALL, 'title': '立即升级 OpenAhoy',
             'description': 'App-only stable update explicitly initiated by the user in the OpenAhoy panel.',
             'inputSchema': {'type': 'object', 'oneOf': [
-                schema({'action': {'type': 'string', 'const': 'status'}}),
+                schema({'action': {'type': 'string', 'const': 'status'}},
+                       optional={'request_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'}}),
                 schema({'action': {'type': 'string', 'const': 'start'},
                         'version': {'type': 'string', 'maxLength': 29},
                         'revision': {'type': 'string', 'pattern': '^[0-9a-f]{40}([0-9a-f]{24})?$'}},
@@ -76,7 +77,8 @@ class UpdateRouter:
             installer = self.installer or UpdateInstaller(self.installed_version, getattr(self.inner, 'registry', None),
                                                          checker=self.checker)
             if arguments['action'] == 'status':
-                return installer.status()
+                request_id = arguments.get('request_id')
+                return installer.status(request_id) if request_id is not None else installer.status()
             request_id = arguments.get('request_id')
             if request_id is None:
                 return installer.start(arguments['version'], arguments['revision'])

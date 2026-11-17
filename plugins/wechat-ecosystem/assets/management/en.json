@@ -1327,5 +1327,13 @@
   "正在查询原任务…": "Checking original task…",
   "供应商 · {0} · {1}": "Provider · {0} · {1}",
   "供应商 · {0} · {1} · {2}": "Provider · {0} · {1} · {2}",
-  "原任务暂不可查询，已保留本机回执。": "Task status unavailable. The local receipt is retained."
+  "原任务暂不可查询，已保留本机回执。": "Task status unavailable. The local receipt is retained.",
+  "本机没有受理这次升级。可重新发起。": "This update request was not accepted locally. You can start it again.",
+  "这次升级已归档。可核对当前版本。": "This update request was archived. You can check the current version.",
+  "升级请求的结果尚未确认。可查看原请求状态。": "The update outcome is unconfirmed. You can check the original request.",
+  "已核对当前运行版本 {0}。": "Verified the current running version {0}.",
+  "宿主拒绝了下载，可再次点击。": "The host declined the download. You can try again.",
+  "宿主下载结果待确认，请查看下载目录。": "The download outcome is unknown. Check the Downloads folder.",
+  "本机原件": "Local original",
+  "宿主确认此次操作未改变任务": "The host confirmed that this request made no task changes."
 }

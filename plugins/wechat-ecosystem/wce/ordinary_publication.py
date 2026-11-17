@@ -227,17 +227,18 @@ def execute(service, method, arguments, registry, deadline, cancel_guard=None):
         wire_method = 'freepublish.submit' if submitting else 'freepublish.get'
         payload = {'media_id': DraftMediaID(row['reference'], account, handle)} if submitting else {'task_id': task}
         request = encode(wire_method, payload, token.token, account_key=account, intent_id=handle)
+        # A local refusal has no send edge. Keep the original receipt reusable.
+        guard()
+        if not service.tokens.valid(token):
+            fail('OWN_TOKEN_UNAVAILABLE')
+        timeout = min(30.0, deadline - time.monotonic(), token.wall_deadline - time.time())
+        if timeout <= 0:
+            fail('CURRENT_PUBLICATION_DEADLINE')
         if submitting:
-            # Persist before HTTP. A lost response never causes a second submit.
+            # Once the sender can be entered, the durable marker prevents a replay.
             row = dict(row, state='UNKNOWN', submit_count=1)
             _write(path, row)
         try:
-            guard()
-            if not service.tokens.valid(token):
-                fail('OWN_TOKEN_UNAVAILABLE')
-            timeout = min(30.0, deadline - time.monotonic(), token.wall_deadline - time.time())
-            if timeout <= 0:
-                fail('CURRENT_PUBLICATION_DEADLINE')
             response = service.workflow.sender.send(request, timeout)
             reply = parse(wire_method, response, token.token, account_key=account,
                 intent_id=handle, expected_task=task, article_count=row['article_count'])

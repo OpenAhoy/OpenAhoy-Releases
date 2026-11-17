@@ -1,6 +1,7 @@
 """Recoverable Ark job receipts and immutable private MP4 assets."""
 from base64 import b64encode
 from contextlib import closing, ExitStack
+from functools import lru_cache
 from hashlib import file_digest, sha256
 import json
 import os
@@ -114,7 +115,6 @@ class Jobs:
         self.tokenhex = tokenhex if tokenhex is not None else TokenHex()
         self.tokenhex_credential = tokenhex_credential
         self.inspect = inspect
-        self.playback_pin = None
 
     def _directory(self):
         for path in (self.root.parent, self.root):
@@ -161,7 +161,9 @@ class Jobs:
                 diagnostic = next((row[key] for key in ('query_error', 'download_error', 'rejection',
                                                          'failure', 'submit_diagnostic') if key in row), None)
                 if isinstance(diagnostic, dict):
-                    version['monitor_diagnostic'] = diagnostic.get('code')
+                    diagnostic = diagnostic.get('code')
+                if isinstance(diagnostic, str) and re.fullmatch(r'[A-Z][A-Z0-9_]{1,79}', diagnostic):
+                    version['monitor_diagnostic'] = diagnostic
                 for key in ('query_error', 'download_error', 'rejection', 'failure', 'submit_diagnostic'):
                     version.pop(key, None)
             versions.append(version)
@@ -420,13 +422,14 @@ class Jobs:
             raise WCEError('VIDEO_ASSET_NOT_READY')
         asset = row['asset']
         pin = path_check(artifact)
-        identity = (attempt, project_id, pin, asset['sha256'], asset['bytes'])
-        if self.playback_pin != identity:
-            digest, size = self._asset_digest(artifact, pin)
-            if (digest, size) != (asset['sha256'], asset['bytes']) or path_check(artifact) != pin:
-                raise WCEError('VIDEO_ASSET_CHANGED')
-            self.playback_pin = identity
+        self._verify_playback(artifact, pin, asset['sha256'], asset['bytes'])
         return artifact, asset, pin
+
+    @lru_cache(maxsize=2)
+    def _verify_playback(self, artifact, pin, expected_digest, expected_bytes):
+        digest, size = self._asset_digest(artifact, pin)
+        if (digest, size) != (expected_digest, expected_bytes) or path_check(artifact) != pin:
+            raise WCEError('VIDEO_ASSET_CHANGED')
 
     def export(self, attempt, project_id, *, directory=None):
         from .own_configuration_export import _directory
@@ -780,7 +783,16 @@ class Jobs:
     def monitor_task(self, attempt, project_id):
         receipt, _ = self._paths(attempt)
         row = read_optional(receipt, RECEIPT_MAX)
-        if not row or row['request']['project_id'] != project_id or not row.get('provider_task_id'):
+        if not row or row['request']['project_id'] != project_id:
+            raise WCEError('VIDEO_TASK_STATUS_UNKNOWN')
+        if row['state'] == 'ASSET_READY':
+            try:
+                self._playable(attempt, project_id)
+            except (WCEError, OSError):
+                return {'state': 'UNAVAILABLE', 'source': 'LOCAL_ASSET', 'usage': {}, 'read_at': time.time()}
+            return {'state': 'ASSET_READY', 'source': 'LOCAL_ASSET', 'usage': self.workspace_row(row).get('usage', {}),
+                    'read_at': time.time()}
+        if not row.get('provider_task_id'):
             raise WCEError('VIDEO_TASK_STATUS_UNKNOWN')
         is_minimax = row['request']['model'] in MINIMAX_MODELS
         site = row['request'].get('provider_site') if is_minimax else None
@@ -792,6 +804,13 @@ class Jobs:
             raise WCEError('VIDEO_TASK_STATUS_UNKNOWN')
         usage = h3_usage(value.get('usage')) if is_minimax else provider_usage(value.get('usage'))
         return {'state': state, 'usage': usage, 'read_at': time.time()}
+
+    @staticmethod
+    def _remember_diagnostic(receipt, row, category, code):
+        if row.get(category) != code:
+            row.update({category: code, 'updated_at': time.time()})
+            atomic_write(receipt, row, maximum=RECEIPT_MAX)
+        return row
 
     def status(self, attempt, project_id, poll=False):
         receipt, artifact = self._paths(attempt)
@@ -816,6 +835,8 @@ class Jobs:
                 if row.get('download_sha256') != asset['sha256']:
                     raise WCEError('VIDEO_ASSET_CONFLICT')
                 row.update(state='ASSET_READY', asset=asset)
+                row.pop('download_error', None)
+                row.pop('query_error', None)
                 atomic_write(receipt, row, maximum=RECEIPT_MAX)
                 self._save_project_copy(row, receipt)
                 self._mark_tokenhex_ready(row)
@@ -834,14 +855,15 @@ class Jobs:
             try:
                 api, value = self._query_task(row, site)
             except WCEError as error:
-                return dict(row, query_error=error.code)
+                return self._remember_diagnostic(receipt, row, 'query_error', error.code)
             remote = value.get('status')
             if recover_failure and remote != 'failed':
-                return dict(row, query_error='VIDEO_TASK_STATUS_UNKNOWN')
+                return self._remember_diagnostic(receipt, row, 'query_error', 'VIDEO_TASK_STATUS_UNKNOWN')
             state = self._remote_state(value)
             if state is None:
-                return dict(row, query_error='VIDEO_TASK_STATUS_UNKNOWN')
+                return self._remember_diagnostic(receipt, row, 'query_error', 'VIDEO_TASK_STATUS_UNKNOWN')
             row['state'] = state
+            row.pop('query_error', None)
             if remote == 'failed':
                 if is_minimax:
                     row['failure'] = {'provider': 'minimax'}
@@ -868,8 +890,9 @@ class Jobs:
                         raise WCEError('VIDEO_RESULT_INVALID')
                     asset = self._save(artifact, url, receipt, row, api=api)
                     row.update(state='ASSET_READY', asset=asset)
+                    row.pop('download_error', None)
                 except WCEError as error:
-                    return dict(row, download_error=error.code)
+                    return self._remember_diagnostic(receipt, row, 'download_error', error.code)
                 atomic_write(receipt, row, maximum=RECEIPT_MAX)
                 self._save_project_copy(row, receipt)
                 self._mark_tokenhex_ready(row)

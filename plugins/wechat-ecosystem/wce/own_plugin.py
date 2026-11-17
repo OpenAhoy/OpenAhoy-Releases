@@ -206,7 +206,8 @@ class PersonalStdioServer(OperatorStdioServer):
         from .own_updates_protocol import INSTALL
         # Codex can remove the previous cache after installing the verified
         # target. This exact read remains available in the original process.
-        if name == INSTALL and arguments == {'action': 'status'}:
+        if (name == INSTALL and isinstance(arguments, dict)
+                and arguments.get('action') == 'status' and set(arguments) <= {'action', 'request_id'}):
             return name in self._tool_observer.tool_names
         return super()._tool_available(name, arguments)
 

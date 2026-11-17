@@ -367,16 +367,25 @@ class XHSPlatform:
             require(row.get('connection_id')==cid,'XHS_ACCOUNT_MISMATCH')
             return self._receipt(row)
         with self._session(cid) as (account,browser,directory):
-            row=read_metadata(self._path(cid,attempt_id))
-            if row is None:return {'state':'NOT_FOUND','attempt_id':attempt_id}
-            require(row.get('connection_id')==cid,'XHS_ACCOUNT_MISMATCH')
-            if readback and not row.get('note_id') and row['phase']=='SUBMIT_STARTED':
-                observed=browser.call('RESOLVE',user_id=account['id'],title=row['input']['title'],
-                    body=row['input']['body'],topics=row['input']['topics'],image_count=len(row['images']),observation=row.get('observation',{}))
-                if observed.get('note_id'):row['note_id']=observed['note_id']
-                row['resolution']=observed.get('state','UNKNOWN')
-                row['resolution_details']={k:observed[k] for k in ('candidate_count','candidate_note_ids','query_errors','mismatch_fields') if k in observed}
-            if readback and row.get('note_id'):
+            path = self._path(cid, attempt_id)
+            row = read_metadata(path)
+            if row is None:
+                return {'state':'NOT_FOUND','attempt_id':attempt_id}
+            require(row.get('connection_id') == cid, 'XHS_ACCOUNT_MISMATCH')
+            if not row.get('note_id') and row['phase'] == 'SUBMIT_STARTED':
+                observed = browser.call('RESOLVE', user_id=account['id'], title=row['input']['title'],
+                    body=row['input']['body'], topics=row['input']['topics'], image_count=len(row['images']),
+                    observation=row.get('observation', {}))
+                note_id = observed.get('note_id')
+                if note_id is not None:
+                    require(type(note_id) is str and USER.fullmatch(note_id), 'XHS_BROWSER_PROTOCOL_INVALID')
+                    row['note_id'] = note_id
+                row['resolution'] = observed.get('state', 'UNKNOWN')
+                row['resolution_details'] = {key: observed[key] for key in
+                    ('candidate_count', 'candidate_note_ids', 'query_errors', 'mismatch_fields') if key in observed}
+                # The identified original survives a failed or mismatched detail read.
+                atomic_write(path, row, maximum=None)
+            if row.get('note_id'):
                 value=browser.call('NOTE',user_id=account['id'],note_id=row['note_id'],verify_public=True)
                 expected=row['input']['body']+('\n'+' '.join('#'+t.lstrip('#') for t in row['input']['topics']) if row['input']['topics'] else '')
                 require(value.get('id')==row['note_id'] and value.get('owner_id')==account['id']
@@ -384,5 +393,5 @@ class XHSPlatform:
                     and len(value.get('images',[]))==len(row['images']),'XHS_READBACK_MISMATCH')
                 row=row|{'state':value.get('state','OWNER_READABLE'),'note':value,'media_readback':{'expected_count':len(row['images']),'observed_count':len(value['images']),'order':'DETAIL_CAROUSEL_DOM_ORDER','source_order':'ORIGINAL_FILE_INPUT_ARRAY','original_bytes_equal_claimed':False}}
                 row.pop('error',None);browser.retain=False
-            if readback:atomic_write(self._path(cid,attempt_id),row,maximum=None)
+                atomic_write(path, row, maximum=None)
             return self._receipt(row)

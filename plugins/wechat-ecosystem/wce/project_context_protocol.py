@@ -28,7 +28,7 @@ TASK = schema({'id': STRING, 'slot': STRING, 'status': {'type': 'string', 'enum'
                'thread_id': STRING, 'kind': {'type': 'string', 'const': 'heartbeat'}, 'next_run_at': STRING})
 SCHEDULE_WRITE = {'oneOf': [schema({'operation': {'type': 'string', 'const': op},
     'connection_id': STRING, 'expected_revision': NUM, **fields}) for op, fields in (
-    ('HOST_RESULT', {'request_id': STRING, 'outcome': {'type': 'string', 'enum': ['PENDING', 'ACTIVE', 'PAUSED', 'UNKNOWN', 'FAILED']},
+    ('HOST_RESULT', {'request_id': STRING, 'outcome': {'type': 'string', 'enum': ['PENDING', 'ACTIVE', 'PAUSED', 'UNKNOWN', 'FAILED', 'NO_CHANGE']},
                      'tasks': {'type': 'array', 'items': TASK}, 'note': STRING}),
     ('RUN_BEGIN', {'automation_id': STRING, 'occurrence_id': STRING}),
     ('CONTROL_REQUEST', {'action': {'type': 'string', 'enum': ['pause', 'resume', 'check']},

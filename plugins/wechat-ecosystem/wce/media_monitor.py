@@ -50,6 +50,8 @@ def _gif_rows(gifs, audio, project):
         row = _row('gif', project, receipt, attribution.get('title') or attempt, receipt.get('asset', {}),
                    account_label=attribution.get('account_label'), model=receipt.get('model'), provider='OpenAI',
                    original_task=receipt.get('provider_request_id'), diagnostic=(receipt.get('diagnostic') or {}).get('code'))
+        if row['state'] == 'ASSET_READY' and not gifs.source_present(attempt, row['asset']['bytes']):
+            row.update(state='UNAVAILABLE', asset={})
         yield row, None, None, {}
 
 
@@ -60,6 +62,8 @@ def _audio_rows(audio, project):
         row = _row('audio', project, {**receipt, 'generation_attempt_id': attempt}, receipt['title'], asset,
                    provider=receipt.get('provider'), account_label=receipt.get('account_label'))
         row['project_label'] = receipt.get('project_label') or row['project_label']
+        if row['state'] == 'ASSET_READY' and not audio.source_present(receipt):
+            row.update(state='UNAVAILABLE', asset={})
         if receipt['kind'] != 'song':
             row.update(kind='video', composition=receipt['kind'])
         parent = _ref('video', receipt.get('video_project_id') or project['id'],

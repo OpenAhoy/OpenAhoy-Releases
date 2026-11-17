@@ -393,7 +393,14 @@ class XPlatform:
         if c['expires_at'] <= self.clock() + 30:
             c['state'] = 'REFRESH_UNKNOWN'
             self._save(value)
-            updated = self.api.refresh(c.get('client_id', value['client_id']), Secret(tokens['refresh_token']))
+            try:
+                updated = self.api.refresh(c.get('client_id', value['client_id']), Secret(tokens['refresh_token']))
+            except WCEError as error:
+                if error.code == 'X_HTTP_429':
+                    # The explicit rejection did not rotate the refresh token.
+                    c['state'] = 'BOUND'
+                    self._save(value)
+                raise
             secret = credential(updated, tokens['refresh_token'])
             self.keychain.put(c['credential_scope'], secret)
             c['expires_at'], c['state'] = self.clock() + updated['expires_in'], 'BOUND'

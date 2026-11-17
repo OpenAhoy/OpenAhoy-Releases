@@ -112,7 +112,7 @@ class Schedules:
         return self.projects._change(operation_id, payload, expected_revision, mutate)
 
     def host_result(self, connection_id, request_id, outcome, tasks, note, expected_revision):
-        require(outcome in ('PENDING', 'ACTIVE', 'PAUSED', 'UNKNOWN', 'FAILED'))
+        require(outcome in ('PENDING', 'ACTIVE', 'PAUSED', 'UNKNOWN', 'FAILED', 'NO_CHANGE'))
         text(note)
         require(type(tasks) is list)
         for task in tasks:
@@ -142,7 +142,13 @@ class Schedules:
                         if pending['config'] is not None else task['id'] in old,
                         'SCHEDULE_HOST_SLOTS_MISMATCH')
             require(len({t['thread_id'] for t in tasks}) <= 1, 'SCHEDULE_THREAD_MISMATCH')
-            if outcome == 'ACTIVE':
+            if outcome == 'NO_CHANGE':
+                # The host must confirm the original action made no changes.
+                # Never use a later observation to dismiss known partial work.
+                require(bool(note.strip()) and not pending.get('partial_change')
+                        and tasks == pending['tasks_before']
+                        and row['tasks'] == pending['tasks_before'], 'SCHEDULE_HOST_RECEIPT_INVALID')
+            elif outcome == 'ACTIVE':
                 applied = pending['config']
                 require(applied is not None)
                 active = [t['slot'] for t in tasks if t['status'] == 'ACTIVE']
@@ -150,6 +156,8 @@ class Schedules:
                 row['applied_config'] = deepcopy(applied)
             if outcome == 'PAUSED':
                 require(bool(tasks) and all(t['status'] == 'PAUSED' for t in tasks), 'SCHEDULE_HOST_NOT_PAUSED')
+            if outcome == 'PENDING' or tasks != pending['tasks_before']:
+                pending['partial_change'] = True
             row['tasks'] = deepcopy(tasks)
             proof = (row['observed'] or {}).get('binding_marker')
             if outcome == 'ACTIVE' and pending['action'] in ('enable', 'resume'):
@@ -158,7 +166,7 @@ class Schedules:
                                'source': 'CODEX_OFFICIAL_AUTOMATION_OBSERVATION', 'note': note}
             if proof is not None:
                 row['observed']['binding_marker'] = proof
-            if (outcome == 'ACTIVE' and pending['action'] in ('enable', 'resume', 'check')
+            if (outcome == 'NO_CHANGE' or outcome == 'ACTIVE' and pending['action'] in ('enable', 'resume', 'check')
                     or outcome == 'PAUSED' and pending['action'] in ('pause', 'check')):
                 row['pending'] = None
             state['bindings'][self.key(connection_id)] = row
