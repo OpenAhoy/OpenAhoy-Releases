@@ -17,8 +17,8 @@ class RelayKeychain(XKeychain):
     scope = sha256(service.encode()).hexdigest()
 
 
-def _read(backend):
-    stored = backend.load(RelayKeychain.scope)
+def _read(backend, scope):
+    stored = backend.load(scope)
     if stored is None:
         return None
     row = json.loads(stored.reveal_for_adapter())
@@ -29,9 +29,9 @@ def _read(backend):
     return origin, token, identity_key
 
 
-def load_relay(backend=None):
+def load_relay(backend=None, *, keychain=RelayKeychain):
     try:
-        current = _read(backend if backend is not None else RelayKeychain())
+        current = _read(backend if backend is not None else keychain(), keychain.scope)
         if current is None:
             return None
         origin, token, identity_key = current
@@ -41,28 +41,28 @@ def load_relay(backend=None):
         raise WCEError('VIDEO_RELAY_KEYCHAIN_ACCESS_REQUIRED') from None
 
 
-def relay_status(backend=None):
+def relay_status(backend=None, *, keychain=RelayKeychain):
     try:
-        current = _read(backend if backend is not None else RelayKeychain())
+        current = _read(backend if backend is not None else keychain(), keychain.scope)
         return {'state': 'NOT_CONFIGURED'} if current is None else {
             'state': 'CONFIGURED', 'base_url': current[0]}
     except Exception:
         return {'state': 'ACTION_REQUIRED'}
 
 
-def save_relay(origin, token, backend=None):
+def save_relay(origin, token, backend=None, *, keychain=RelayKeychain):
     origin = relay_origin(origin)
     if not valid_secret(token):
         raise WCEError('VIDEO_KEY_INVALID')
     try:
-        backend = backend if backend is not None else RelayKeychain()
-        current = _read(backend)
+        backend = backend if backend is not None else keychain()
+        current = _read(backend, keychain.scope)
         if current and origin == current[0] and compare_digest(token, current[1]):
             return {'state': 'CONFIGURED', 'base_url': origin}
         identity_key = current[2] if current else secrets.token_hex(32)
         payload = json.dumps({'origin': origin, 'identity_key': identity_key, 'token': token},
                              separators=(',', ':'))
-        backend.put(RelayKeychain.scope, Secret(payload))
+        backend.put(keychain.scope, Secret(payload))
     except Exception:
         raise WCEError('VIDEO_RELAY_KEYCHAIN_SAVE_FAILED') from None
     return {'state': 'CONFIGURED', 'base_url': origin}

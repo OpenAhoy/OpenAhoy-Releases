@@ -77,7 +77,7 @@ class Diagnostics:
             'report_id': uuid.uuid4().hex, 'module': module, 'stage': stage, 'result': result}
         # tool is selected from the router's immutable descriptor names.
         if tool is not None:
-            if type(tool) is not str or not re.fullmatch(r'(?:(?:own|wce|x|video|image)\.[a-z._]+|openahoy\.feedback\.(?:preview|submit|status))', tool):
+            if type(tool) is not str or not re.fullmatch(r'(?:(?:own|wce|x|video|image|audio)\.[a-z._]+|openahoy\.feedback\.(?:preview|submit|status))', tool):
                 raise ValueError('SUPPORT_EVENT_INVALID')
             value['tool'] = tool
         if code in CODES:

@@ -32,7 +32,7 @@ CHAT_DESCRIPTIONS = {
 }
 # readOnlyHint does not exclude refresh-token rotation or metadata writes.
 LOCAL_ONLY_TOOLS=frozenset({PREVIEW,STATUS,'own.connections.list','x.connections.list','own.drafts.current.read','own.drafts.current.status','wce.ui.management.overview'})
-LOCAL_ONLY_TOOLS = LOCAL_ONLY_TOOLS | {'image.openai.gif.status', 'image.openai.gif.configuration.status'}
+LOCAL_ONLY_TOOLS = LOCAL_ONLY_TOOLS | {'image.openai.gif.status', 'image.openai.gif.configuration.status', 'audio.project.history', 'audio.project.video.inspect'}
 
 
 def descriptor():

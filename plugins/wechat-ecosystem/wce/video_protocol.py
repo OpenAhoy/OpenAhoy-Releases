@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 from .contracts import WCEError
+from .audio_jobs import AudioJobs
 from .openai_gif_jobs import GifJobs
 from .openai_gif_keychain import PROVIDER as GIF_PROVIDER, status as gif_status
 from .prepared_contracts import strict_validate
@@ -9,9 +10,11 @@ from .tools import schema
 from .video_jobs import Jobs
 from .video_inline_credential import InlineVideoCredential
 from .video_keychain import PROVIDERS, status
-from .video_minimax import H3, H3_MODES, RATIOS, SITES
+from .video_minimax import H3, H3_MODELS, SUBJECT_MODEL, V1_MODELS, H3_MODES, RATIOS, SITES
 from .video_relay import RESOLUTIONS
+from .video_provider_ui import directory as provider_directory
 from .video_relay_keychain import relay_status
+from .video_tokenhex import TOKENHEX_PROVIDER, tokenhex_status
 from .video_seedance import MAX_REFERENCE_IMAGES, MODEL, SUPPORTED_MODELS
 
 CONNECTION = 'video.ark.connection.status'
@@ -21,9 +24,16 @@ CREDENTIAL = 'wce.ui.video.credential'
 WORKSPACE = 'wce.ui.video.workspace'
 H3_SUBMIT = 'video.minimax.generation.submit'
 RELAY_SUBMIT = 'video.relay.generation.submit'
+TOKENHEX_CHECK = 'video.tokenhex.connection.check'
+TOKENHEX_SUBMIT = 'video.tokenhex.generation.submit'
 GIF_SUBMIT = 'image.openai.gif.submit'
 GIF_STATUS = 'image.openai.gif.status'
 GIF_CONFIG = 'image.openai.gif.configuration.status'
+AUDIO_IMPORT='audio.project.import'
+AUDIO_MIX='audio.project.mix'
+AUDIO_COVER='audio.project.cover_video'
+AUDIO_HISTORY='audio.project.history'
+AUDIO_VIDEO='audio.project.video.inspect'
 KEY_PROVIDERS = [*PROVIDERS, GIF_PROVIDER]
 SITE = {'type': 'string', 'enum': list(SITES)}
 RATIO = {'type': 'string', 'enum': ['adaptive', *RATIOS]}
@@ -36,15 +46,21 @@ FRAME = schema({'path': {'type': 'string', 'minLength': 1, 'maxLength': 4096},
 JOB = {'generation_attempt_id': ATTEMPT, 'project_id': PROJECT}
 PROMPT = {'type': 'string', 'minLength': 1, 'maxLength': 4096, 'x-wce-maxUtf8Bytes': 16384}
 DURATION = {'oneOf': [{'type': 'integer', 'minimum': -1, 'maximum': -1},
-                      {'type': 'integer', 'minimum': 4, 'maximum': 30}]}
+                      {'type': 'integer', 'minimum': 2, 'maximum': 30}]}
+AUDIO_SCOPE={'attempt_id':ATTEMPT,'project_id':PROJECT}
+MS={'type':'integer','minimum':0,'maximum':3_600_000}
+AUDIO_TIMELINE=schema({'video_start_ms':MS,'music_offset_ms':MS,'fade_in_ms':MS,'fade_out_ms':MS,
+   'volume_percent':{'type':'integer','minimum':0,'maximum':200},'keep_original':{'type':'boolean'}},
+   {'duck':{'type':'array','maxItems':32,'items':schema({'start_ms':MS,'end_ms':MS,
+      'gain_percent':{'type':'integer','minimum':0,'maximum':100}})}})
 def action(name, required, optional=None):
     return schema({'action': {'type': 'string', 'const': name}, **required}, optional)
 
 
 ARK_OPTIONS = {
-    'mode': {'type': 'string', 'enum': ['frames', 'text', 'reference', 'edit', 'extend']},
+    'mode': {'type': 'string', 'enum': ['frames', 'first', 'text', 'reference', 'edit', 'extend']},
     'duration': DURATION,
-    'resolution': {'type': 'string', 'enum': ['480p', '720p', '1080p']},
+    'resolution': {'type': 'string', 'enum': ['480p', '720p', '1080p', '4k']},
     'audio': {'type': 'boolean'},
     'paths': {'type': 'array', 'minItems': 0, 'maxItems': MAX_REFERENCE_IMAGES,
               'items': {'type': 'string', 'minLength': 1, 'maxLength': 4096}},
@@ -65,6 +81,10 @@ ARK_MODEL = {'model': {'type': 'string', 'enum': list(SUPPORTED_MODELS)}}
 
 
 WORKSPACE_SPECS = {'oneOf': [
+    action('provider_catalog', {}),
+    action('audio_history', {}, {'project_id': PROJECT}),
+    action('audio_chunk', AUDIO_SCOPE | {'offset': {'type':'integer','minimum':0}}),
+    action('audio_export', AUDIO_SCOPE),
     action('history', {}, {'project_id': PROJECT}),
     action('select', {'project_id': PROJECT, 'primary': ATTEMPT}, {'compare': ATTEMPT}),
     action('playback', JOB | {'offset': {'type': 'integer', 'minimum': 0}}),
@@ -80,9 +100,9 @@ WORKSPACE_SPECS = {'oneOf': [
     action('copy', JOB),
     action('status', JOB),
     action('submit', JOB | ARK_OPTIONS | {
-        'model': {'type': 'string', 'enum': [*SUPPORTED_MODELS, H3]}, 'prompt': PROMPT,
+        'model': {'type': 'string', 'enum': [*SUPPORTED_MODELS, *H3_MODELS, *V1_MODELS]}, 'prompt': PROMPT,
         'mode': {'type': 'string', 'enum': [*H3_MODES, 'edit', 'extend']},
-        'resolution': {'type': 'string', 'enum': ['480p', '720p', '1080p', '768P', '2K']},
+        'resolution': {'type': 'string', 'enum': ['480p', '720p', '1080p', '4k', '480P', '768P', '2K']},
     }, SOURCE_OPTIONS | {'provider_site': SITE, 'ratio': RATIO}),
 ]}
 RELAY_URL = {'type': 'string', 'minLength': 1, 'maxLength': 8192}
@@ -94,6 +114,19 @@ RELAY_OPTIONS = {'reference_audio': RELAY_AUDIO,
                  'resolution': {'type': 'string', 'enum': list(RESOLUTIONS)}}
 
 SPECS = {
+    AUDIO_IMPORT: schema(AUDIO_SCOPE | {'title':PROMPT,'audio':FRAME},
+         {'provider':{'type':'string','const':'suno'},'provider_id':ATTEMPT}),
+    AUDIO_MIX: schema(AUDIO_SCOPE | {'title':PROMPT,'video_attempt_id':ATTEMPT,'song_attempt_id':ATTEMPT,
+        'timeline':AUDIO_TIMELINE}, {'score_plan':PROMPT}),
+    AUDIO_COVER: schema(AUDIO_SCOPE | {'title':PROMPT, 'song_attempt_id':ATTEMPT, 'cover':FRAME}),
+    AUDIO_HISTORY: schema({'project_id':PROJECT}),
+    AUDIO_VIDEO: schema(JOB, {'frame_start': FRAME_INDEX, 'include_audio_evidence': {'type':'boolean'}}),
+
+    TOKENHEX_CHECK: schema({}),
+    TOKENHEX_SUBMIT: schema(ARK_GENERATION | ARK_MODEL | {'configuration': schema(ARK_OPTIONS | {
+        'mode': {'type': 'string', 'enum': ['text', 'frames', 'reference']}})}),
+    RELAY_SUBMIT: schema(JOB | {'prompt': RELAY_PROMPT, 'reference_images': RELAY_IMAGES}, RELAY_OPTIONS),
+    CONNECTION: schema({}),
     GIF_SUBMIT: schema(JOB | {'reference_image': FRAME, 'prompt': PROMPT}),
     GIF_STATUS: schema(JOB),
     GIF_CONFIG: schema({}),
@@ -101,8 +134,10 @@ SPECS = {
     CONNECTION: schema({}),
     CREDENTIAL: {'oneOf': [
         action('begin', {}, {'provider': {'type': 'string', 'enum': KEY_PROVIDERS}}),
+        action('begin_tokenhex', {}),
+        action('tokenhex_select', ARK_MODEL),
         action('begin_relay', {'base_url': {'type': 'string', 'minLength': 1, 'maxLength': 512}}),
-        action('status', {'provider': {'type': 'string', 'enum': [*KEY_PROVIDERS, 'relay']}}),
+        action('status', {'provider': {'type': 'string', 'enum': [*KEY_PROVIDERS, 'relay', TOKENHEX_PROVIDER]}}),
         schema({'action': {'type': 'string', 'const': 'submit'}, 'session': HANDLE,
                 'jwe': {'type': 'string', 'minLength': 1, 'maxLength': 16384,
                         'pattern': r'^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){4}$'}}),
@@ -110,17 +145,28 @@ SPECS = {
     ]},
     WORKSPACE: WORKSPACE_SPECS,
     SUBMIT: schema(ARK_GENERATION, ARK_MODEL | FRAME_OPTIONS | {
-        'configuration': schema(ARK_OPTIONS, SOURCE_OPTIONS),
+        'configuration': schema(ARK_OPTIONS, SOURCE_OPTIONS | {'ratio': RATIO}),
     }),
     STATUS: schema(JOB, {'poll': {'type': 'boolean'}}),
-    H3_SUBMIT: schema(JOB | {'prompt': PROMPT, 'provider_site': SITE, 'ratio': RATIO,
+    H3_SUBMIT: {'oneOf': [schema(JOB | {'prompt': PROMPT, 'provider_site': SITE, 'ratio': RATIO,
         'mode': {'type': 'string', 'enum': list(H3_MODES)},
         'duration': {'type': 'integer', 'minimum': 4, 'maximum': 15},
-        'resolution': {'type': 'string', 'enum': ['768P', '2K']},
+        'resolution': {'type': 'string', 'enum': ['480P', '512P', '720P', '768P', '1080P', '2K']},
         'paths': {'type': 'array', 'minItems': 0, 'maxItems': 9,
-                  'items': {'type': 'string', 'minLength': 1, 'maxLength': 4096}}}),
+                  'items': {'type': 'string', 'minLength': 1, 'maxLength': 4096}}}, {'model': {'type': 'string', 'enum': [*H3_MODELS, *V1_MODELS]}}),
+        schema(JOB | {'prompt': PROMPT, 'provider_site': SITE,
+            'mode': {'type': 'string', 'const': 'subject'}, 'model': {'type': 'string', 'const': SUBJECT_MODEL},
+            'subject_image_url': {'type': 'string', 'minLength': 1, 'maxLength': 8192}}),
+    ]},
 }
 DESCRIPTIONS = {
+    AUDIO_IMPORT: 'Copy and decode an existing WAV, MP3 or M4A from the registered project. Requires a relative path and SHA-256. Provider and ID link a confirmed official download. No network or Suno generation.',
+    AUDIO_MIX: 'Create a new local soundtrack MP4 for a completed video, reusing imported project audio. Timeline positions and fades are milliseconds; gain is a percentage. Original media is retained. A different mix uses a new local attempt; does not use Suno credits.',
+    AUDIO_COVER: 'Create a local H.264/AAC MP4 from a project song and a project PNG or JPEG cover. Requires the cover SHA-256. Returns its project-relative file; does not publish it.',
+    AUDIO_HISTORY: 'List the songs and soundtrack assets already saved in a project.',
+    AUDIO_VIDEO: 'Read facts for a specific project video and its SHA-256. Pass frame_start to receive up to four timecoded JPEGs as images, at 8 fps. Set include_audio_evidence for optional first-track RMS timings. Levels do not identify dialogue. No supplier upload.',
+    TOKENHEX_CHECK: 'Read supported model IDs visible under the locally configured Token Hex video credential using GET /v1/models. Read only. Visibility does not verify the native video route.',
+    TOKENHEX_SUBMIT: 'Submit one expressly authorized billable Token Hex Doubao native generation for a supported Seedance model selected in video model settings. Use the same project, attempt and documented Seedance mode. Query the same attempt through video.ark.generation.status. Never replace an unknown submission.',
     GIF_SUBMIT: 'When the user requests an animated GIF with their configured OpenAI Key, submit one authorized billable GPT-Image-2.6 Flare image edit for a registered project. Provide a selected original static PNG/JPEG/WebP project-relative path, its SHA-256, and a motion/loop prompt. Reuse the exact attempt and arguments only to read its existing result or finish an interrupted local copy. Never resubmit an unknown request. Use image.openai.gif.status to read the local receipt; there is no remote poll.',
     GIF_STATUS: 'Read the original local animated GIF receipt. ASSET_READY returns the exact project file path and its SHA-256. This tool does not call OpenAI.',
     GIF_CONFIG: 'Read whether the separate OpenAI GIF Key is configured. Does not verify GIF preview access or return the Key.',
@@ -130,7 +176,7 @@ DESCRIPTIONS = {
     WORKSPACE: 'App-only project video history, previews, library and export. Supports legacy panel requests.',
     SUBMIT: 'Submit one authorized billable Seedance task. Supply either first_frame and last_frame or, for Seedance 2.5, 1–30 ordered reference_images. Each image needs a project-local original PNG/JPEG path and SHA-256 hash. Default: Seedance 2.5, 5 seconds. Seedance 2.5 accepts 4–30 seconds or -1 for Auto. For explicit mode, resolution or audio use configuration with mode, paths (ordered project-relative PNG/JPEG), duration, resolution and audio. Seedance 2.5 also supports text, edit and extend; edit/extend require the original source_attempt_id and source_sha256 in the same project. Reuse the original generation_attempt_id and identical inputs. Never submit a replacement after SUBMIT_UNKNOWN.',
     STATUS: 'Read the original video receipt (Ark, MiniMax or video relay). With poll=true, query only the original provider task and save its verified MP4 if ready.',
-    H3_SUBMIT: 'Submit one authorized billable MiniMax H3 generation. Choose the site where the user configured a Key. Pass ordered project-relative PNG/JPEG paths: text=0, first/last=1, frames=2, reference=1–9. Text requires a concrete ratio; frame modes use adaptive. Query the original attempt with video.ark.generation.status.',
+    H3_SUBMIT: 'Submit one authorized billable MiniMax video generation. H3 uses V2; Hailuo/T2V/I2V use V1. Select the site matching the configured Key. For S2V-01 use mode=subject and a public HTTPS subject_image_url for one character. No paths, duration, resolution or ratio are sent for S2V. For the other modes use project-relative PNG/JPEG paths and model-appropriate duration, resolution and ratio. Poll the original attempt with video.ark.generation.status.',
 }
 
 
@@ -139,6 +185,7 @@ class VideoRouter:
         self.inner = inner
         self.video_jobs = Jobs(registry)
         self.gif_jobs = GifJobs(self.video_jobs)
+        self.audio_jobs = AudioJobs(self.video_jobs)
         self.video_credential = InlineVideoCredential()
 
     def __getattr__(self, name):
@@ -155,10 +202,10 @@ class VideoRouter:
     def list_tools(self):
         rows = self.inner.list_tools()
         for name, spec in SPECS.items():
-            local_read = name in {CONNECTION, GIF_CONFIG, GIF_STATUS}
+            local_read = name in {CONNECTION, GIF_CONFIG, GIF_STATUS, TOKENHEX_CHECK, AUDIO_HISTORY, AUDIO_VIDEO}
             row = {'name': name, 'inputSchema': deepcopy(spec), 'description': DESCRIPTIONS[name],
                    'annotations': {'readOnlyHint': local_read, 'destructiveHint': False,
-                                   'idempotentHint': name != CREDENTIAL, 'openWorldHint': name in {SUBMIT, STATUS, WORKSPACE, H3_SUBMIT, RELAY_SUBMIT, GIF_SUBMIT}}}
+                                   'idempotentHint': name != CREDENTIAL, 'openWorldHint': name in {SUBMIT, STATUS, WORKSPACE, H3_SUBMIT, RELAY_SUBMIT, GIF_SUBMIT, TOKENHEX_CHECK, TOKENHEX_SUBMIT}}}
             if name in (CREDENTIAL, WORKSPACE):
                 row['_meta'] = {'ui': {'visibility': ['app']}}
             rows.append(row)
@@ -168,6 +215,26 @@ class VideoRouter:
         if name not in SPECS:
             return self.inner.call(name, arguments)
         strict_validate(arguments, SPECS[name])
+        if name == AUDIO_HISTORY:
+            return self.audio_jobs.history(arguments['project_id'])
+        if name == AUDIO_VIDEO:
+            return self.audio_jobs.inspect_video(arguments['generation_attempt_id'], arguments['project_id'],
+                                                 arguments.get('frame_start'),
+                                                 arguments.get('include_audio_evidence', False))
+        if name == AUDIO_IMPORT:
+            return self.audio_jobs.ingest(arguments['attempt_id'],arguments['project_id'],arguments['title'],
+                arguments['audio'],arguments.get('provider'),arguments.get('provider_id'))
+        if name == AUDIO_COVER:
+            return self.audio_jobs.cover_video(arguments['attempt_id'], arguments['project_id'],
+                                               arguments['song_attempt_id'], arguments['title'], arguments['cover'])
+        if name == AUDIO_MIX:
+            settings=arguments['timeline']
+            timeline={key.removesuffix('_ms'):value/1000 for key,value in settings.items() if key.endswith('_ms')}
+            timeline.update(volume=settings['volume_percent']/100,keep_original=settings['keep_original'])
+            if 'duck' in settings:
+                timeline['duck'] = settings['duck']
+            return self.audio_jobs.mix(arguments['attempt_id'],arguments['project_id'],arguments['video_attempt_id'],
+                arguments['song_attempt_id'],arguments['title'],timeline,arguments.get('score_plan'))
         if name == GIF_CONFIG:
             return gif_status()
         if name == GIF_STATUS:
@@ -178,12 +245,20 @@ class VideoRouter:
         if name == CONNECTION:
             return dict(status(), model=MODEL, supported_models=list(SUPPORTED_MODELS),
                         model_access='UNVERIFIED')
+        if name == TOKENHEX_CHECK:
+            return self.video_jobs.tokenhex_check()
         if name == CREDENTIAL:
             action = arguments['action']
             if action == 'status':
                 if arguments['provider'] == GIF_PROVIDER:
                     return gif_status()
+                if arguments['provider'] == TOKENHEX_PROVIDER:
+                    return tokenhex_status()
                 return relay_status() if arguments['provider'] == 'relay' else status(provider=arguments['provider'])
+            if action == 'tokenhex_select':
+                return self.video_jobs.tokenhex_select(arguments['model'])
+            if action == 'begin_tokenhex':
+                return self.video_credential.begin(TOKENHEX_PROVIDER)
             if action == 'begin_relay':
                 return self.video_credential.begin('relay', base_url=arguments['base_url'])
             if action == 'begin':
@@ -194,13 +269,19 @@ class VideoRouter:
         if name == WORKSPACE:
             return self.workspace(arguments)
         attempt, project = arguments['generation_attempt_id'], arguments['project_id']
-        if name == RELAY_SUBMIT:
+        if name == TOKENHEX_SUBMIT:
+            row = self.video_jobs.submit(attempt, project, None, None, arguments['prompt'],
+                                         model=arguments['model'], workspace=arguments['configuration'], tokenhex=True)
+        elif name == RELAY_SUBMIT:
             inputs = {key: arguments[key] for key in ('prompt', 'reference_images', *RELAY_OPTIONS)
                       if key in arguments}
             row = self.video_jobs.submit_relay(attempt, project, inputs)
+        elif name == H3_SUBMIT and arguments.get('model') == SUBJECT_MODEL:
+            row = self.video_jobs.submit_subject(attempt, project, arguments['provider_site'],
+                                                 arguments['prompt'], arguments['subject_image_url'])
         elif name == H3_SUBMIT:
             workspace = {k: arguments[k] for k in ('mode', 'duration', 'resolution', 'ratio', 'provider_site', 'paths')}
-            row = self.video_jobs.submit(attempt, project, None, None, arguments['prompt'], model=H3, workspace=workspace)
+            row = self.video_jobs.submit(attempt, project, None, None, arguments['prompt'], model=arguments.get('model', H3), workspace=workspace)
         elif name == SUBMIT and 'configuration' in arguments:
             configuration = arguments['configuration']
             if FRAME_OPTIONS.keys() & arguments.keys() or ('direction' in configuration and configuration['mode'] != 'extend'):
@@ -218,13 +299,21 @@ class VideoRouter:
         else:
             row = self.video_jobs.status(attempt, project, arguments.get('poll', False))
         return {key: value for key, value in row.items()
-                if key not in {'recipe', 'project_video_root', 'project_video_copy', 'relay_connection'}}
+                if key not in {'recipe', 'project_video_root', 'project_video_copy', 'relay_connection', 'tokenhex_connection'}}
 
     def workspace(self, arguments):
         job = self.video_jobs
         command = arguments['action']
         project = arguments.get('project_id')
         attempt = arguments.get('generation_attempt_id')
+        if command == 'audio_history':
+            return self.audio_jobs.history(project)
+        if command == 'audio_chunk':
+            return self.audio_jobs.chunk(arguments['attempt_id'],project,arguments['offset'])
+        if command == 'audio_export':
+            return self.audio_jobs.export(arguments['attempt_id'],project)
+        if command == 'provider_catalog':
+            return provider_directory()
         if command == 'history':
             return job.history(project)
         if command == 'gif_history':

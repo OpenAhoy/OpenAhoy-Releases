@@ -58,6 +58,7 @@ def icon(name):
         'settings':'<path d="M3 6h5m4 0h9M3 12h11m4 0h3M3 18h2m4 0h12"/><circle cx="10" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="7" cy="18" r="2"/>',
         'wechat':'<path d="M17 9a7 6 0 0 0-14 0c0 2 1 3.5 3 4.5L5 16l3-1.5h2"/><path d="M21 15c0-3-2.5-5-6-5s-6 2-6 5 2.5 5 6 5h2l3 1-.7-2.5c1.1-1 1.7-2 1.7-3.5Z"/><path d="M7 8h.01M12 8h.01M13 14h.01M17 14h.01"/>',
         'arrow':'<path d="m9 5 7 7-7 7"/>',
+        'audio':'<path d="M4 9v6m4-10v14m4-17v20m4-17v14m4-10v6"/>',
         'image':'<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9" r="1.4"/><path d="m3 16 5-4 4 3 3-4 6 5"/>',
         'video':'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m10 9 5 3-5 3z"/>'}
     return '<svg class="oa-icon" viewBox="0 0 24 24" aria-hidden="true">'+paths[name]+'</svg>'
@@ -70,7 +71,32 @@ def platform_sidebar(logo, navigation, *, localized=False):
                  + brand + '</button><button type="button" id="oaLocale">English</button>')
     return '<aside class="oa-sidebar"><div class="oa-brand">'+brand+'''</div>
 <div id="softwareUpdateSlot"></div>
-<div>'''+('<nav class="oa-nav"><button id="openVideoWorkspace" type="button">'+icon('video')+'<span>视频生成</span></button><button id="openGifWorkspace" type="button">'+icon('image')+'<span>动图生成</span></button></nav>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
+<div>'''+('<nav class="oa-nav"><button id="openMediaStudio" type="button" aria-controls="mediaStudio">'+icon('video')+'<span>媒体工坊</span></button></nav>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
+
+
+def minimax_cards():
+    from .own_branding import video_model_mark
+
+    return ''.join(
+        f'''<section id="videoMiniMax{suffix}Card" class="panel" aria-labelledby="videoMiniMax{suffix}Title">
+        <div class="oa-video-relay-heading"><img src="{video_model_mark()}" alt="" width="86" height="32">
+        <h2 id="videoMiniMax{suffix}Title">{title}</h2></div>
+        <p id="videoMiniMax{suffix}State" role="status"></p><div data-catalog="{site}"></div>
+        <div class="oa-provider-actions">
+        <button type="button" data-provider-control="{site}" data-action="official">打开官方控制台</button>
+        <button type="button" data-provider-control="{site}" data-action="model">模型文档</button>
+        <button type="button" data-provider-control="{site}" data-action="assist">让 Codex 帮我开通</button>
+        </div><details class="oa-provider-cost"><summary>额度与账单</summary>
+        <p class="help">任务用量、套餐额度和已结算账单分别以官方为准。</p>
+        <div class="oa-provider-actions"><button type="button" data-provider-control="{site}" data-action="billing">打开官方账单</button>
+        <button type="button" data-provider-control="{site}" data-action="usage">核对可用额度</button></div></details>
+        <div class="oa-video-key-form"><label for="videoMiniMax{suffix}Credential">API Key</label>
+        <input id="videoMiniMax{suffix}Credential" type="password" maxlength="4096" autocomplete="new-password"
+               spellcheck="false" autocapitalize="off" required disabled>
+        <button id="videoMiniMax{suffix}Save" type="button" class="primary" disabled>保存 API Key</button>
+        </div></section>'''
+        for site, suffix, title in (('cn', 'CN', 'MiniMax 中国站'), ('global', 'Global', 'MiniMax 国际站'))
+    )
 
 
 def native_page_body(logo, platform_settings):
@@ -78,6 +104,7 @@ def native_page_body(logo, platform_settings):
     from .own_inline_binding_ui import HTML as binding_html
     from .video_workspace_ui import HTML as video_html
     from .openai_gif_ui import HTML as gif_html
+    from .audio_workspace_ui import HTML as audio_html
     from .own_branding import video_model_mark
     from .own_branding import icons
     from .video_jobs import PROMO_DIR
@@ -97,26 +124,18 @@ def native_page_body(logo, platform_settings):
 <section class="oa-home-features" aria-labelledby="homeFeaturesTitle">
 <h2 id="homeFeaturesTitle">开始使用</h2>
 <div class="oa-home-grid" id="homeFeatures">
-<button id="homeVideo" type="button" class="oa-home-card" disabled><span class="oa-home-card-title">'''+icon('video')+'''<span>视频生成</span></span><span class="oa-home-card-description">预览、对比并下载项目成片。</span>'''+icon('arrow')+'''</button>
-<button id="homeGif" type="button" class="oa-home-card" disabled><span class="oa-home-card-title">'''+icon('image')+'''<span>动图生成</span></span><span class="oa-home-card-description">查看、预览并下载项目动图。</span>'''+icon('arrow')+'''</button>
+<button id="homeMediaStudio" type="button" class="oa-home-card" disabled><span class="oa-home-card-title">'''+icon('video')+'''<span>媒体工坊</span></span><span class="oa-home-card-description">管理项目动图、视频和音频。</span>'''+icon('arrow')+'''</button>
 </div></section>'''+promo+'''
 <section id="homeRecommendations" aria-labelledby="homeRecommendationsTitle" hidden>
 <h2 id="homeRecommendationsTitle">推荐插件</h2><div class="oa-home-grid"></div>
 </section>
 <p id="homeStatus" class="help" role="status">正在连接管理工具…</p>
 </section>'''
-    credential = '''<div id="videoModel" class="panel">
-<div class="oa-video-model-brands">
-<div class="oa-video-model-brand" data-model="seedance"><strong>Seedance 2.5</strong><small>火山方舟</small></div>
-<div class="oa-video-model-brand" data-model="minimax"><img src="'''+video_model_mark()+'''" alt="" width="86" height="32"><strong>MiniMax H3</strong></div>
-</div>
-<label>凭据来源<select id="videoCredentialProvider"><option value="ark">火山方舟</option><option value="cn">MiniMax 中国站</option><option value="global">MiniMax 国际站</option></select></label>
-<p id="videoModelState" role="status" aria-live="polite"></p>
-<div id="videoCredentialForm">
-<label id="videoCredentialLabel" for="videoCredential">API Key</label>
-<input id="videoCredential" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" required disabled>
-<button id="videoCredentialSave" type="button" class="primary" disabled>保存 API Key</button>
-</div></div>
+    credential = '''<div class="oa-provider-grid"><section id="videoArkCard" class="panel"><h2>火山方舟</h2><p class="help">中国站 · 北京</p><p id="videoArkState" role="status"></p><div data-catalog="ark"></div><div class="oa-provider-actions"><button type="button" data-provider-control="ark" data-action="official">打开官方控制台</button><button type="button" data-provider-control="ark" data-action="model">模型文档</button><button type="button" data-provider-control="ark" data-action="assist">让 Codex 帮我开通</button></div><details class="oa-provider-cost"><summary>额度与账单</summary><p class="help">任务用量、套餐额度和已结算账单分别以官方为准。</p><button type="button" data-provider-control="ark" data-action="billing">打开官方账单</button></details><div id="videoArkCredentialForm">
+<label id="videoArkCredentialLabel" for="videoArkCredential">API Key</label>
+<input id="videoArkCredential" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" required disabled>
+<button id="videoArkCredentialSave" type="button" class="primary" disabled>保存 API Key</button>
+</div></section>'''+minimax_cards()+'''
 <section id="videoRelayCard" class="panel" aria-labelledby="videoRelayTitle">
 <div class="oa-video-relay-heading"><img src="'''+video_model_mark()+'''" alt="" width="86" height="32"><h2 id="videoRelayTitle">AutoDL · MiniMax H3</h2></div>
 <div id="videoRelayForm">
@@ -128,6 +147,24 @@ def native_page_body(logo, platform_settings):
 <div class="oa-video-relay-footer"><p id="videoRelayState" role="status" aria-live="polite"></p>
 <button id="videoRelaySave" type="button" class="primary" disabled>保存中转站配置</button></div>
 </div></section>
+<section id="videoTokenHexCard" class="panel" aria-labelledby="videoTokenHexTitle">
+<div class="oa-video-relay-heading"><h2 id="videoTokenHexTitle">Token Hex · 方舟视频</h2></div>
+<div id="videoTokenHexForm" class="oa-video-tokenhex-form">
+<label for="videoTokenHexOrigin">中转站 Base URL</label>
+<input id="videoTokenHexOrigin" type="url" value="https://api.tokenhex.com" readonly>
+<label for="videoTokenHexCredential">Token Hex Token</label>
+<input id="videoTokenHexCredential" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" disabled>
+<div class="oa-video-relay-footer"><p id="videoTokenHexState" role="status" aria-live="polite"></p>
+<button id="videoTokenHexSave" type="button" class="primary" disabled>保存 Token Hex 配置</button></div>
+<div class="oa-video-relay-footer">
+<p id="videoTokenHexModelsState" role="status" aria-live="polite"></p>
+<button id="videoTokenHexCheck" type="button" disabled>查询可见模型</button></div>
+<div id="videoTokenHexModels" class="oa-video-tokenhex-form" hidden>
+<label for="videoTokenHexModel">方舟视频模型</label>
+<select id="videoTokenHexModel" disabled></select>
+<button id="videoTokenHexSelect" type="button" disabled>选用模型</button>
+</div></div></section></div>
+<p id="videoProviderNotice" class="help" role="status"></p><textarea id="videoProviderCopy" aria-label="复制 Codex 指令" readonly hidden></textarea>
 '''
     return '''<body class="oa-management oa-platform-workspace oa-native"><div class="oa-shell">
 '''+platform_sidebar(logo, '<p class="help">正在读取平台…</p>', localized=True)+'''
@@ -162,7 +199,9 @@ def native_page_body(logo, platform_settings):
 <button id="accountRecoveryAsk" type="button" class="primary" hidden>在 macOS 中确认恢复</button></div>
 <p id="accountRecoveryStatus" role="status"></p>
 </dialog>
-<footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div>'''+video_html.replace('__CREDENTIAL__', credential)+gif_html+binding_html+'''</main></div>'''
+<footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div><section id="mediaStudio" aria-label="媒体工坊" hidden>
+<nav class="oa-media-tabs" aria-label="媒体类型"><button id="openGifWorkspace" type="button">动图</button><button id="openVideoWorkspace" type="button">视频</button><button id="openAudioWorkspace" type="button">音频</button></nav>
+'''+gif_html+video_html.replace('__CREDENTIAL__', credential)+audio_html+'''</section>'''+binding_html+'''</main></div>'''
 
 
 HOME_STYLE = '''

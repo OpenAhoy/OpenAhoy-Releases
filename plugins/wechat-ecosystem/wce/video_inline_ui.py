@@ -3,12 +3,20 @@
 SCRIPT = r'''
 const OAVideoCredential = (call, ready) => {
  const $ = id => document.getElementById(id);
- const provider = $('videoCredentialProvider'), origin = $('videoRelayOrigin');
- const direct = {input:$('videoCredential'), button:$('videoCredentialSave'), status:$('videoModelState'), epoch:0};
+ const origin = $('videoRelayOrigin');
+ const ark = {input:$('videoArkCredential'),button:$('videoArkCredentialSave'),status:$('videoArkState'),epoch:0};
+ const tokenhex = {input:$('videoTokenHexCredential'),button:$('videoTokenHexSave'),status:$('videoTokenHexState'),epoch:0};
+ const hexCheck=$('videoTokenHexCheck'),hexSelect=$('videoTokenHexSelect'),hexModel=$('videoTokenHexModel');
+ const hexPanel=$('videoTokenHexModels'),hexState=$('videoTokenHexModelsState');
+ let hexEpoch=0,hexBusy=false;
+ const direct = [['cn','CN'],['global','Global']].map(([site,suffix])=>{
+   const prefix='videoMiniMax'+suffix;
+   return {site,input:$(prefix+'Credential'),button:$(prefix+'Save'),status:$(prefix+'State'),epoch:0};
+ });
  const relay = {input:$('videoRelayCredential'), button:$('videoRelaySave'), status:$('videoRelayState'), epoch:0};
  const gif = {input:$('videoOpenAIGifCredential'), button:$('videoOpenAIGifSave'), status:$('videoOpenAIGifState'), epoch:0};
- const cards=[direct,relay,gif];
- const siteFor=card=>card===gif?'openai_gif':card===relay?'relay':provider.value;
+ const cards=[ark,...direct,relay,tokenhex,gif];
+ const siteFor=card=>card===gif?'openai_gif':card===relay?'relay':card===ark?'ark':card===tokenhex?'tokenhex':card.site;
  const rpc = args => call('wce.ui.video.credential', args);
  const notice = (card, text) => OAUI.set(card.status, text);
  const usable = () => globalThis.isSecureContext === true && !!globalThis.crypto?.subtle;
@@ -18,8 +26,10 @@ const OAVideoCredential = (call, ready) => {
  const active=card=>section===(card===gif?'gif':'video');
  function controls(){
    const disabled = !ready() || busy || !usable();
-   provider.disabled = origin.disabled = disabled || section!=='video';
-   for(const card of cards)card.input.disabled = card.button.disabled = disabled || !active(card);
+   origin.disabled = disabled || section!=='video';
+   for(const card of cards)card.input.disabled = card.button.disabled = disabled || !active(card) || (card===tokenhex&&hexBusy);
+   hexCheck.disabled=disabled||!active(tokenhex)||hexBusy;
+   hexModel.disabled=hexSelect.disabled=hexCheck.disabled||!hexModel.options.length;
  }
  function cancel(value){
    if(value && ready())rpc({action:'cancel',session:value}).catch(()=>{});
@@ -30,6 +40,7 @@ const OAVideoCredential = (call, ready) => {
      card.input.value = '';
    }
    origin.value = '';
+   resetHexModels();
    busy = false;
    const original = session;
    session = '';
@@ -61,18 +72,14 @@ const OAVideoCredential = (call, ready) => {
    controls();
    for(const card of cards)if(active(card))void refresh(card);
  }
- provider.addEventListener('change',()=>{
-   direct.input.value='';
-   void refresh(direct);
- });
  async function save(card,event){
    event.preventDefault();
-   if(!event.isTrusted || !ready() || !active(card) || busy || !usable())return;
-   const isRelay=card===relay;
+   if(!event.isTrusted || !ready() || !active(card) || busy || !usable() || (card===tokenhex&&hexBusy))return;
+   const isRelay=card===relay,isHex=card===tokenhex;
    let key=card.input.value.trim();
    card.input.value='';
    if(!/^[!-~]{1,4096}$/.test(key)){
-     notice(card,isRelay?'中转站 Token 格式无效':'API Key 格式无效');return;
+     notice(card,isRelay||isHex?'中转站 Token 格式无效':'API Key 格式无效');return;
    }
    const site=siteFor(card);
    const base=isRelay?origin.value.trim().replace(/\/$/,'').toLowerCase():'';
@@ -88,13 +95,15 @@ const OAVideoCredential = (call, ready) => {
        const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(base));
        const hex=Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
        purpose='openahoy:video:comfyui-relay:key:v1:'+hex;
+     }else if(isHex){
+       purpose='openahoy:video:tokenhex:key:v1';
      }else if(card===gif){
        purpose='openahoy:image:openai:gif:key:v1';
      }else{
        purpose=site==='ark'?'openahoy:video:ark:cn-beijing:key:v1':'openahoy:video:minimax:'+site+':key:v1';
      }
      if(epoch!==card.epoch)return;
-     const result=await rpc(isRelay?{action:'begin_relay',base_url:base}:{action:'begin',provider:site});
+     const result=await rpc(isRelay?{action:'begin_relay',base_url:base}:isHex?{action:'begin_tokenhex'}:{action:'begin',provider:site});
      if(epoch!==card.epoch){cancel(result.session);return;}
      session=result.session;
      if(result.state!=='READY' || result.purpose!==purpose
@@ -104,6 +113,7 @@ const OAVideoCredential = (call, ready) => {
      if(epoch!==card.epoch)return;
      const saved=await rpc({action:'submit',session,jwe});
      if(epoch===card.epoch){
+       if(isHex)resetHexModels();
        if(isRelay&&saved.base_url)origin.value=saved.base_url;
        notice(card,card===gif&&saved.state==='CONFIGURED'?'已保存，GIF 权限未验证':labels[saved.state] || '未确认保存结果');
      }
@@ -118,6 +128,52 @@ const OAVideoCredential = (call, ready) => {
      }
    }
  }
+ function resetHexModels(){
+   hexEpoch++;
+   hexBusy=false;
+   hexPanel.hidden=true;
+   hexModel.replaceChildren();
+   OAUI.set(hexState,'');
+ }
+ async function hexAction(event,select){
+   event.preventDefault();
+   if(!event.isTrusted||!active(tokenhex)||!ready()||busy||hexBusy||!usable())return;
+   const epoch=++hexEpoch;
+   hexBusy=true;
+   controls();
+   OAUI.set(hexState,'正在读取配置…');
+   try{
+     const result=select?await rpc({action:'tokenhex_select',model:hexModel.value}):
+       await call('video.tokenhex.connection.check',{});
+     if(epoch!==hexEpoch)return;
+     if(select){
+       if(result.state!=='SELECTED')throw Error('TOKENHEX_NOT_SELECTED');
+       OAUI.set(hexState,result.native_verified?'视频通路已实测':'已选用模型，待实测');
+       return;
+     }
+     const models=Array.isArray(result.models)?result.models:[];
+     hexModel.replaceChildren();
+     for(const model of models){
+       const option=document.createElement('option');
+       option.value=model;
+       option.textContent=model;
+       hexModel.append(option);
+     }
+     hexPanel.hidden=!models.length;
+     if(models.includes(result.selected_model))hexModel.value=result.selected_model;
+     const states={NOT_CONFIGURED:'请先保存 Token Hex Token',AUTH_REQUIRED:'Token Hex 未授权，请核对 Token 和权限',
+       NO_SUPPORTED_MODELS:'没有可用的方舟视频模型',EMPTY_CATALOG:'Token Hex 返回空模型目录',
+       MODELS_VISIBLE:result.native_verified?'视频通路已实测':
+       models.includes(result.selected_model)?'已选用模型，待实测':'模型可见，可选用后实测'};
+     OAUI.set(hexState,states[result.state]||'无法读取配置状态');
+   }catch(_){
+     if(epoch===hexEpoch)OAUI.set(hexState,select?'未能选用模型':'无法读取配置状态');
+   }finally{
+     if(epoch===hexEpoch){hexBusy=false;controls();}
+   }
+ }
+ hexCheck.addEventListener('click',event=>hexAction(event,false));
+ hexSelect.addEventListener('click',event=>hexAction(event,true));
  for(const card of cards){
    card.button.addEventListener('click',event=>save(card,event));
    card.input.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.isComposing)save(card,event);});

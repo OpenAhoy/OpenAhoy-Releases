@@ -10,6 +10,7 @@ from .openai_gif_keychain import PROVIDER as GIF_PROVIDER, PURPOSE as GIF_PURPOS
 from .video_keychain import save
 from .video_relay import relay_origin
 from .video_relay_keychain import save_relay
+from .video_tokenhex import TOKENHEX_PROVIDER, TOKENHEX_PURPOSE, save_tokenhex
 
 PURPOSE = 'openahoy:video:ark:cn-beijing:key:v1'
 RELAY_PURPOSE = 'openahoy:video:comfyui-relay:key:v1:'
@@ -18,11 +19,12 @@ TTL = 120
 
 class InlineVideoCredential:
     def __init__(self, *, crypto_factory=NativeCrypto, writer=save, relay_writer=save_relay,
-                 gif_writer=save_gif, clock=time.monotonic):
+                 gif_writer=save_gif, tokenhex_writer=save_tokenhex, clock=time.monotonic):
         self.crypto_factory = crypto_factory
         self.writer = writer
         self.relay_writer = relay_writer
         self.gif_writer = gif_writer
+        self.tokenhex_writer = tokenhex_writer
         self.clock = clock
         self.lock = threading.RLock()
         self.pending = None
@@ -51,6 +53,8 @@ class InlineVideoCredential:
                     purpose = RELAY_PURPOSE + sha256(origin.encode()).hexdigest()
                 elif provider == GIF_PROVIDER:
                     purpose = GIF_PURPOSE
+                elif provider == TOKENHEX_PROVIDER:
+                    purpose = TOKENHEX_PURPOSE
                 else:
                     purpose = PURPOSE if provider == 'ark' else 'openahoy:video:minimax:' + provider + ':key:v1'
                 challenge = crypto.begin(purpose)
@@ -87,6 +91,8 @@ class InlineVideoCredential:
                     return self.relay_writer(item['origin'], secret.reveal_for_adapter())
                 if item['provider'] == GIF_PROVIDER:
                     return self.gif_writer(secret.reveal_for_adapter())
+                if item['provider'] == TOKENHEX_PROVIDER:
+                    return self.tokenhex_writer(secret.reveal_for_adapter())
                 if item['provider'] == 'ark':
                     return self.writer(secret.reveal_for_adapter())
                 return self.writer(secret.reveal_for_adapter(), provider=item['provider'])

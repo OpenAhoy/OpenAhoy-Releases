@@ -193,10 +193,19 @@ class PersonalStdioServer(OperatorStdioServer):
 
     def tool_result(self,name,arguments):
         # One hook surrounds every formal tool and its MCP representation.
-        from .video_protocol import WORKSPACE
-        if name == WORKSPACE and arguments.get('action') in {'playback', 'preview_frames', 'intro_frames'}:
+        from .video_protocol import AUDIO_VIDEO, WORKSPACE
+        if name == WORKSPACE and arguments.get('action') in {'playback', 'preview_frames', 'intro_frames', 'audio_chunk'}:
             value = self.router.call(name, arguments)
             return {'content': [], 'structuredContent': value, 'isError': False}
+        if name == AUDIO_VIDEO and 'frame_start' in arguments:
+            value = self.router.call(name, arguments)
+            preview = value.pop('preview')
+            start = preview['start']
+            frames = preview['frames']
+            value['preview'] = {'start': start, 'timecodes_ms': [(start+i)*125 for i in range(len(frames))]}
+            return {'content': [{'type':'text', 'text':json.dumps(value, ensure_ascii=False)}] +
+                [{'type':'image', 'mimeType':'image/jpeg', 'data':frame} for frame in frames],
+                'structuredContent':value, 'isError':False}
         return self._tool_observer.observe(name,lambda:super(PersonalStdioServer,self).tool_result(name,arguments),protocol_result=True)
 
     def resource(self, method, params):

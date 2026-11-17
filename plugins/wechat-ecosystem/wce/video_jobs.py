@@ -18,9 +18,11 @@ from .own_connection_policy import atomic_write, locked, read_optional
 from .own_connection_registry import mkdir
 from .project_context import ProjectStore
 from .video_keychain import load
-from .video_minimax import H3, SITES, MiniMax, MiniMaxRejected, h3_body, h3_usage
+from .video_minimax import (H3, H3_MODELS, MINIMAX_MODELS, SUBJECT_MODEL, V1_MODELS, SITES,
+                            MiniMax, MiniMaxRejected, h3_body, h3_usage, subject_body, v1_body)
 from .video_relay import RELAY_MODEL, Relay, RelaySubmitError, workflow_body
 from .video_relay_keychain import load_relay
+from .video_tokenhex import TOKENHEX_ORIGIN, TOKENHEX_PROVIDER, TokenHex, load_tokenhex
 from .video_seedance import Ark, ArkSubmitRejected, MINI, MODEL, PRO, STANDARD, MAX_REQUEST, MAX_RESULT, ark_error_code, request_body, result_url, validate_model
 
 ATTEMPT = re.compile(r'[A-Za-z0-9_-]{1,96}\Z')
@@ -99,7 +101,8 @@ def media_facts(path):
 
 class Jobs:
     def __init__(self, registry=None, *, api=None, credential=load, inspect=media_facts,
-                 minimax=MiniMax, minimax_credential=load, relay=Relay, relay_credential=load_relay):
+                 minimax=MiniMax, minimax_credential=load, relay=Relay, relay_credential=load_relay,
+                 tokenhex=None, tokenhex_credential=load_tokenhex):
         self.projects = ProjectStore(registry)
         self.root = self.projects.root / 'video-ark'
         self.api = api if api is not None else Ark()
@@ -108,6 +111,8 @@ class Jobs:
         self.minimax_credential = minimax_credential
         self.relay = relay
         self.relay_credential = relay_credential
+        self.tokenhex = tokenhex if tokenhex is not None else TokenHex()
+        self.tokenhex_credential = tokenhex_credential
         self.inspect = inspect
         self.playback_pin = None
 
@@ -322,23 +327,25 @@ class Jobs:
         request = row['request']
         value = {key: row[key] for key in ('generation_attempt_id', 'state', 'created_at')}
         value['model'] = request['model']
+        if request.get('provider') == TOKENHEX_PROVIDER:
+            value['provider'] = TOKENHEX_PROVIDER
         value['mode'] = request.get('mode', 'frames')
-        if request['model'] != RELAY_MODEL:
+        if request['model'] not in (RELAY_MODEL, SUBJECT_MODEL):
             value['duration'] = request.get('duration', 5)
         elif 'duration' in request:
             value['duration'] = request['duration']
         if 'source_attempt_id' in request:
             value['source_attempt_id'] = request['source_attempt_id']
-        is_h3 = request['model'] == H3
-        usage = (h3_usage(row.get('usage')) if is_h3 else
+        is_minimax = request['model'] in MINIMAX_MODELS
+        usage = (h3_usage(row.get('usage')) if is_minimax else
                  provider_usage({'total_tokens': row.get('total_tokens')}) | provider_usage(row.get('usage')))
         if usage:
             value['usage'] = usage
-        if is_h3:
+        if is_minimax:
             value['provider_site'] = request['provider_site']
         if 'asset' in row:
             value['asset'] = {k: v for k, v in row['asset'].items() if k != 'path'}
-            if is_h3 and request['provider_site'] == 'global' and {'output_seconds', 'input_image_count'} <= usage.keys():
+            if request['model'] == H3 and request['provider_site'] == 'global' and {'output_seconds', 'input_image_count'} <= usage.keys():
                 rate = {'768P': 0.08, '2K': 0.13}[request['resolution']]
                 value['list_price_usd'] = round(usage['output_seconds'] * rate +
                                                 max(0, usage['input_image_count'] - 5) * 0.04, 2)
@@ -351,7 +358,7 @@ class Jobs:
                 STANDARD: {'720p': (46, 28)}, MINI: {'720p': (23, 14)}, PRO: {'720p': (15, 15)},
             }
             rate = rates.get(value['model'], {}).get(resolution)
-            if rate and tokens is not None:
+            if request.get('provider') != TOKENHEX_PROVIDER and rate and tokens is not None:
                 value['list_price_cny'] = (tokens * rate[video_input] + 5_000) // 10_000 / 100
         if recipe and 'recipe' in row:
             value['recipe'] = row['recipe']
@@ -473,15 +480,68 @@ class Jobs:
             raise WCEError('VIDEO_KEY_NOT_CONFIGURED')
         return key
 
+    def _tokenhex_connection(self):
+        configured = self.tokenhex_credential()
+        if configured is None:
+            raise WCEError('VIDEO_TOKENHEX_NOT_CONFIGURED')
+        origin, connection, key = configured
+        if origin != TOKENHEX_ORIGIN:
+            raise WCEError('VIDEO_TOKENHEX_ORIGIN_MISMATCH')
+        return connection, key
+
+    def _tokenhex_selection(self, connection):
+        row = read_optional(self.root / 'tokenhex-selection.state')
+        return row if row is not None and row.get('connection') == connection else {}
+
+    def tokenhex_check(self):
+        try:
+            connection, key = self._tokenhex_connection()
+        except WCEError as error:
+            if error.code == 'VIDEO_TOKENHEX_NOT_CONFIGURED':
+                return {'state': 'NOT_CONFIGURED', 'models': []}
+            raise
+        result = self.tokenhex.models(key)
+        selection = self._tokenhex_selection(connection)
+        selected = selection.get('model')
+        if selected in result['models']:
+            result.update(selected_model=selected, native_verified=bool(selection.get('verified_attempt')))
+        return result
+
+    def tokenhex_select(self, model):
+        validate_model(model)
+        self._directory()
+        with locked(self.root / 'generation.lock'):
+            connection, key = self._tokenhex_connection()
+            if model not in self.tokenhex.models(key)['models']:
+                raise WCEError('VIDEO_TOKENHEX_MODEL_NOT_VISIBLE')
+            if self._tokenhex_connection()[0] != connection:
+                raise WCEError('VIDEO_TOKENHEX_CONNECTION_CHANGED')
+            old = self._tokenhex_selection(connection)
+            if old.get('model') != model:
+                old = {'connection':connection, 'model':model}
+                atomic_write(self.root / 'tokenhex-selection.state', old)
+        return {'state':'SELECTED', 'selected_model':model, 'native_verified':bool(old.get('verified_attempt'))}
+
+    def _mark_tokenhex_ready(self, row):
+        if row['request'].get('provider') != TOKENHEX_PROVIDER or 'project_video_copy' not in row:
+            return
+        selection = self._tokenhex_selection(row['tokenhex_connection'])
+        if selection.get('model') == row['request']['model'] and not selection.get('verified_attempt'):
+            atomic_write(self.root / 'tokenhex-selection.state',
+                         dict(selection, verified_attempt=row['generation_attempt_id']))
+
     def submit(self, attempt, project_id, first, last, prompt, *, model=MODEL, duration=5,
-               reference_images=None, workspace=None):
-        is_h3 = model == H3
-        if not is_h3:
+               reference_images=None, workspace=None, tokenhex=False):
+        is_minimax = model in MINIMAX_MODELS
+        if not is_minimax:
             validate_model(model)
         elif workspace is None or workspace.get('provider_site') not in SITES:
             raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
-        if not is_h3 and workspace is not None and {'provider_site', 'ratio'} & workspace.keys():
+        if not is_minimax and workspace is not None and 'provider_site' in workspace:
             raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
+        if tokenhex and (is_minimax or workspace is None or workspace['mode'] not in ('text', 'frames', 'reference')):
+            raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
+        provider = TOKENHEX_PROVIDER if tokenhex else None
         receipt, _ = self._paths(attempt)
         if not prompt.strip():
             raise WCEError('VIDEO_FRAMES_OR_PROMPT_INVALID')
@@ -493,16 +553,18 @@ class Jobs:
                 old = read_optional(receipt, RECEIPT_MAX)
                 if old:
                     if (old['request']['project_id'] != project_id or old['request']['model'] != model
-                            or old.get('recipe') != recipe
+                            or old['request'].get('provider') != provider or old.get('recipe') != recipe
                             or any(old['request'].get(k) != workspace.get(k)
                                    for k in ('source_attempt_id', 'source_sha256'))):
                         raise WCEError('VIDEO_ATTEMPT_CONFLICT')
                     return old
         frame_specs = reference_images if reference_images is not None else (first, last)
         if workspace is not None:
-            frame_specs = self.resolve_frames(project_id, workspace['paths'], h3=is_h3)
+            frame_specs = self.resolve_frames(project_id, workspace['paths'], h3=is_minimax)
         identity = {'project_id': project_id, 'model': model, 'frames': [frame['sha256'] for frame in frame_specs],
                     'prompt_sha256': sha256(prompt.encode()).hexdigest()}
+        if tokenhex:
+            identity['provider'] = provider
         params = {}
         if workspace is None:
             if reference_images is not None:
@@ -516,7 +578,7 @@ class Jobs:
                       if k in workspace}
             identity.update(params)
             has_source = {'source_attempt_id', 'source_sha256'} & workspace.keys()
-            if is_h3 and (params['mode'] in ('edit', 'extend') or params.get('audio') or 'direction' in params
+            if is_minimax and (params['mode'] in ('edit', 'extend') or params.get('audio') or 'direction' in params
                           or 'ratio' not in params):
                 raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
             editing = params['mode'] in ('edit', 'extend')
@@ -540,20 +602,31 @@ class Jobs:
             frames = []
             encoded_size = 0
             for frame in frame_specs:
-                mime, data = image(Path(frame['path']), root, frame['sha256'], self.root, h3=is_h3)
+                mime, data = image(Path(frame['path']), root, frame['sha256'], self.root, h3=is_minimax)
                 encoded_size += ((len(data) + 2) // 3) * 4
                 if encoded_size >= MAX_REQUEST:
                     raise WCEError('VIDEO_REQUEST_TOO_LARGE')
                 frames.append((mime, data))
             site = params.get('provider_site')
-            key = self._key(site)
-            api = self.api if site is None else self.minimax(site)
+            if tokenhex:
+                connection, key = self._tokenhex_connection()
+                if self._tokenhex_selection(connection).get('model') != model:
+                    raise WCEError('VIDEO_TOKENHEX_MODEL_NOT_SELECTED')
+                api = self.tokenhex
+                if model not in api.models(key)['models']:
+                    raise WCEError('VIDEO_TOKENHEX_MODEL_NOT_VISIBLE')
+                if self._tokenhex_connection()[0] != connection:
+                    raise WCEError('VIDEO_TOKENHEX_CONNECTION_CHANGED')
+            else:
+                key = self._key(site)
+                api = self.api if site is None else self.minimax(site)
             reference = None
             if 'source_attempt_id' in identity:
                 source_receipt, original = self._paths(identity['source_attempt_id'])
                 source = read_optional(source_receipt, RECEIPT_MAX)
                 if (source is None or source['state'] != 'ASSET_READY'
-                        or source['request']['model'] in (H3, RELAY_MODEL) or source['request']['project_id'] != project_id
+                        or source['request']['model'] in (*MINIMAX_MODELS, RELAY_MODEL) or source['request'].get('provider') == TOKENHEX_PROVIDER
+                        or source['request']['project_id'] != project_id
                         or source['asset']['sha256'] != workspace['source_sha256']):
                     raise WCEError('VIDEO_REFERENCE_SOURCE_UNAVAILABLE')
                 if self._asset_digest(original, path_check(original)) != (source['asset']['sha256'], source['asset']['bytes']):
@@ -572,14 +645,18 @@ class Jobs:
                         reference = result_url(remote['content']['video_url'])
                     except (WCEError, KeyError, TypeError):
                         raise WCEError('VIDEO_REFERENCE_SOURCE_UNAVAILABLE') from None
-            if is_h3:
-                body = h3_body(prompt, frames, **{k: params[k] for k in ('mode', 'duration', 'resolution', 'ratio')})
+            if is_minimax:
+                encoder = v1_body if model in V1_MODELS else h3_body
+                body = encoder(prompt, frames, model=model,
+                               **{k: params[k] for k in ('mode', 'duration', 'resolution', 'ratio')})
             else:
                 body = request_body(prompt, frames, model=model, reference=reference, **params)
             row = {'generation_attempt_id': attempt, 'request': identity, 'state': 'SUBMIT_UNKNOWN',
                    'request_sha256': sha256(body).hexdigest(), 'created_at': int(time.time())}
             info = root.stat(follow_symlinks=False)
             row['project_video_root'] = [info.st_dev, info.st_ino]
+            if tokenhex:
+                row['tokenhex_connection'] = connection
             if workspace is not None:
                 row['recipe'] = recipe
             else:
@@ -608,6 +685,29 @@ class Jobs:
         row.update(provider_task_id=task, state='SUBMITTED')
         atomic_write(receipt, row, maximum=RECEIPT_MAX)
         return row
+
+    def submit_subject(self, attempt, project_id, site, prompt, image_url):
+        if site not in SITES:
+            raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
+        body = subject_body(prompt, image_url)
+        request_hash = sha256(body).hexdigest()
+        identity = {'project_id': project_id, 'model': SUBJECT_MODEL, 'mode': 'subject', 'provider_site': site}
+        receipt, _ = self._paths(attempt)
+        self._directory()
+        with locked(self.root / 'generation.lock'):
+            previous = read_optional(receipt, RECEIPT_MAX)
+            if previous is not None:
+                if previous['request'] != identity or previous['request_sha256'] != request_hash:
+                    raise WCEError('VIDEO_ATTEMPT_CONFLICT')
+                return previous
+            project = next((row for row in self.projects.view()['projects'] if row['id'] == project_id), None)
+            if project is None:
+                raise WCEError('VIDEO_PROJECT_NOT_REGISTERED')
+            info = Path(project['root']).stat(follow_symlinks=False)
+            row = {'generation_attempt_id': attempt, 'state': 'SUBMIT_UNKNOWN', 'request': identity,
+                   'request_sha256': request_hash, 'created_at': int(time.time()),
+                   'project_video_root': [info.st_dev, info.st_ino]}
+            return self._dispatch(receipt, row, self.minimax(site), self._key(site), body)
 
     def submit_relay(self, attempt, project_id, inputs):
         receipt, _ = self._paths(attempt)
@@ -653,8 +753,10 @@ class Jobs:
                 asset = row['asset']
                 if not os.path.lexists(artifact) or self._asset(artifact, request=row['request']) != asset:
                     raise WCEError('VIDEO_ASSET_CHANGED')
-                if poll and 'project_video_copy' not in row:
-                    self._save_project_copy(row, receipt)
+                if poll:
+                    if 'project_video_copy' not in row:
+                        self._save_project_copy(row, receipt)
+                    self._mark_tokenhex_ready(row)
                 return row
             if row['state'] == 'SAVE_PENDING' and os.path.lexists(artifact):
                 asset = self._asset(artifact, request=row['request'])
@@ -663,23 +765,30 @@ class Jobs:
                 row.update(state='ASSET_READY', asset=asset)
                 atomic_write(receipt, row, maximum=RECEIPT_MAX)
                 self._save_project_copy(row, receipt)
+                self._mark_tokenhex_ready(row)
                 return row
             recover_failure = row['state'] == 'FAILED' and 'failure' not in row
             if not poll or (row['state'] in {'SUBMIT_UNKNOWN', 'SUBMIT_REJECTED', 'FAILED', 'EXPIRED', 'CANCELLED'}
                             and not recover_failure):
                 return row
             request = row['request']
-            is_h3 = request['model'] == H3
-            site = request.get('provider_site') if is_h3 else None
-            if is_h3 and site not in SITES:
+            is_minimax = request['model'] in MINIMAX_MODELS
+            site = request.get('provider_site') if is_minimax else None
+            if is_minimax and site not in SITES:
                 raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
             is_relay = request['model'] == RELAY_MODEL
+            is_tokenhex = request.get('provider') == TOKENHEX_PROVIDER
             try:
                 if is_relay:
                     origin, connection, key = self._relay_connection()
                     if connection != row.get('relay_connection'):
                         raise WCEError('VIDEO_RELAY_CONNECTION_CHANGED')
                     api = self.relay(origin)
+                elif is_tokenhex:
+                    connection, key = self._tokenhex_connection()
+                    if connection != row.get('tokenhex_connection'):
+                        raise WCEError('VIDEO_TOKENHEX_CONNECTION_CHANGED')
+                    api = self.tokenhex
                 else:
                     api = self.api if site is None else self.minimax(site)
                     key = self._key(site)
@@ -695,13 +804,17 @@ class Jobs:
                 return dict(row, query_error='VIDEO_TASK_STATUS_UNKNOWN')
             row['state'] = states[remote]
             if remote == 'failed':
-                if is_h3:
+                if is_minimax:
                     row['failure'] = {'provider': 'minimax'}
                 elif is_relay:
                     row['failure'] = {'provider': 'relay'}
+                elif is_tokenhex:
+                    row['failure'] = {'provider': TOKENHEX_PROVIDER}
+                    if code := ark_error_code(value):
+                        row['failure']['ark_error_code'] = code
                 elif code := ark_error_code(value):
                     row['failure'] = {'ark_error_code': code}
-            parse_usage = h3_usage if is_h3 else provider_usage
+            parse_usage = h3_usage if is_minimax else provider_usage
             usage = parse_usage(value.get('usage'))
             if usage:
                 row['usage'] = parse_usage(row.get('usage')) | usage
@@ -712,7 +825,7 @@ class Jobs:
                 try:
                     content = value.get('content')
                     url = content.get('video_url') if type(content) is dict else None
-                    if is_h3 and value.get('resolution') != request['resolution']:
+                    if request['model'] in H3_MODELS and value.get('resolution') != request['resolution']:
                         raise WCEError('VIDEO_RESULT_INVALID')
                     asset = self._save(artifact, url, receipt, row, api=api)
                     row.update(state='ASSET_READY', asset=asset)
@@ -720,6 +833,7 @@ class Jobs:
                     return dict(row, download_error=error.code)
                 atomic_write(receipt, row, maximum=RECEIPT_MAX)
                 self._save_project_copy(row, receipt)
+                self._mark_tokenhex_ready(row)
             return row
 
     def _save(self, artifact, url, receipt, row, *, api):
@@ -753,15 +867,15 @@ class Jobs:
         facts = self.inspect(path)
         request = request or {}
         model = request.get('model')
-        if model not in (H3, RELAY_MODEL) and not request.get('audio', False) and facts['audio_tracks'] != 0:
+        if model not in (*MINIMAX_MODELS, RELAY_MODEL) and not request.get('audio', False) and facts['audio_tracks'] != 0:
             raise WCEError('VIDEO_RESULT_INVALID')
         duration = request.get('duration', 5)
-        if model != RELAY_MODEL and request.get('mode') != 'extend' and duration != -1:
+        if model not in (RELAY_MODEL, SUBJECT_MODEL) and request.get('mode') != 'extend' and duration != -1:
             delta = facts['seconds'] - duration
             # Ark reports whole seconds rounded down while MP4 timing retains fractional seconds.
             if request.get('model') == MODEL:
                 above = delta >= 1
-            elif request.get('model') == H3:
+            elif request.get('model') in MINIMAX_MODELS:
                 # H3 can return a playable MP4 slightly longer than its billed duration.
                 above = delta > 0.5
             else:
@@ -770,13 +884,15 @@ class Jobs:
                 raise WCEError('VIDEO_RESULT_INVALID')
         if path_check(path) != pin:
             raise WCEError('VIDEO_ASSET_CHANGED')
-        prefix = {H3: 'minimax-', RELAY_MODEL: 'relay-'}.get(model, 'ark-')
+        prefix = ('tokenhex-' if request.get('provider') == TOKENHEX_PROVIDER else
+                  'minimax-' if model in MINIMAX_MODELS else 'relay-' if model == RELAY_MODEL else 'ark-')
         return dict(facts, asset_id=prefix + digest, sha256=digest, bytes=size, path=str(path))
 
-    def _asset_digest(self, path, pin):
+    def _asset_digest(self, path, pin, source_root=None):
         digest = sha256()
         size = 0
-        for chunk in FileSource(self.root).iter_html(path.name, expected_state=pin):
+        for chunk in FileSource(source_root if source_root is not None else self.root).iter_html(
+                path.name, expected_state=pin):
             digest.update(chunk)
             size += len(chunk)
             if size > MAX_RESULT:

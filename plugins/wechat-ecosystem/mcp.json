@@ -6,6 +6,10 @@
       "command": "./scripts/wce_mcp.sh",
       "args": [],
       "cwd": "${PLUGIN_ROOT}"
+    },
+    "suno": {
+      "type": "streamable-http",
+      "url": "https://api.suno.com/mcp"
     }
   }
 }

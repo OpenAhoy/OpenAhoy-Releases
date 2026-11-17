@@ -23,11 +23,12 @@ HTML = '''
 <div class="oa-video-section-head"><label class="oa-video-version">当前版本<select id="videoPrimary"></select></label><button id="videoCompare" type="button" aria-pressed="false">版本对比</button></div>
 <div id="videoPlayer" class="oa-frame-player" role="group" aria-label="当前版本" tabindex="-1"></div>
 <div class="oa-video-result"><div class="oa-video-meta"><p id="videoFacts"></p><details id="videoUsageDetails" class="oa-video-usage-details" hidden><summary>用量与账单</summary><div id="videoUsage" class="oa-video-usage"></div></details></div>
-<div class="oa-video-file-actions"><button id="videoDownload" class="oa-video-download" type="button" aria-live="polite" disabled>下载原文件</button><button id="videoSequence" type="button" hidden>连播原片与续写</button></div></div></div>
+<div class="oa-video-file-actions"><button id="videoDownload" class="oa-video-download" type="button" aria-live="polite" disabled>下载原文件</button><button id="videoScore" type="button">生成配乐</button><button id="videoScoreAudio" type="button">查看音频</button><button id="videoSequence" type="button" hidden>连播原片与续写</button></div></div></div>
 <div id="videoComparison" hidden><div class="oa-video-section-head"><label class="oa-video-version">对比版本<select id="videoComparePick"></select></label></div>
 <div id="videoComparePlayer" class="oa-frame-player" role="group" aria-label="对比版本"></div>
 <div class="oa-video-result"><div class="oa-video-meta"><p id="videoCompareFacts"></p><details id="videoCompareUsageDetails" class="oa-video-usage-details" hidden><summary>用量与账单</summary><div id="videoCompareUsage" class="oa-video-usage"></div></details></div></div></div></div>
 <p id="videoEmpty" class="help" hidden>这个项目还没有成片。</p>
+<textarea id="videoScoreCopy" aria-label="复制 Codex 指令" readonly hidden></textarea>
 <p id="videoNotice" class="help" role="status" aria-live="polite"></p>
 </section>
 </div>
@@ -39,6 +40,11 @@ __CREDENTIAL__
 '''
 
 STYLE = '''
+#mediaStudio[hidden]{display:none!important}
+#mediaStudio{display:flex;flex:1;flex-direction:column;gap:8px;min-width:0;min-height:0}
+.oa-media-tabs{display:flex;gap:4px;flex-wrap:wrap;flex:none}
+.oa-media-tabs button{min-height:28px;padding:4px 12px}
+#openMediaStudio[aria-current=page]{background:var(--management-selected,var(--line));font-weight:650}
 #videoWorkspace{min-width:0;min-height:0;flex:1}
 #videoWorkspace[hidden],#videoWorkspace [hidden],body.oa-video-open #nativeWorkspace{display:none!important}
 #openVideoWorkspace[aria-current=page]{background:var(--management-selected,var(--line));font-weight:650}
@@ -96,22 +102,22 @@ STYLE = '''
 .oa-video-asset-menu[open]>summary{position:absolute;inset-block-start:0;inset-inline-end:3px}
 .oa-video-asset-menu[open]>div{padding:0 5px 4px}
 .oa-video-library .oa-video-asset-menu:not([open])>div{display:none}
-#videoSettingsPage{max-width:600px;max-height:100%;margin-inline:auto;overflow:auto;overscroll-behavior:contain;padding:2px}
-#videoModel,#videoRelayCard{margin-top:10px}
+#videoSettingsPage{max-width:1080px;max-height:100%;margin-inline:auto;overflow:auto;overscroll-behavior:contain;padding:2px}
+#videoModel,#videoRelayCard,#videoTokenHexCard{margin-top:10px}
 .oa-video-model-brands{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-block-end:12px}
 .oa-video-model-brand{min-width:0;min-height:48px;display:flex;flex-wrap:wrap;align-items:center;gap:2px 7px;padding:4px 7px;border-radius:8px;background:var(--oa-fill,var(--line))}
 .oa-video-model-brand img{display:block;object-fit:contain;width:86px;max-width:100%;height:auto;border-radius:4px;background:#fff}
 .oa-video-model-brand strong{font-size:12px}
 .oa-video-model-brand small{font-size:11px;color:var(--muted)}
 #videoModel:has(option[value=ark]:checked) [data-model=seedance],#videoModel:has(:is(option[value=cn],option[value=global]):checked) [data-model=minimax]{background:var(--oa-selection,var(--tint))}
-#videoCredentialForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 8px;align-items:center}
-#videoCredentialForm label{grid-column:1/-1;margin:0}
-#videoCredentialForm input{min-width:0;margin:0}
+.oa-video-key-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 8px;align-items:center}
+.oa-video-key-form label{grid-column:1/-1;margin:0}
+.oa-video-key-form input{min-width:0;margin:0}
 .oa-video-relay-heading,.oa-video-relay-footer{display:flex;align-items:center;gap:6px 9px;flex-wrap:wrap}
 .oa-video-relay-heading img{width:70px;height:auto;object-fit:contain;border-radius:4px;background:#fff}
 .oa-video-relay-heading h2{margin:0;font-size:15px}
-#videoRelayForm{display:grid;grid-template-columns:minmax(0,1fr);gap:5px;margin-top:10px}
-#videoRelayForm :is(label,input){min-width:0;margin:0}
+:is(#videoRelayForm,.oa-video-tokenhex-form){display:grid;grid-template-columns:minmax(0,1fr);gap:5px;margin-top:10px}
+:is(#videoRelayForm,.oa-video-tokenhex-form) :is(label,input,select){min-width:0;margin:0}
 #videoRelayOriginHint{margin:0 0 3px;font-size:12px}
 .oa-video-relay-footer{justify-content:space-between;margin-top:3px}
 .oa-video-relay-footer p{margin:0;font-size:12px;color:var(--muted)}
@@ -160,7 +166,7 @@ STYLE = '''
 @media(max-width:550px) and (max-height:510px){
  #videoProjectPage{grid-template-rows:auto 92px minmax(210px,1fr)}
 }
-@media(max-width:450px){#videoCredentialForm{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:450px){.oa-video-key-form{grid-template-columns:minmax(0,1fr)}}
 '''
 
 SCRIPT = r'''
@@ -204,7 +210,7 @@ const OAVideoWorkspace = (call, credential, openBilling) => {
    const usage=row.usage||{};
    const fields=[['生成 Token {0}',usage.completion_tokens??usage.total_tokens],
                  ['联网搜索 {0} 次',usage.tool_usage?.web_search]];
-   if(row.model==='MiniMax-H3'){
+   if(row.provider_site){
      if(Number.isFinite(usage.output_seconds))label('输出 {0} 秒',usage.output_seconds);
      if(Number.isSafeInteger(usage.input_image_count))label('输入 {0} 张图',usage.input_image_count);
    }
@@ -220,7 +226,7 @@ const OAVideoWorkspace = (call, credential, openBilling) => {
      const amount=new Intl.NumberFormat(undefined,{style:'currency',currency:row.list_price_usd!==undefined?'USD':'CNY'}).format(estimate);
      label('刊例估算 {0}',amount);
    }
-   if(row.model==='MiniMax-H3-Relay')return;
+   if(row.model==='MiniMax-H3-Relay'||row.provider==='tokenhex')return;
    const billing=document.createElement('button');billing.type='button';
    OAUI.set(billing,'查看实际账单');
    billing.onclick=async()=>{try{await openBilling(row.provider_site);}catch(_){notice('当前宿主无法打开账单。');}};
@@ -350,9 +356,9 @@ const OAVideoWorkspace = (call, credential, openBilling) => {
    const ready=versions.filter(row=>row.asset);
    primary.replaceChildren();compare.replaceChildren();
    const counts=new Map();
-   const names={frames:'首尾帧',first:'单首帧',last:'单尾帧',text:'文字生成',reference:'多图参考',edit:'修改画面',extend:'延长镜头',workflow:'AutoDL · MiniMax H3'};
+   const names={frames:'首尾帧',first:'单首帧',last:'单尾帧',text:'文字生成',reference:'多图参考',subject:'主体参考',edit:'修改画面',extend:'延长镜头',workflow:'AutoDL · MiniMax H3'};
    for(const row of [...ready].reverse()){
-     const kind=row.mode||'frames';
+     const kind=row.provider==='tokenhex'?'tokenhex':row.mode||'frames';
      counts.set(kind,(counts.get(kind)||0)+1);
      row.displayVersion=counts.get(kind);
    }
@@ -360,7 +366,7 @@ const OAVideoWorkspace = (call, credential, openBilling) => {
      for(const select of [primary,compare]){
        const option=document.createElement('option');
        option.value=row.generation_attempt_id;
-       const modelName=row.model==='MiniMax-H3-Relay'?'AutoDL · MiniMax H3':names[row.mode]||'首尾帧';
+       const modelName=row.provider==='tokenhex'?'Token Hex · 方舟视频':row.model==='MiniMax-H3-Relay'?'AutoDL · MiniMax H3':names[row.mode]||'首尾帧';
        OAUI.set(option,'{0} · 第 {1} 版',OAUI.message(modelName),row.displayVersion);
        select.append(option);
      }

@@ -15,7 +15,21 @@ MODEL = 'doubao-seedance-2-5-260628'
 MINI = 'doubao-seedance-2-0-mini-260615'
 PRO = 'doubao-seedance-1-0-pro-250528'
 STANDARD = 'doubao-seedance-2-0-260128'
-SUPPORTED_MODELS = (MODEL, MINI, PRO, STANDARD)
+FLASH = 'doubao-seedance-2-5-flash-261115'
+FAST = 'doubao-seedance-2-0-fast-260128'
+PRO_FAST = 'doubao-seedance-1-0-pro-fast-251015'
+ARK_RATIOS = ('21:9', '16:9', '4:3', '1:1', '3:4', '9:16')
+MODERN_MODES = ('text', 'first', 'frames', 'reference', 'edit', 'extend')
+ARK_MODELS = {
+    MODEL: (MODERN_MODES, 4, 30, ('480p', '720p', '1080p', '4k'), True),
+    FLASH: (MODERN_MODES, 4, 30, ('480p', '720p'), True),
+    STANDARD: (MODERN_MODES, 4, 15, ('480p', '720p', '1080p', '4k'), True),
+    FAST: (MODERN_MODES, 4, 15, ('480p', '720p'), True),
+    MINI: (MODERN_MODES, 4, 15, ('480p', '720p'), True),
+    PRO: (('text', 'first', 'frames'), 2, 12, ('480p', '720p', '1080p'), False),
+    PRO_FAST: (('text', 'first'), 2, 12, ('480p', '720p', '1080p'), False),
+}
+SUPPORTED_MODELS = tuple(ARK_MODELS)
 TASKS = 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks'
 RESULT_HOSTS = frozenset({'ark-content-generation-cn-beijing.tos-cn-beijing.volces.com',
                           'ark-acg-cn-beijing.tos-cn-beijing.volces.com'})
@@ -87,26 +101,28 @@ def validate_model(model):
 
 
 def request_body(prompt, frames, *, model=MODEL, mode='frames', duration=5, resolution='720p',
-                 audio=False, reference=None, direction=None):
+                 audio=False, reference=None, direction=None, ratio='adaptive'):
     validate_model(model)
-    if mode not in {'frames', 'text', 'reference', 'edit', 'extend'} or (mode != 'frames' and model != MODEL):
+    modes, minimum, maximum, resolutions, supports_audio = ARK_MODELS[model]
+    if mode not in modes:
         raise WCEError('VIDEO_MODE_UNSUPPORTED')
-    if type(duration) is not int or (duration != -1 and not 4 <= duration <= 30):
+    if type(duration) is not int or not minimum <= duration <= maximum and not (
+            duration == -1 and supports_audio):
         raise WCEError('VIDEO_DURATION_INVALID')
-    if resolution not in ('480p', '720p', '1080p') or type(audio) is not bool:
-        raise WCEError('VIDEO_OUTPUT_INVALID')
-    if model != MODEL and (duration, resolution, audio) != (5, '720p', False):
+    if resolution not in resolutions or type(audio) is not bool or (audio and not supports_audio):
         raise WCEError('VIDEO_OUTPUT_UNSUPPORTED')
+    if ratio not in ('adaptive', *ARK_RATIOS):
+        raise WCEError('VIDEO_OUTPUT_INVALID')
     if mode == 'edit' and duration != -1 or mode == 'extend' and direction not in ('before','after'):
         raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
-    minimum, maximum = {'frames': (2, 2), 'reference': (1, MAX_REFERENCE_IMAGES)}.get(mode, (0, 0))
+    minimum, maximum = {'first': (1, 1), 'frames': (2, 2), 'reference': (1, MAX_REFERENCE_IMAGES)}.get(mode, (0, 0))
     if not minimum <= len(frames) <= maximum or (mode in ('edit', 'extend')) != bool(reference):
         raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
     if mode == 'extend':
         side = '向前' if direction == 'before' else '向后'
         prompt = f'将参考视频{side}延长。{prompt}'
     content = [{'type': 'text', 'text': prompt}]
-    roles = ('first_frame', 'last_frame') if mode == 'frames' else ('reference_image',) * len(frames)
+    roles = ('first_frame', 'last_frame')[:len(frames)] if mode in ('first', 'frames') else ('reference_image',) * len(frames)
     for role, (mime, raw) in zip(roles, frames, strict=True):
         encoded = base64.b64encode(raw).decode('ascii')
         content.append({'type': 'image_url', 'role': role,
@@ -114,13 +130,13 @@ def request_body(prompt, frames, *, model=MODEL, mode='frames', duration=5, reso
     if reference:
         content.append({'type': 'video_url', 'role': 'reference_video', 'video_url': {'url': reference}})
     value = {'model': model, 'content': content, 'duration': duration, 'resolution': resolution,
-             'ratio': 'adaptive'}
-    if model != PRO:
+             'ratio': ratio}
+    if supports_audio:
         value['generate_audio'] = audio
-    if model == MODEL:
+    if model in (MODEL, FLASH):
         value['output_format'] = 'mp4'
-        if mode in ('reference', 'edit', 'extend'):
-            value['omni_reference_task_type'] = mode
+    if mode in ('reference', 'edit', 'extend'):
+        value['omni_reference_task_type'] = mode
     raw = json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode()
     if len(raw) > MAX_REQUEST:
         raise WCEError('VIDEO_REQUEST_TOO_LARGE')
