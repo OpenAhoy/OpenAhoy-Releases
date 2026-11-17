@@ -5,14 +5,50 @@ import json
 from .contracts import WCEError
 from .management_locale import FALLBACK, mark_chrome
 
-STYLE = '''
-#softwareUpdateSlot:empty{display:none}.oa-software-update{display:flex;flex-direction:column;gap:8px;padding:10px 0;margin:0;border-block:1px solid var(--line,#dce4e1);font-size:11px;line-height:1.5;min-width:0}
-.oa-update-copy{min-width:0;display:flex;flex-direction:column;gap:4px}.oa-update-version{font-weight:600;overflow-wrap:anywhere}.oa-update-latest,.oa-update-status{color:var(--muted,#61746c);overflow-wrap:anywhere}.oa-update-status:empty{display:none}.oa-software-update[data-update-available="true"]{border-color:var(--accent,#026364)}
-.oa-update-actions{display:flex;flex-direction:column;gap:6px}.oa-update-actions button{width:100%;font-size:11px;min-height:30px;padding:4px 8px;white-space:nowrap}.oa-update-actions .oa-update-start{background:var(--accent,#026364);color:#fff;border-color:transparent}
-@media(max-width:799px),(max-height:599px){.oa-sidebar{display:grid;grid-template-columns:112px minmax(0,1fr);align-items:start}.oa-sidebar #softwareUpdateSlot{width:100%}.oa-sidebar>div:last-child{grid-column:1/-1}.oa-software-update{padding:8px 0}.oa-update-actions{flex-direction:row;flex-wrap:wrap}.oa-update-actions button{width:auto}}
-'''
+STYLE = """
+#softwareUpdateSlot:empty{display:none}
+.oa-management .oa-software-update{--update-text:#075536;--update-bg:#d9f4e5;--update-hover:#c5ecd7;display:grid;gap:8px;min-width:0;padding:10px;border:0;border-radius:10px;background:var(--soft);box-shadow:none;font-size:11px;line-height:1.45}
+body.oa-management[data-color-scheme=dark] .oa-software-update{--update-text:#b7f5d2;--update-bg:#18392b;--update-hover:#234d38}
+@media(prefers-color-scheme:dark){body.oa-management:not([data-color-scheme=light]) .oa-software-update{--update-text:#b7f5d2;--update-bg:#18392b;--update-hover:#234d38}}
+.oa-update-version{font-size:12px;font-weight:700;color:var(--ink)}
+.oa-update-versions{margin:0;display:grid;gap:4px;font-variant-numeric:tabular-nums}
+.oa-update-versions div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1px 8px}
+.oa-update-versions dt{color:var(--muted)}.oa-update-versions dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+.oa-update-status,.oa-update-job{margin:0;overflow-wrap:anywhere}
+.oa-update-status:empty,.oa-update-job:empty{display:none}
+.oa-update-status{color:var(--ink)}
+.oa-software-update[data-discovery="UPDATE_AVAILABLE"] .oa-update-status{color:var(--update-text);font-weight:650}
+.oa-update-job{color:var(--ink);border-top:1px solid var(--line);padding-top:7px}
+.oa-update-technical,.oa-update-history{margin:0;color:var(--muted);overflow-wrap:anywhere}
+.oa-update-actions{display:flex;flex-wrap:wrap;align-items:center;gap:3px 8px}
+.oa-management .oa-software-update .oa-update-actions button{min-width:0;max-width:100%;min-height:26px;padding:3px 4px;border:0;background:transparent;color:var(--ink);font-size:11px;line-height:1.35;text-align:left;white-space:normal;box-shadow:none}
+.oa-management .oa-software-update .oa-update-actions button:not(:disabled):hover{text-decoration:underline}
+.oa-management .oa-software-update .oa-update-actions button:disabled{opacity:1;color:var(--muted);cursor:default}
+.oa-management .oa-software-update .oa-update-actions button.oa-update-start{width:100%;padding:5px 8px;background:var(--update-bg)!important;color:var(--update-text)!important;font-weight:700;text-align:center;border-radius:6px}
+.oa-management .oa-software-update .oa-update-actions button.oa-update-start:not(:disabled):hover{background:var(--update-hover)!important;text-decoration:none}
+.oa-management .oa-software-update .oa-update-actions button:focus-visible{outline:2px solid var(--update-text);outline-offset:2px}
+@media(max-width:799px),(max-height:599px){.oa-management .oa-sidebar #softwareUpdateSlot{width:100%;min-width:0}}
+@media(max-width:420px){.oa-management .oa-sidebar #softwareUpdateSlot{grid-column:1/-1;grid-row:2}}
+"""
 
-UPDATE_HTML = '''<div class="oa-update-copy"><span class="oa-update-version"></span><span class="oa-update-latest" role="status" aria-live="polite"></span><span class="oa-update-status" role="status" aria-live="polite">正在连接更新检查…</span><details class="oa-update-history" hidden><summary>更新历史</summary><span></span></details></div><div class="oa-update-actions"><button type="button" class="oa-update-check" disabled>检查更新</button><button type="button" class="oa-update-start" hidden disabled>立即升级</button><button type="button" class="oa-update-help" hidden>查看升级与恢复方法</button></div>'''
+UPDATE_HTML = """
+<strong class="oa-update-version">OpenAhoy</strong>
+<dl class="oa-update-versions">
+ <div><dt>当前运行</dt><dd class="oa-update-running"></dd></div>
+ <div class="oa-update-installed-row" hidden><dt>已安装</dt><dd></dd></div>
+ <div><dt>最新稳定版</dt><dd class="oa-update-latest"></dd></div>
+</dl>
+<p class="oa-update-status" role="status">正在连接更新检查…</p>
+<p class="oa-update-job" role="status"></p>
+<details class="oa-update-technical" hidden><summary>技术详情</summary><p class="oa-update-check-detail"></p><p class="oa-update-job-detail"></p></details>
+<details class="oa-update-history" hidden><summary>更新历史</summary><span></span></details>
+<div class="oa-update-actions">
+ <button type="button" class="oa-update-start" hidden disabled>立即升级</button>
+ <button type="button" class="oa-update-check" disabled>检查更新</button>
+ <button type="button" class="oa-update-receipt" hidden disabled>查看升级状态</button>
+ <button type="button" class="oa-update-help" hidden>查看升级与恢复方法</button>
+</div>
+"""
 
 SCRIPT = FALLBACK + r'''
 window.OASoftwareUpdates={mount(rpc,installed){
@@ -22,16 +58,17 @@ window.OASoftwareUpdates={mount(rpc,installed){
  const box=document.createElement('section');box.className='oa-software-update';ui.attr(box,'aria-label','OpenAhoy 软件更新');box.dataset.state='NOT_CHECKED';
  box.innerHTML=__UPDATE_HTML__;
  const slot=document.getElementById('softwareUpdateSlot');if(!slot)throw new Error('UPDATE_VIEW_UNAVAILABLE');slot.append(box);ui.scan?.(box);
- const version=box.querySelector('.oa-update-version'),status=box.querySelector('.oa-update-status'),checkButton=box.querySelector('.oa-update-check'),startButton=box.querySelector('.oa-update-start');
- const stable=box.querySelector('.oa-update-latest');
- ui.set(stable,'尚未检查最新稳定版');
- version.textContent='OpenAhoy '+installed;
- const helpButton=box.querySelector('.oa-update-help');
- const history=box.querySelector('.oa-update-history');
+ const node=suffix=>box.querySelector('.oa-update-'+suffix);
+ const status=node('status'),jobStatus=node('job'),checkButton=node('check'),startButton=node('start'),receiptButton=node('receipt');
+ const stable=node('latest'),installedRow=node('installed-row'),helpButton=node('help'),history=node('history');
+ const technical=node('technical'),checkDetail=node('check-detail'),jobDetail=node('job-detail');
+ ui.set(stable,'待检查');
+ ui.raw(node('running'),installed);
  const pendingKey='OpenAhoy.softwareUpdate.pending.'+installed;
  const requestPattern=/^[0-9a-f]{32}$/;
+ const recheckAfter=30*60*1000;
  let ready=false,closed=false,checking=false,starting=false,reading=false,latest=null,job='STATUS_UNAVAILABLE',pollTimer;
- let pendingRequest=null,canOpenLinks=false;
+ let pendingRequest=null,canOpenLinks=false,blurred=false,lastCheckAt=null,lastStable=null;
  try{
   const stored=sessionStorage.getItem(pendingKey);
   if(requestPattern.test(stored))pendingRequest=stored;
@@ -48,12 +85,27 @@ window.OASoftwareUpdates={mount(rpc,installed){
  const compare=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<3;i++){if(x[i]!==y[i])return x[i]>y[i]?1:-1;}return 0;};
  function buttons(){
   const busy=starting||active.has(job);
-  checkButton.disabled=!ready||closed||checking||reading||busy;
+  checkButton.disabled=!ready||closed||checking;
+  receiptButton.hidden=job==='IDLE';
+  receiptButton.disabled=!ready||closed||reading||starting;
   startButton.hidden=!latest||busy||terminal.has(job)||Boolean(pendingRequest);
   startButton.disabled=!ready||closed||checking||reading||startButton.hidden;
-  box.dataset.updateAvailable=String(!startButton.hidden);
  }
- function say(text,state,...values){ui.set(status,text,...values);box.dataset.state=state;buttons();}
+ function sayJob(text,state,...values){ui.set(jobStatus,text,...values);box.dataset.state=state;paintAvailable();buttons();}
+ function paintAvailable(){
+  if(box.dataset.discovery!=='UPDATE_AVAILABLE')return;
+  const awaitingRestart=job==='INSTALLED_RELOAD_REQUIRED';
+  const installedPending=installedRow.querySelector('dd').textContent;
+  const blocked=starting||active.has(job)||terminal.has(job)||Boolean(pendingRequest);
+  const text=awaitingRestart&&installedPending===lastStable?'已安装最新稳定版':
+    blocked?'发现新版本':'有新版本可升级';
+  ui.set(status,text);
+ }
+ function detail(node,code){
+  ui.raw(node,code||'');node.hidden=!code;
+  technical.hidden=checkDetail.hidden&&jobDetail.hidden;
+  if(technical.hidden)technical.open=false;
+ }
  function valid(value){
   if(!value||typeof value!=='object'||Array.isArray(value)||value.repository!==repository||value.installed_version!==installed)return false;
   if(value.state==='CHECK_UNAVAILABLE')return true;
@@ -68,56 +120,57 @@ window.OASoftwareUpdates={mount(rpc,installed){
   CARRIER_LIMIT:'更新响应过大',INVALID_VERSION:'已安装版本信息无效',PROCESS_TIMEOUT:'本机更新查询超时',
   LOCAL_PROCESS_ERROR:'本机更新进程不可用',UNAVAILABLE:'更新查询暂不可用'
  };
- function checkUnavailable(preserve,code){
+ function checkUnavailable(code){
   latest=null;
-  const reason=typeof code==='string'&&Object.hasOwn(checkErrors,code)
-    ?ui.message('{0}（{1}）。可在“诊断日志”查看安全记录。',ui.message(checkErrors[code]),code)
-    :ui.message('暂时无法检查更新，请稍后重试。');
-  if(preserve)ui.set(stable,'最新稳定版暂不可获取。{0}',reason);
-  else{
-   ui.set(stable,'最新稳定版暂不可获取');
-   say('{0}','CHECK_UNAVAILABLE',reason);
-  }
+  const known=typeof code==='string'&&Object.hasOwn(checkErrors,code);
+  if(lastStable)ui.set(stable,'{0}（上次查到）',lastStable);
+  else ui.set(stable,'暂不可获取');
+  box.dataset.discovery='CHECK_UNAVAILABLE';
+  ui.set(status,known?checkErrors[code]:'暂时无法检查更新，请稍后重试。');
+  detail(checkDetail,known?code:'UPDATE_CHECK_FAILED');
  }
- async function check(preserve=false){
-  if(!ready||closed||checking||starting||active.has(job))return;
-  checking=true;latest=null;ui.set(stable,'正在检查稳定版本…');
-  if(!preserve)say('','CHECKING');
-  else buttons();
+ async function check(){
+  if(!ready||closed||checking)return;
+  checking=true;lastCheckAt=Date.now();latest=null;
+  box.dataset.discovery='CHECKING';
+  ui.set(status,'正在检查稳定版本…');buttons();
   try{
    const reply=await rpc('tools/call',{name:'wce.ui.updates.check',arguments:{}});if(closed)return;
    const value=reply?.structuredContent;if(reply?.isError||!valid(value))throw new Error('UPDATE_CHECK_FAILED');
-   if(value.state==='CHECK_UNAVAILABLE'){checkUnavailable(preserve,value.diagnostic?.code);return;}
-   ui.set(stable,'最新稳定版 {0}',value.latest_version);
+   if(value.state==='CHECK_UNAVAILABLE'){checkUnavailable(value.diagnostic?.code);return;}
+   lastStable=value.latest_version;ui.raw(stable,lastStable);detail(checkDetail,null);
    latest=value.state==='UPDATE_AVAILABLE'?value:null;
-   if(preserve||terminal.has(job))return;
-   helpButton.hidden=true;
-   if(value.state==='DEVELOPMENT_AHEAD')say('当前为较新的开发版本，不会降级。','DEVELOPMENT_AHEAD');
-   else say('',value.state);
-  }catch(_){if(!closed)checkUnavailable(preserve);}
+   box.dataset.discovery=value.state;
+   const summary={
+    UP_TO_DATE:'当前已是最新版本',
+    DEVELOPMENT_AHEAD:'当前运行的是较新的开发版本。'
+   };
+   if(latest)paintAvailable();else ui.set(status,summary[value.state]);
+  }catch(_){if(!closed)checkUnavailable();}
   finally{checking=false;if(!closed)buttons();}
  }
  const messages={
   CHECKING:'正在核对已选版本…',DOWNLOADING:'正在下载更新…',VERIFYING:'正在校验更新文件…',
   STAGED:'更新文件已校验，正在准备安装…',
   WAITING_FOR_IDLE:'正在等待 OpenAhoy 业务空闲…',INSTALLING:'正在通过 Codex 安装…',
-  INSTALLED_RELOAD_REQUIRED:'升级完成。请结束当前任务后重启 Codex。',
-  LOADED:'已加载 OpenAhoy {0}',
-  INSTALL_UNKNOWN:'安装结果待核实（{0}）。',
+  INSTALLED_RELOAD_REQUIRED:'重启 Codex 后启用 {0}。',
+  LOADED:'新版本已启用。',
+  INSTALL_UNKNOWN:'上次安装结果待核实。确认后可继续升级。',
   INTERRUPTED:'升级已中断，可重新检查版本。',
   DOWNLOADED_NOT_INSTALLED:'更新文件已下载，安装尚未开始。可以继续升级。',
   BUSY:'升级等待业务空闲后停止。确认任务已结束后，可继续升级。',
-  FAILED:'升级未完成（{0}）。',
-  START_REJECTED:'升级未启动（{0}）。'
+  FAILED:'升级未完成。',
+  START_REJECTED:'升级未启动。'
  };
  function renderJob(value){
   if(!value||!(value.state==='IDLE'||Object.hasOwn(messages,value.state)))throw new Error('UPDATE_STATUS_INVALID');
   if(value.state==='INSTALLED_RELOAD_REQUIRED'&&
      (!versionPattern.test(value.version)||compare(value.version,installed)<=0))throw new Error('UPDATE_STATUS_INVALID');
   job=value.state;
-  if(job==='INSTALLED_RELOAD_REQUIRED')ui.set(version,'OpenAhoy {0} · 已安装 {1}',installed,value.version);
-  else ui.raw(version,'OpenAhoy '+installed);
+  installedRow.hidden=job!=='INSTALLED_RELOAD_REQUIRED';
+  ui.raw(installedRow.querySelector('dd'),installedRow.hidden?'':value.version);
   helpButton.hidden=true;
+  detail(jobDetail,null);
   const old=value.history;
   const historyText={
    CONNECTION_NOT_COMMITTED:'{0} 的一次升级曾因公众号绑定检查停止。',
@@ -131,40 +184,47 @@ window.OASoftwareUpdates={mount(rpc,installed){
   history.hidden=!['LOADED','INSTALLED_RELOAD_REQUIRED'].includes(job)||
    !Object.hasOwn(historyText,old?.code)||!versionPattern.test(old?.version);
   if(!history.hidden)ui.set(history.querySelector('span'),historyText[old.code],old.version);
-  ui.set(checkButton,terminal.has(job)?'查看升级状态':'检查更新');
-  if(job==='IDLE'){buttons();return;}
+  if(job==='IDLE'){sayJob('',job);return;}
   const code=typeof value.code==='string'&&/^(UPDATE|CONNECTION)_[A-Z0-9_]{1,65}$/.test(value.code)
-    ? value.code : 'UPDATE_STATUS_UNAVAILABLE';
+    ? value.code : null;
+  detail(jobDetail,code);
+  if(job==='INSTALL_UNKNOWN'||(job==='FAILED'&&['CONNECTION_NOT_COMMITTED','UPDATE_ACTIVITY_UNVERIFIED'].includes(code))){
+   helpButton.hidden=!canOpenLinks;
+  }
   if(job==='FAILED'&&code==='CONNECTION_NOT_COMMITTED'){
-   helpButton.hidden=!canOpenLinks;
-   say('公众号绑定校验未通过（{0}）。请查看升级与恢复说明，可从原 Codex 市场登记升级。',job,code);
-   return;
-  }
-  if(job==='FAILED'&&code==='UPDATE_ACTIVITY_UNVERIFIED'){
-   helpButton.hidden=!canOpenLinks;
-   say('无法确认后台是否空闲（{0}）。请查看升级说明。',job,code);
-   return;
-  }
-  if(job==='DOWNLOADING'&&Number.isSafeInteger(value.total)&&value.total>0&&
+   sayJob('公众号绑定校验未通过。可从原 Codex 市场升级。',job);
+  }else if(job==='FAILED'&&code==='UPDATE_ACTIVITY_UNVERIFIED'){
+   sayJob('暂时无法确认后台是否空闲。',job);
+  }else if(job==='DOWNLOADING'&&Number.isSafeInteger(value.total)&&value.total>0&&
      Number.isSafeInteger(value.downloaded)&&value.downloaded>=0&&value.downloaded<=value.total){
-   say('正在下载更新 {0}%',job,Math.floor(value.downloaded*100/value.total));
+   sayJob('正在下载更新 {0}%',job,Math.floor(value.downloaded*100/value.total));
   }else if(job==='FAILED'&&value.downloaded===true){
-   say('更新文件已下载，安装未完成（{0}）。',job,code);
+   sayJob('更新文件已下载，安装未完成。',job);
   }else{
-   const coded=job==='FAILED'||job==='INSTALL_UNKNOWN'||job==='START_REJECTED';
-   say(messages[job],job,coded?code:value.version||installed);
+   sayJob(messages[job],job,value.version||installed);
   }
  }
  function statusUnavailable(){
+  // Keep a verified install awaiting restart visible if a later read fails.
+  if(job==='INSTALLED_RELOAD_REQUIRED'){
+   detail(jobDetail,'UPDATE_STATUS_UNAVAILABLE');return;
+  }
   job=pendingRequest?'START_UNCONFIRMED':'STATUS_UNAVAILABLE';
-  helpButton.hidden=true;
-  ui.set(checkButton,'查看升级状态');
-  say(pendingRequest?'升级请求的结果尚未确认。正在查询原请求。':'暂时无法读取升级进度。',job);
+  installedRow.hidden=true;history.hidden=true;
+  helpButton.hidden=!canOpenLinks;
+  detail(jobDetail,'UPDATE_STATUS_UNAVAILABLE');
+  sayJob(pendingRequest?'升级请求的结果尚未确认。正在查询原请求。':'暂时无法读取升级进度。',job);
  }
- function schedule(delay=650){clearTimeout(pollTimer);if(!closed)pollTimer=setTimeout(()=>void statusPoll(),delay);}
- async function statusPoll(refresh=false){
+ const visible=()=>document.visibilityState!=='hidden';
+ const canPoll=()=>!closed&&visible()&&!blurred;
+ function schedule(delay=650){
+  clearTimeout(pollTimer);
+  if(canPoll())pollTimer=setTimeout(()=>void statusPoll(),delay);
+ }
+ async function statusPoll(){
   if(closed||reading||starting)return;
   clearTimeout(pollTimer);
+  const wasActive=active.has(job);
   reading=true;buttons();
   try{
    const result=await rpc('tools/call',{name:'wce.ui.updates.install',arguments:{action:'status'}});
@@ -172,26 +232,22 @@ window.OASoftwareUpdates={mount(rpc,installed){
    if(result?.isError)throw new Error('UPDATE_STATUS_UNAVAILABLE');
    const value=result?.structuredContent;
    if(pendingRequest&&value?.request_id!==pendingRequest){
-    if(refresh)checkUnavailable(true);
     statusUnavailable();schedule(3000);return;
    }
    renderJob(value);
    if(pendingRequest)remember(null);
    if(active.has(job))schedule();
-   else if((!terminal.has(job)&&(refresh||!latest))||(refresh&&job==='INSTALLED_RELOAD_REQUIRED')){
-    await check(job!=='IDLE');
-   }
   }catch(_){
    if(closed)return;
-   if(refresh)checkUnavailable(true);
-   statusUnavailable();schedule(3000);
+   statusUnavailable();
+   if(pendingRequest||wasActive)schedule(3000);
   }finally{reading=false;if(!closed)buttons();}
  }
  async function start(event){
-  if(!event.isTrusted||!ready||closed||checkButton.disabled||!latest||terminal.has(job))return;
+  if(!event.isTrusted||!ready||closed||startButton.disabled||startButton.hidden||!latest)return;
   const request=Array.from(crypto.getRandomValues(new Uint8Array(16)),byte=>byte.toString(16).padStart(2,'0')).join('');
   const chosen=latest;
-  starting=true;remember(request);job='CHECKING';say(messages.CHECKING,job);
+  starting=true;remember(request);job='CHECKING';sayJob(messages.CHECKING,job);
   try{
    const result=await rpc('tools/call',{name:'wce.ui.updates.install',arguments:{
     action:'start',version:chosen.latest_version,revision:chosen.advertised_revision,request_id:request}});
@@ -210,7 +266,20 @@ window.OASoftwareUpdates={mount(rpc,installed){
   }catch(_){if(!closed){statusUnavailable();schedule();}}
   finally{starting=false;if(!closed)buttons();}
  }
- checkButton.addEventListener('click',()=>void statusPoll(true));
+ function resume(){
+  if(!ready||closed||!visible())return;
+  if(lastCheckAt===null||Date.now()-lastCheckAt>=recheckAfter)void check();
+  if(pendingRequest||active.has(job))schedule(0);
+ }
+ function visibilityChanged(){if(visible())resume();else clearTimeout(pollTimer);}
+ function focus(){blurred=false;resume();}
+ function blur(){blurred=true;clearTimeout(pollTimer);}
+ const listeners=[
+  [document,'visibilitychange',visibilityChanged],[window,'pageshow',resume],
+  [window,'focus',focus],[window,'blur',blur]
+ ];
+ checkButton.addEventListener('click',()=>void check());
+ receiptButton.addEventListener('click',()=>void statusPoll());
  startButton.addEventListener('click',start);
  helpButton.addEventListener('click',event=>{
   if(event.isTrusted&&canOpenLinks)void rpc('ui/open-link',{
@@ -218,10 +287,16 @@ window.OASoftwareUpdates={mount(rpc,installed){
   }).catch(()=>{});
  });
  return {ready(capabilities){
-   if(closed)return;
+   if(closed||ready)return;
    canOpenLinks=Boolean(capabilities?.openLinks);
-   ready=true;buttons();void statusPoll(true);
-  },dispose(){closed=true;ready=false;clearTimeout(pollTimer);buttons();}};
+   ready=true;
+   for(const [target,event,listener] of listeners)target.addEventListener(event,listener);
+   void statusPoll();resume();
+  },dispose(){
+   closed=true;ready=false;clearTimeout(pollTimer);
+   for(const [target,event,listener] of listeners)target.removeEventListener(event,listener);
+   buttons();
+  }};
 
 }};
 '''
@@ -237,7 +312,7 @@ def decorate(value, installed_version, uri):
         "const $=id=>document.getElementById(id),bridge=window.parent,pending=new Map();":
             "const $=id=>document.getElementById(id),bridge=window.parent,pending=new Map();\n const softwareUpdates=OASoftwareUpdates.mount(rpc," + json.dumps(installed_version).replace('<', '\\u003c') + ');',
         'function dispose(){': 'function dispose(){softwareUpdates.dispose();',
-        'buttons();await refresh();': 'buttons();await refresh();softwareUpdates.ready(hostCapabilities);',
+        'buttons();await refresh();': 'softwareUpdates.ready(hostCapabilities);buttons();await refresh();',
     }
     for before, after in seams.items():
         if text.count(before) != 1:
