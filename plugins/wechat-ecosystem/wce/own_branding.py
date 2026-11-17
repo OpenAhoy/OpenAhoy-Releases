@@ -26,6 +26,14 @@ def icons():
     return result
 
 
+@cache
+def host_icons():
+    return tuple({'src': 'data:image/png;base64,' +
+                         base64.b64encode((_ASSETS / f'openahoy-host-{theme}-128.png').read_bytes()).decode('ascii'),
+                  'mimeType': 'image/png', 'sizes': ['128x128'], 'theme': theme}
+                 for theme in ('light', 'dark'))
+
+
 def header(artwork=HORIZONTAL):
     # Pages have a fixed light background, independent of the host theme.
     # Artwork includes its wordmark; a second text label would duplicate it.

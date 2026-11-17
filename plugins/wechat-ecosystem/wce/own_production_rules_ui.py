@@ -250,7 +250,7 @@ JS = r'''
     async function save(configuration=null) {
       if(!ready||busy||!meta)return;
       if(configuration?.kind!=='configuration')configuration=null;
-      const epoch=generation,target=base(),values=configuration?Object.fromEntries(fields.map(field=>[field,{text:configuration.fields[field],inherit:configuration.inherited?.[field]??false}])):inputs();busy=true;buttons();
+      const epoch=generation,target=base(),values=configuration?Object.fromEntries(fields.map(field=>[field,{text:configuration.fields[field],inherit:configuration.inherited?.[field]??false}])):inputs();busy=true;buttons();$('rulesSave').setAttribute('aria-busy','true');
       let op=pendingSave,begun=false,keepEdits=!!configuration?.editorBuffer,confirmed=false,failure='';const resuming=!!op,outcome={confirmed:false,verified:false,pending:false,failure:''};
       const checkImport=()=>{const context=op?.configuration||configuration;if(context&&!context.valid())throw new Error('RULES_CONFIG_TARGET_CHANGED');};
       const committed=()=>{confirmed=true;if(op.configuration)verifications.set(target.connection_id,op.configuration);else verifications.delete(target.connection_id);};
@@ -306,6 +306,7 @@ JS = r'''
           }else status('保存未完成：'+error.message);
         }
       } finally {
+        $('rulesSave').removeAttribute('aria-busy');
         if(epoch===generation){busy=false;buttons();if(!pendingSave){
           const context=op?.configuration||configuration,read=await load(keepEdits||!!context?.editorBuffer);
           outcome.verified=!!(confirmed&&context&&read&&fields.every(field=>read.combined[field]===context.fields[field]&&(context.inherited?.[field]?!Object.hasOwn(read.own,field):read.own[field]===context.fields[field])));

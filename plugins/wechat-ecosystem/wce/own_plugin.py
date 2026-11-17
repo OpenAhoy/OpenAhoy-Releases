@@ -37,12 +37,16 @@ def _mcp_tools(catalog):
     also requires the explicit root type; adding that redundant assertion here
     retains the original alternatives, validation and authorization hashes.
     """
+    from .own_branding import host_icons
+
     rows = deepcopy(catalog)
     for row in rows:
         if row['name'] == 'wce.ui.show_management':
             # Keep the legacy model tool as plain status, with UI reserved for
             # the explicit native thread and global entrypoints.
             row.get('_meta', {}).get('ui', {}).pop('resourceUri', None)
+        if row['name'] == 'wce.settings.manage':
+            row['icons'] = list(host_icons())
         spec = row.get('inputSchema', {})
         if 'type' not in spec and spec.get('oneOf'):
             if not all(branch.get('type') == 'object' for branch in spec['oneOf']):
@@ -335,7 +339,8 @@ class PersonalStdioServer(OperatorStdioServer):
             result['content'] = [{'type': 'text', 'text': text}]
         if (type(message) is dict and message.get('method') == 'initialize'
                 and reply is not None and 'result' in reply):
-            reply['result']['serverInfo'] = _server_info()
+            from .own_branding import host_icons
+            reply['result']['serverInfo'] = {**_server_info(), 'icons': list(host_icons())}
             reply['result']['capabilities'].update({'resources': {}, 'extensions': {
                 'openai/settings': {'readTool': 'wce.settings.read',
                                     'updateTool': 'wce.settings.update'}}})

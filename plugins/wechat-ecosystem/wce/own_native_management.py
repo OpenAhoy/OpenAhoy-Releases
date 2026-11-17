@@ -22,6 +22,7 @@ SCRIPT = r'''
    const menu=document.querySelector(floatingMenus);if(!menu)return;
    event.preventDefault();closeFloatingMenus();menu.querySelector(':scope > summary')?.focus();
  });
+ mountOpenAhoyHints();
  const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.workspace','wce.ui.wechat.storage_recovery']);
 
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
@@ -151,6 +152,7 @@ SCRIPT = r'''
    const p=bindingPlatform(),row=current();
    $('accountBackend').parentElement.hidden=activePlatform!=='wechat_official_account';$('wechatBackendHelp').hidden=activePlatform!=='wechat_official_account';
    $('refresh').disabled=!ready||refreshing||launching;
+   $('refresh').setAttribute('aria-busy',String(refreshing));
    const addLabel=activePlatform==='xiaohongshu'?'扫码绑定小红书':activePlatform==='x'?'绑定 X 账号':'绑定账号';
    OAUI.set($('showAdd'),addLabel);OAUI.attr($('showAdd'),'aria-label',addLabel);
    $('showAdd').disabled=!ready||refreshing||launching||!p?.binding_supported||
@@ -295,7 +297,7 @@ SCRIPT = r'''
    const menu=document.createElement('details'),toggle=document.createElement('summary');
    const actions=document.createElement('div'),rebind=document.createElement('button'),remove=document.createElement('button');
    menu.className='oa-account-menu';
-   toggle.textContent='⋯';OAUI.attr(toggle,'aria-label','{0} 的更多操作',name(row)||row.account_id);
+   toggle.textContent='⋯';toggle.dataset.oaHint='';OAUI.attr(toggle,'aria-label','{0} 的更多操作',name(row)||row.account_id);
    remove.type='button';OAUI.set(remove,'移除账号');
    remove.onclick=()=>{
      if(!ready||closed||refreshing||removing||activePlatform!==row.platform_id)return;
@@ -359,7 +361,7 @@ SCRIPT = r'''
  };
  function card(row,choose=false){
    const el=document.createElement('div');el.className='account';el.style.display='flex';el.dataset.accountKey=key(row);
-   const body=document.createElement('div');body.style.minWidth='0';const title=document.createElement(choose?'button':'strong');title.className=choose?'account-select':'account-title';const display=row.recovery?row.label:name(row);if(display)OAUI.raw(title,display);else OAUI.set(title,'账号资料暂不可用');title.title=display||'';
+   const body=document.createElement('div');body.style.minWidth='0';const title=document.createElement(choose?'button':'strong');title.className=choose?'account-select':'account-title';const display=row.recovery?row.label:name(row);if(display)OAUI.raw(title,display);else OAUI.set(title,'账号资料暂不可用');if(choose)title.dataset.oaOverflow='';
    if(choose){el.tabIndex=0;el.setAttribute('role','option');el.addEventListener('click',e=>{if(!e.target.closest('button,a,summary,.oa-account-menu')){selectionIntent++;select(key(row));}});el.addEventListener('keydown',e=>{if(e.target===el&&['Enter',' '].includes(e.key)){e.preventDefault();selectionIntent++;select(key(row));}});title.setAttribute('aria-pressed',String(key(row)===selected));title.addEventListener('click',()=>{selectionIntent++;select(key(row));});}
    const attribution=document.createElement('span');attribution.className='help';attribution.style.display='block';if(platformName(row.platform_id))OAUI.set(attribution,platformName(row.platform_id));else OAUI.raw(attribution,platform(row.platform_id)?.name||'');
    const state=document.createElement('span');state.className='status'+(['CONNECTED','BOUND','BOUND_IDLE'].includes(row.state)?' good':'');OAUI.set(state,accountState(row));
@@ -748,6 +750,7 @@ def resource():
     from .own_settings_ui import LOGO, STYLE
     from .own_management_ui import HOME_STYLE, STYLE as management_style, native_page_body
     from .management_workspace_ui import NATIVE_FINISH_STYLE
+    from .management_interactions import STYLE as interaction_style, SCRIPT as interaction_script
     from .own_wechat_management import settings_html, settings_script
     from .own_inline_binding_ui import SCRIPT as binding_script
     from .video_inline_ui import SCRIPT as video_script
@@ -767,9 +770,9 @@ def resource():
     html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>OpenAhoy · Platform management</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + gif_style + HOME_STYLE + frame_style + monitor_style + '</style>'
+        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + gif_style + HOME_STYLE + frame_style + monitor_style + interaction_style + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
-        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + monitor_script + x_script + xhs_script + schedule_script + operating_script + project_script + SCRIPT + '</script></body></html>')
+        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + monitor_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
         '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://cdn1.suno.ai',
                                                                  'https://cdn2.suno.ai', 'https://suno-data-uploads.s3.amazonaws.com'], 'frameDomains': []}},

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "wechat-ecosystem",
-  "version": "0.6.79",
+  "version": "0.6.80",
   "description": "OpenAhoy is an account and content workspace for WeChat Official Accounts, X, and Xiaohongshu in Codex.",
   "extensions": {
     "com.openai": {
@@ -10,11 +10,11 @@
         "displayName": "OpenAhoy",
         "shortDescription": "公众号、X 和小红书的账号与内容工作台。",
         "brandColor": "#026364",
-        "composerIcon": "./assets/openahoy-v1/openahoy-symbol-color-256.png",
-        "logo": "./assets/openahoy-v1/openahoy-symbol-color-256.png",
+        "composerIcon": "./assets/openahoy-v1/openahoy-host-light-128.png",
+        "logo": "./assets/openahoy-v1/openahoy-host-light-128.png",
         "brandColorDark": "#FC5B4A",
-        "composerIconDark": "./assets/openahoy-v1/openahoy-symbol-inverse-256.png",
-        "logoDark": "./assets/openahoy-v1/openahoy-symbol-inverse-256.png"
+        "composerIconDark": "./assets/openahoy-v1/openahoy-host-dark-128.png",
+        "logoDark": "./assets/openahoy-v1/openahoy-host-dark-128.png"
       }
     }
   }

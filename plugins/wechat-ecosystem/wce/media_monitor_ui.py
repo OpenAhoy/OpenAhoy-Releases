@@ -134,7 +134,12 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
  function label(tag,name,...values){const node=element(tag);OAUI.set(node,name,...values);return node;}
  function button(name,action){const node=label('button',name);node.type='button';node.onclick=action;return node;}
  function raw(tag,text,cls){const node=element(tag,cls);OAUI.raw(node,text);return node;}
- function badge(row){const node=label('span',stateName[row.group]||stateName.pending);node.className='mm-badge';node.dataset.group=row.group;return node;}
+ function badge(row){
+   const node=label('span',stateName[row.group]||stateName.pending);
+   node.className='mm-badge';node.dataset.group=row.group;
+   if((row.group==='pending'||row.group==='failed')&&stageName[row.state])OAUI.attr(node,'data-oa-hint',stageName[row.state]);
+   return node;
+ }
  function saveSelection(){
    try{sessionStorage.setItem('openahoy.media.monitor',JSON.stringify({kind,selected}));}catch(_){}
  }
@@ -158,7 +163,7 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
    list.replaceChildren();list.setAttribute('aria-busy',String(loading));
    for(const row of visible){
      const node=button('{0}',()=>choose(row,true,true));
-     node.className='mm-row';node.dataset.asset=key(row);node.title=title(row);
+     node.className='mm-row';node.dataset.asset=key(row);node.dataset.oaOverflow='.mm-text strong';node.dataset.oaFullName=title(row);
      node.setAttribute('aria-current',String(key(row)===selected));
      const icon=raw('span',{video:'▸',audio:'♫',gif:'▧'}[row.kind],'mm-thumb');
      icon.setAttribute('aria-hidden','true');thumb(row,icon);
@@ -281,13 +286,13 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
  }
  async function download(event,row,control){
    if(!event.isTrusted||control.disabled)return;
-   control.disabled=true;OAUI.set(control,'正在保存…');
+   control.disabled=true;control.setAttribute('aria-busy','true');OAUI.set(control,'正在保存…');delete control.dataset.state;
    try{
      const result=await invoke(ops[row.family][1],scope(row));
      if(result.state!=='EXPORTED'||result.sha256!==row.asset.sha256||result.bytes!==row.asset.bytes)throw Error('MEDIA_CHANGED');
      OAUI.set(control,'已下载');
-   }catch(_){OAUI.set(control,'下载失败 · 重试');}
-   finally{control.disabled=false;}
+   }catch(_){OAUI.set(control,'下载失败 · 重试');control.dataset.state='error';}
+   finally{control.removeAttribute('aria-busy');control.disabled=false;}
  }
  function jump(ref,run){
    const next=byKey(key(ref));if(!next)return;
@@ -424,7 +429,7 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
        typeof asset.seconds==='number'?message('{0} 秒',fmt(asset.seconds)):null,
        typeof (asset.frames??asset.frame_count)==='number'?message('{0} 帧',fmt(asset.frames??asset.frame_count)):null].filter(Boolean);
      meter.append(label('span','{0}',properties));
-     const save=button('下载原文件',event=>void download(event,row,save));meter.append(save);body.append(meter);
+     const save=button('下载原文件',event=>void download(event,row,save));save.setAttribute('aria-live','polite');meter.append(save);body.append(meter);
    }else body.append(label('p',stageName[row.state]||'记录状态待核实'));
    relationships(row);facts(row);
  }
@@ -446,16 +451,20 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
  async function refresh(){
    if(!active||loading)return;
    loading=true;const request=++readSequence;
-   const control=$('monitorRefresh');control.disabled=true;makeList();
+   const control=$('monitorRefresh');control.disabled=true;control.setAttribute('aria-busy','true');makeList();
    try{
      const result=await invoke('media_monitor',{});
      if(!active||request!==readSequence)return;
      if(!Array.isArray(result.rows))throw Error('MEDIA_READ_FAILED');
      rows=result.rows;readAt=result.read_at;unavailable=result.unavailable||[];
+     delete $('monitorRead').dataset.state;
      OAUI.set($('monitorRead'),unavailable.length?'读取于 {0} · 部分记录不可用':'读取于 {0}',stamp(readAt));
-   }catch(_){if(active&&request===readSequence)OAUI.set($('monitorRead'),readAt?'刷新失败 · 保留 {0} 的记录':'无法读取媒体记录。',readAt?stamp(readAt):'');}
+   }catch(_){if(active&&request===readSequence){
+     $('monitorRead').dataset.state='error';
+     OAUI.set($('monitorRead'),readAt?'刷新失败 · 保留 {0} 的记录':'无法读取媒体记录。',readAt?stamp(readAt):'');
+   }}
    finally{
-     if(active&&request===readSequence){loading=false;control.disabled=false;renderFiltered();}
+     if(active&&request===readSequence){loading=false;control.removeAttribute('aria-busy');control.disabled=false;renderFiltered();}
    }
  }
  for(const control of filters.querySelectorAll('button'))control.onclick=()=>{
@@ -478,7 +487,7 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
    if(active){renderFiltered();return;}
    active=true;loaded='';root.dataset.detail='false';activateSettings(false);void refresh();
  },close(){
-   active=false;loading=false;readSequence++;history=[];clearPlayers();loaded='';activateSuno(false);activateSettings(false);
+   active=false;loading=false;readSequence++;history=[];clearPlayers();loaded='';$('monitorRefresh').removeAttribute('aria-busy');activateSuno(false);activateSettings(false);
  }};
 }
 '''.replace('__SUNO_BRAND__', BRAND)

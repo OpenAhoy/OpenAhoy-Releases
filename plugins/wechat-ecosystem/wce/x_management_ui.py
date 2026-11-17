@@ -261,6 +261,7 @@ window.OAXManagement = {
    const userId=filled?.draft.client_id===input.client_id?filled.draft.user_id
     :saved?.draft.client_id===input.client_id?saved.draft.expected_user_id:null;
    await run(async()=>{
+    $('xSaveApplication').setAttribute('aria-busy','true');
     format().set($('xSaveApplicationStatus'),'正在保存应用资料…');
     try{
      const value=await action('APP_DRAFT_SAVE',{...accountArgs(request),...input,...(userId?{expected_user_id:userId}:{})});
@@ -269,7 +270,7 @@ window.OAXManagement = {
      saved=value;showSaveStatus();
     }catch(_){
      if(target===request)format().set($('xSaveApplicationStatus'),'未确认保存。可重试，或重新打开应用设置检查。');
-    }
+    }finally{$('xSaveApplication').removeAttribute('aria-busy');}
    });
   }
   function openBilling(){billingPanel.open=true;billingPanel.querySelector('summary').focus();billingPanel.scrollIntoView({block:'nearest'});}
