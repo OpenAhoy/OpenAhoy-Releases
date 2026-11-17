@@ -102,8 +102,8 @@ def minimax_cards():
 def native_page_body(logo, platform_settings):
     """Single native workspace; secret input has its own view in this resource."""
     from .own_inline_binding_ui import HTML as binding_html
-    from .video_workspace_ui import HTML as video_html
-    from .openai_gif_ui import HTML as gif_html
+    from .media_monitor_ui import HTML as monitor_html
+    from .openai_gif_ui import SETTINGS_HTML as gif_settings
     from .audio_workspace_ui import HTML as audio_html
     from .own_branding import video_model_mark
     from .own_branding import icons
@@ -200,8 +200,7 @@ def native_page_body(logo, platform_settings):
 <p id="accountRecoveryStatus" role="status"></p>
 </dialog>
 <footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div><section id="mediaStudio" aria-label="媒体工坊" hidden>
-<nav class="oa-media-tabs" aria-label="媒体类型"><button id="openGifWorkspace" type="button">动图</button><button id="openVideoWorkspace" type="button">视频</button><button id="openAudioWorkspace" type="button">音频</button></nav>
-'''+gif_html+video_html.replace('__CREDENTIAL__', credential)+audio_html+'''</section>'''+binding_html+'''</main></div>'''
+'''+monitor_html+'''<div id="monitorComponents" hidden>'''+credential+gif_settings+audio_html+'''</div></section>'''+binding_html+'''</main></div>'''
 
 
 HOME_STYLE = '''

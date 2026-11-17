@@ -1,5 +1,14 @@
 """Independent animated GIF page in the native management app."""
 
+SETTINGS_HTML = '''<section class="oa-gif-key">
+<div class="oa-video-relay-heading"><h2>OpenAI API Key</h2><small>GPT‑Image‑2.6 Flare</small></div>
+<div class="oa-gif-key-controls">
+<input id="videoOpenAIGifCredential" type="password" aria-label="OpenAI API Key" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" required disabled>
+<button id="videoOpenAIGifSave" type="button" class="primary" disabled>保存 API Key</button>
+</div>
+<p id="videoOpenAIGifState" class="help" role="status" aria-live="polite"></p>
+</section>'''
+
 HTML = '''
 <section id="gifWorkspace" aria-labelledby="gifPageTitle" hidden>
 <header class="oa-video-header">
@@ -9,14 +18,7 @@ HTML = '''
 <button id="gifRefresh" type="button">刷新</button>
 </div>
 </header>
-<section class="oa-gif-key">
-<div class="oa-video-relay-heading"><h2>OpenAI API Key</h2><small>GPT‑Image‑2.6 Flare</small></div>
-<div class="oa-gif-key-controls">
-<input id="videoOpenAIGifCredential" type="password" aria-label="OpenAI API Key" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" required disabled>
-<button id="videoOpenAIGifSave" type="button" class="primary" disabled>保存 API Key</button>
-</div>
-<p id="videoOpenAIGifState" class="help" role="status" aria-live="polite"></p>
-</section>
+'''+SETTINGS_HTML+'''
 <div class="oa-gif-workbench">
 <section class="oa-video-library" aria-labelledby="gifLibraryTitle">
 <h2 id="gifLibraryTitle">项目动图</h2>

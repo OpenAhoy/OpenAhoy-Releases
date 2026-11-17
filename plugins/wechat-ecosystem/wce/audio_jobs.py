@@ -21,6 +21,8 @@ from .video_jobs import ATTEMPT, PLAYBACK_CHUNK, image
 AAC_FORMAT = ('mov,mp4,m4a,3gp,3g2,mj2', 'mov')
 FORMATS = {'.wav': ('wav', 'wav', 'audio/wav'), '.mp3': ('mp3', 'mp3', 'audio/mpeg'),
            '.m4a': (*AAC_FORMAT, 'audio/mp4')}
+from .media_library import LIBRARY_ID, MediaLibrary
+
 AUDIO_DIR = ('assets', 'openahoy', 'audio')
 
 
@@ -59,6 +61,7 @@ def inspect(path, demuxer):
 class AudioJobs:
     def __init__(self, videos):
         self.videos = videos
+        self.media = MediaLibrary(videos.projects)
         self.root = videos.projects.root / 'project-audio'
         self._pinned = None
 
@@ -74,10 +77,20 @@ class AudioJobs:
         return evidence
 
     def project(self, project_id):
-        for row in self.videos.projects.view()['projects']:
-            if row['id']==project_id:
+        if project_id == LIBRARY_ID:
+            row = self.media.project()
+            if row is not None:
                 return row
+        else:
+            for row in self.videos.projects.view()['projects']:
+                if row['id'] == project_id:
+                    return row
         raise WCEError('VIDEO_PROJECT_NOT_REGISTERED')
+
+    def library_projects(self):
+        projects = self.videos.projects.view()['projects']
+        default = self.media.project()
+        return projects + ([default] if default is not None else [])
 
     def receipt(self, attempt):
         if type(attempt) is not str or not ATTEMPT.fullmatch(attempt):
@@ -93,22 +106,41 @@ class AudioJobs:
             pass
         path_check(self.root,True)
 
-    def history(self, project_id=None):
-        if project_id is None:
-            return {'projects':[{'id':r['id'],'name':r['name']} for r in self.videos.projects.view()['projects']]}
-        self.project(project_id)
+    def history(self, project_id=None, *, unified=False):
+        if unified:
+            projects = {row['id']: row['name'] for row in self.library_projects()}
+        elif project_id is None:
+            return {'projects': [{'id': row['id'], 'name': row['name']}
+                                 for row in self.videos.projects.view()['projects']]}
+        else:
+            projects = {project_id: self.project(project_id)['name']}
         if not self.root.exists():
             return {'assets':[]}
         path_check(self.root,True)
         with locked(self.root/'audio.lock', shared=True):
             rows = [read_optional(p) for p in sorted(self.root.glob('*.json'),reverse=True)]
-        assets = [r for r in rows if r and r['project_id']==project_id]
-        return {'assets':sorted(assets, key=lambda row:row.get('created_at',0), reverse=True)}
+        assets = [row for row in rows if row and row['project_id'] in projects]
+        if unified:
+            fields = ('attempt_id', 'project_id', 'kind', 'title', 'created_at', 'bytes', 'sha256',
+                      'mime', 'seconds', 'video_attempt_id', 'video_project_id', 'video_sha256', 'provider')
+            assets = [{key: row[key] for key in fields if key in row}
+                      | {'project_label': row.get('project_label') or projects[row['project_id']],
+                         'account_label': row.get('account_label')} for row in assets]
+        return {'assets': sorted(assets, key=lambda row: row.get('created_at', 0), reverse=True)}
 
     def record_asset(self, row, staged, project, facts, extension):
         pin = path_check(staged)
         digest, size = self.videos._asset_digest(staged, pin, source_root=staged.parent)
-        name=f"OpenAhoy-{row['attempt_id']}-{digest[:12]}{extension}"
+        attribution = self.media.account('audio', row['attempt_id'], row['project_id'])
+        source_project = row.get('source_project_id')
+        source_label = self.project(source_project)['name'] if source_project else None
+        project_label = attribution.get('project_label') or row.get('project_label') or source_label or project['name']
+        account_label = attribution.get('account_label') or row.get('account_label')
+        row['project_label'] = project_label
+        if account_label:
+            row['account_label'] = account_label
+        name = self.media.filename(project_label, account_label, row['title'],
+                                   row['attempt_id'], digest, extension)
         source=FileSource(project['root'])
         folder=self.videos._project_video_folder(project,list(source.root_identity),create=True,components=AUDIO_DIR)
         try:
@@ -131,13 +163,17 @@ class AudioJobs:
             raise WCEError('AUDIO_ASSET_NOT_READY')
         return row
 
-    def ingest(self, attempt, project_id, title, selected, provider=None, provider_id=None):
-        project=self.project(project_id)
+    def ingest(self, attempt, project_id, title, selected, provider=None, provider_id=None, *,
+               source_project_id=None):
+        project = self.project(project_id)
+        source = self.project(source_project_id) if source_project_id else project
         suffix=Path(selected['path']).suffix.lower()
         if suffix not in FORMATS or (provider is None)!=(provider_id is None) or not title.strip():
             raise WCEError('AUDIO_FILE_INVALID')
         row=dict(attempt_id=attempt,project_id=project_id,kind='song',title=title,
                  input_sha256=selected['sha256'],provider=provider,provider_id=provider_id)
+        if source_project_id and source_project_id != project_id:
+            row['source_project_id'] = source_project_id
         output_format, demuxer, mime=FORMATS[suffix]
         self.init()
         with locked(self.root/'audio.lock'):
@@ -149,7 +185,7 @@ class AudioJobs:
                 stage=Path(tmp)/('source'+suffix)
                 digest=sha256()
                 with os.fdopen(os.open(stage,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600),'wb') as out:
-                    for chunk in FileSource(project['root']).iter_html(selected['path']):
+                    for chunk in FileSource(source['root']).iter_html(selected['path']):
                         digest.update(chunk);out.write(chunk)
                 if digest.hexdigest()!=selected['sha256']:
                     raise WCEError('AUDIO_ASSET_CHANGED')
@@ -183,12 +219,13 @@ class AudioJobs:
         self._pinned=signature
         return state
 
-    def mix(self, attempt, project_id, video_id, song_id, title, settings, score_plan=None):
-        project=self.project(project_id)
-        song=self.read(song_id,project_id)
+    def mix(self, attempt, project_id, video_id, song_id, title, settings, score_plan=None, *,
+            song_project_id=None, video_project_id=None):
+        project = self.project(project_id)
+        song = self.read(song_id, song_project_id or project_id)
         if song['kind']!='song':
             raise WCEError('AUDIO_FILE_INVALID')
-        original, video, pin = self.videos._playable(video_id,project_id)
+        original, video, pin = self.videos._playable(video_id, video_project_id or project_id)
         seconds=video['seconds']
         start,offset,volume,fade_in,fade_out=(settings[n] for n in ('video_start','music_offset','volume','fade_in','fade_out'))
         length=min(song['seconds']-offset,seconds-start)
@@ -205,6 +242,10 @@ class AudioJobs:
                  video_attempt_id=video_id,video_sha256=video['sha256'],song_attempt_id=song_id,song_sha256=song['sha256'])
         if score_plan is not None:
             row['score_plan'] = score_plan
+        if song_project_id and song_project_id != project_id:
+            row['song_project_id'] = song_project_id
+        if video_project_id and video_project_id != project_id:
+            row['video_project_id'] = video_project_id
         self.init()
         with locked(self.root/'audio.lock'):
             previous=read_optional(self.receipt(attempt))
@@ -243,13 +284,19 @@ class AudioJobs:
                     raise WCEError('AUDIO_OUTPUT_INVALID')
                 return self.record_asset(row,staged,project,{'seconds':output_seconds,'mime':'video/mp4','demuxer':'mov'},'.mp4')
 
-    def cover_video(self, attempt, project_id, song_id, title, cover):
+    def cover_video(self, attempt, project_id, song_id, title, cover, *, song_project_id=None,
+                    cover_project_id=None):
         project = self.project(project_id)
-        song = self.read(song_id, project_id)
+        song = self.read(song_id, song_project_id or project_id)
+        cover_project = self.project(cover_project_id) if cover_project_id else project
         if song['kind'] != 'song' or not title.strip():
             raise WCEError('AUDIO_FILE_INVALID')
         row = dict(attempt_id=attempt, project_id=project_id, kind='cover', title=title,
                    song_attempt_id=song_id, song_sha256=song['sha256'], cover_sha256=cover['sha256'])
+        if song_project_id and song_project_id != project_id:
+            row['song_project_id'] = song_project_id
+        if cover_project_id and cover_project_id != project_id:
+            row['cover_project_id'] = cover_project_id
         self.init()
         with locked(self.root / 'audio.lock'):
             previous = read_optional(self.receipt(attempt))
@@ -258,7 +305,8 @@ class AudioJobs:
                 return previous
             source, track = self.file(song)
             song_pin = self.pin(source, song)
-            mime, still = image(source.root / cover['path'], source.root, cover['sha256'],
+            cover_root = Path(cover_project['root'])
+            mime, still = image(cover_root / cover['path'], cover_root, cover['sha256'],
                                 self.root, h3=True)
             with TemporaryDirectory(dir=self.root) as tmp:
                 cover_path = Path(tmp) / ('cover.png' if mime == 'image/png' else 'cover.jpg')
@@ -304,7 +352,7 @@ class AudioJobs:
             self.videos._copy_original(path,row,pin,folder,path.name,source_root=path.parent)
         finally:
             os.close(folder)
-        return {'state':'EXPORTED','filename':path.name,'sha256':row['sha256']}
+        return {'state':'EXPORTED','filename':path.name,'sha256':row['sha256'],'bytes':row['bytes']}
 
 
 def measure_audio(path, tracks, seconds):

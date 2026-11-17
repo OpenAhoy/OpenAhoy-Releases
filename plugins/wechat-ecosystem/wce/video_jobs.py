@@ -130,7 +130,7 @@ class Jobs:
             raise WCEError('INVALID_TOOL_ARGUMENTS')
         return tuple(self.root / (attempt + suffix) for suffix in ('.json', '.mp4'))
 
-    def history(self, project_id=None):
+    def history(self, project_id=None, *, monitor=False):
         projects = self.projects.view()['projects']
         directory = [{'id': item['id'], 'name': item['name']} for item in projects]
         if project_id is None:
@@ -151,7 +151,20 @@ class Jobs:
             row = read_optional(receipt, RECEIPT_MAX)
             if row is None or row['request']['project_id'] != project_id:
                 continue
-            versions.append(self.workspace_row(row, recipe=True))
+            version = self.workspace_row(row, recipe=not monitor)
+            if monitor:
+                for key in ('provider_task_id', 'updated_at'):
+                    if key in row:
+                        version[key] = row[key]
+                if 'source_sha256' in row['request']:
+                    version['source_sha256'] = row['request']['source_sha256']
+                diagnostic = next((row[key] for key in ('query_error', 'download_error', 'rejection',
+                                                         'failure', 'submit_diagnostic') if key in row), None)
+                if isinstance(diagnostic, dict):
+                    version['monitor_diagnostic'] = diagnostic.get('code')
+                for key in ('query_error', 'download_error', 'rejection', 'failure', 'submit_diagnostic'):
+                    version.pop(key, None)
+            versions.append(version)
             if row['state'] == 'ASSET_READY':
                 library.append(self.library_row(row, project))
         versions.sort(key=lambda row: (row['created_at'], row['generation_attempt_id']), reverse=True)
@@ -740,6 +753,46 @@ class Jobs:
             raise WCEError('VIDEO_RELAY_NOT_CONFIGURED')
         return configured
 
+    def _query_task(self, row, site):
+        request = row['request']
+        if request['model'] == RELAY_MODEL:
+            origin, connection, key = self._relay_connection()
+            if connection != row.get('relay_connection'):
+                raise WCEError('VIDEO_RELAY_CONNECTION_CHANGED')
+            api = self.relay(origin)
+        elif request.get('provider') == TOKENHEX_PROVIDER:
+            connection, key = self._tokenhex_connection()
+            if connection != row.get('tokenhex_connection'):
+                raise WCEError('VIDEO_TOKENHEX_CONNECTION_CHANGED')
+            api = self.tokenhex
+        else:
+            api = self.api if site is None else self.minimax(site)
+            key = self._key(site)
+        return api, api.query(key, row['provider_task_id'], model=request['model'])
+
+    @staticmethod
+    def _remote_state(value):
+        remote = value.get('status')
+        states = {'queued': 'QUEUED', 'running': 'RUNNING', 'failed': 'FAILED', 'expired': 'EXPIRED',
+                  'cancelled': 'CANCELLED', 'succeeded': 'SAVE_PENDING'}
+        return states.get(remote) if isinstance(remote, str) else None
+
+    def monitor_task(self, attempt, project_id):
+        receipt, _ = self._paths(attempt)
+        row = read_optional(receipt, RECEIPT_MAX)
+        if not row or row['request']['project_id'] != project_id or not row.get('provider_task_id'):
+            raise WCEError('VIDEO_TASK_STATUS_UNKNOWN')
+        is_minimax = row['request']['model'] in MINIMAX_MODELS
+        site = row['request'].get('provider_site') if is_minimax else None
+        if is_minimax and site not in SITES:
+            raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
+        _, value = self._query_task(row, site)
+        state = self._remote_state(value)
+        if state is None:
+            raise WCEError('VIDEO_TASK_STATUS_UNKNOWN')
+        usage = h3_usage(value.get('usage')) if is_minimax else provider_usage(value.get('usage'))
+        return {'state': state, 'usage': usage, 'read_at': time.time()}
+
     def status(self, attempt, project_id, poll=False):
         receipt, artifact = self._paths(attempt)
         if not os.path.lexists(self.root):
@@ -779,30 +832,16 @@ class Jobs:
             is_relay = request['model'] == RELAY_MODEL
             is_tokenhex = request.get('provider') == TOKENHEX_PROVIDER
             try:
-                if is_relay:
-                    origin, connection, key = self._relay_connection()
-                    if connection != row.get('relay_connection'):
-                        raise WCEError('VIDEO_RELAY_CONNECTION_CHANGED')
-                    api = self.relay(origin)
-                elif is_tokenhex:
-                    connection, key = self._tokenhex_connection()
-                    if connection != row.get('tokenhex_connection'):
-                        raise WCEError('VIDEO_TOKENHEX_CONNECTION_CHANGED')
-                    api = self.tokenhex
-                else:
-                    api = self.api if site is None else self.minimax(site)
-                    key = self._key(site)
-                value = api.query(key, row['provider_task_id'], model=request['model'])
+                api, value = self._query_task(row, site)
             except WCEError as error:
                 return dict(row, query_error=error.code)
             remote = value.get('status')
             if recover_failure and remote != 'failed':
                 return dict(row, query_error='VIDEO_TASK_STATUS_UNKNOWN')
-            states = {'queued': 'QUEUED', 'running': 'RUNNING', 'failed': 'FAILED',
-                      'expired': 'EXPIRED', 'cancelled': 'CANCELLED', 'succeeded': 'SAVE_PENDING'}
-            if type(remote) is not str or remote not in states:
+            state = self._remote_state(value)
+            if state is None:
                 return dict(row, query_error='VIDEO_TASK_STATUS_UNKNOWN')
-            row['state'] = states[remote]
+            row['state'] = state
             if remote == 'failed':
                 if is_minimax:
                     row['failure'] = {'provider': 'minimax'}

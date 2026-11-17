@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "wechat-ecosystem",
-  "version": "0.6.77",
+  "version": "0.6.79",
   "description": "OpenAhoy is an account and content workspace for WeChat Official Accounts, X, and Xiaohongshu in Codex.",
   "extensions": {
     "com.openai": {

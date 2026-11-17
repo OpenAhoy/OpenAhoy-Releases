@@ -38,7 +38,7 @@ SCRIPT = r'''
    ['x','管理 X 账号、创作规则和开发者应用。'],
    ['xiaohongshu','绑定小红书账号并管理笔记发布。']
  ]);
- function route(value){return value==='home'||value==='video'||value==='gif'||value==='audio'||platformNames.has(value)?value:'';}
+ function route(value){return value==='home'||value==='media'||value==='video'||value==='gif'||value==='audio'||platformNames.has(value)?value:'';}
  function routeFromURL(){
    const query=new URLSearchParams(location.search),fragment=new URLSearchParams(location.hash.slice(1));
    return route(query.get('view')||query.get('platform')||fragment.get('view')||fragment.get('platform'));
@@ -105,7 +105,7 @@ SCRIPT = r'''
   }
  })]));
  function applyHostTheme(context){if(context?.theme==='light'||context?.theme==='dark')document.body.dataset.colorScheme=context.theme;}
- function dispose(){homeIntro?.close();videoWorkspace.close();gifWorkspace.close();audioWorkspace.close();video.dispose();binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
+ function dispose(){homeIntro?.close();monitor.close();video.dispose();binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
    for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('VIEW_CLOSED'));}pending.clear();
    for(const el of document.querySelectorAll('button,input,select,textarea'))el.disabled=true;
  }
@@ -640,38 +640,45 @@ SCRIPT = r'''
    return content(result);
  };
  OAVideoProviders(sendChatRequest,openXLink,()=>!!hostCapabilities.message?.text);
- const gifWorkspace=OAGifWorkspace(mediaTool,video);
  const audioWorkspace=OAAudioWorkspace(mediaTool,sendChatRequest,openXLink,()=>!!hostCapabilities.message?.text);
- const videoWorkspace=OAVideoWorkspace(mediaTool,video,async site=>{
-   if(!hostCapabilities.openLinks)throw new Error('HOST_OPEN_LINK_UNAVAILABLE');
-   const url={cn:'https://platform.minimax.cn/user-center/payment/balance',
-              global:'https://platform.minimax.io/user-center/payment/balance'}[site]||'https://console.volcengine.com/finance/bill/detail';
-   const result=await rpc('ui/open-link',{url});
-   if(!result||result.isError)throw new Error('HOST_OPEN_LINK_FAILED');
- });
+ $('monitorVideoSettings').append($('monitorComponents').querySelector('.oa-provider-grid'));
+ $('monitorGifSettings').append($('monitorComponents').querySelector('.oa-gif-key'));
+ $('monitorSuno').append($('audioWorkspace'));
+ let providerMode='',sunoActive=false;
+ function showMediaProvider(mode){
+   if(providerMode)video.setOpen(false,providerMode);
+   providerMode=mode;
+   $('mediaMonitor').hidden=!!mode;
+   $('monitorProviders').hidden=!mode;
+   $('monitorVideoSettings').hidden=mode!=='video';
+   $('monitorGifSettings').hidden=mode!=='gif';
+   $('monitorVideoProvider').setAttribute('aria-pressed',String(mode==='video'));
+   $('monitorGifProvider').setAttribute('aria-pressed',String(mode==='gif'));
+   if(mode)video.setOpen(true,mode);
+ }
+ $('monitorVideoProvider').onclick=()=>showMediaProvider('video');
+ $('monitorGifProvider').onclick=()=>showMediaProvider('gif');
+ const monitor=OAMediaMonitor((action,args)=>mediaTool('wce.ui.video.workspace',{action,...args}),sendChatRequest,
+    open=>{showMediaProvider(open?'video':'');if(open)$('monitorSettingsTitle').focus();},open=>{
+      if(open===sunoActive)return;
+      sunoActive=open;
+      $('audioWorkspace').hidden=!open;
+      if(open)audioWorkspace.open(null,{providerOnly:true});else audioWorkspace.close();
+    });
  const intro=$('homeIntroPlayer');
  const homeIntro=intro?OAFramePlayer(intro,async start=>{
    OAUI.set($('homeIntroStatus'),'');
    return content(await tool('wce.ui.video.workspace',{action:'intro_frames',start}));
  },10.5,{poster:intro.dataset.poster,showControls:false,loop:true,failed:()=>OAUI.set($('homeIntroStatus'),'宣传片暂时无法播放。')}):null;
- let mediaView='',lastMediaView='video',audioProjectIntent='';
+ let mediaView='';
  function showMedia(target){
    if(target===mediaView)return;
    navigationEpoch++;
-   if(mediaView==='video')videoWorkspace.close();
-   if(mediaView==='gif')gifWorkspace.close();
-   if(mediaView==='audio')audioWorkspace.close();
    mediaView=target;
-   if(target)lastMediaView=target;
    $('mediaStudio').hidden=!target;
    document.body.classList.toggle('oa-video-open',!!target);
-   $('videoWorkspace').hidden=target!=='video';
-   $('gifWorkspace').hidden=target!=='gif';
-   $('audioWorkspace').hidden=target!=='audio';
-   if(target){closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();}
-   if(target==='video')videoWorkspace.open();
-   if(target==='gif')gifWorkspace.open();
-   if(target==='audio'){audioWorkspace.open(audioProjectIntent);audioProjectIntent='';}
+   if(target){closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();monitor.open(target);}
+   else monitor.close();
  }
  function renderView(){
    if(view==='home'&&ready)homeIntro?.play();else homeIntro?.pause();
@@ -679,41 +686,24 @@ SCRIPT = r'''
    $('nativeWorkspace').hidden=view!=='platform'||!$('inlineBinding').hidden;
    $('openHome').setAttribute('aria-current',view==='home'?'page':'false');
    $('openMediaStudio').setAttribute('aria-current',mediaView?'page':'false');
-   $('openVideoWorkspace').setAttribute('aria-current',view==='video'?'page':'false');
-   $('openGifWorkspace').setAttribute('aria-current',view==='gif'?'page':'false');
-   $('openAudioWorkspace').setAttribute('aria-current',view==='audio'?'page':'false');
  }
  async function openView(target,{user=false,focus=false}={}){
    closeFloatingMenus();
    if(closed||!ready||!$('inlineBinding').hidden)return;
    if(activePlatform!==target||view!=='platform')notice('');
    if(user){explicitNavigation=true;rememberView(target);}
-   if(target==='home'||target==='video'||target==='gif'||target==='audio'){
+   if(target==='home'||target==='media'||target==='video'||target==='gif'||target==='audio'){
      platformEpoch++;selectionIntent++;selectEpoch++;navigationEpoch++;
      if(target==='home'){closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();}
      view=target;showMedia(target==='home'?'':target);renderView();renderPlatforms();
-     if(focus)$({home:'homeTitle',video:'videoPageTitle',gif:'gifPageTitle',audio:'audioPageTitle'}[target]).focus();
+     if(focus)$(target==='home'?'homeTitle':'monitorTitle').focus();
      return;
    }
    view='platform';
    await selectPlatform(target,focus);
  }
  $('openHome').onclick=()=>openView('home',{user:true,focus:true});
- for(const id of ['openMediaStudio','homeMediaStudio'])$(id).onclick=()=>openView(lastMediaView,{user:true,focus:true});
- $('openVideoWorkspace').onclick=()=>openView('video',{user:true,focus:true});
- $('openGifWorkspace').onclick=()=>openView('gif',{user:true,focus:true});
- $('openAudioWorkspace').onclick=()=>openView('audio',{user:true,focus:true});
- $('videoScoreAudio').onclick=()=>{
-   audioProjectIntent=$('videoProject').value;
-   void openView('audio',{user:true,focus:true});
- };
- $('videoScore').onclick=async()=>{
-   const project=$('videoProject').value,attempt=$('videoPrimary').value;
-   if(!project||!attempt)return;
-   const instruction=OAUI.message('为这个原视频版本制作配乐单。用 audio.project.video.inspect 查看实际时间码画面和音轨，以可观察事实对应音乐节点、入点、音量和淡入淡出。默认器乐并保留原声。先输出可执行配乐单，再按我当前的授权继续。项目 {0}，原视频 attempt {1}。',project,attempt);
-   try{await sendChatRequest(instruction);OAUI.set($('videoNotice'),'已发到当前 Codex 聊天。');}
-   catch(_){$('videoScoreCopy').value=instruction;$('videoScoreCopy').hidden=false;$('videoScoreCopy').focus();$('videoScoreCopy').select();}
- };
+ for(const id of ['openMediaStudio','homeMediaStudio'])$(id).onclick=()=>openView('media',{user:true,focus:true});
  $('refresh').addEventListener('click',()=>void refresh());$('showAdd').addEventListener('click',secure);
  $('accountCreate').addEventListener('click',async()=>{
    const row=current(),original=selected,editor=row&&editors.get(row.platform_id);if(!editor||!platform(row.platform_id)?.settings_supported)return;
@@ -763,8 +753,9 @@ def resource():
     from .video_inline_ui import SCRIPT as video_script
     from .audio_workspace_ui import STYLE as audio_style, SCRIPT as audio_script
     from .video_provider_ui import STYLE as provider_style, SCRIPT as provider_script
-    from .openai_gif_ui import STYLE as gif_style, SCRIPT as gif_script
-    from .video_workspace_ui import STYLE as video_style, SCRIPT as video_workspace_script
+    from .openai_gif_ui import STYLE as gif_style
+    from .video_workspace_ui import STYLE as video_style
+    from .media_monitor_ui import STYLE as monitor_style, SCRIPT as monitor_script
     from .video_frame_player import STYLE as frame_style, SCRIPT as frame_script
     from .x_management_ui import HTML as x_html, SCRIPT as x_script
     from .xhs_management_ui import HTML as xhs_html, SCRIPT as xhs_script
@@ -776,11 +767,12 @@ def resource():
     html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>OpenAhoy · Platform management</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + gif_style + HOME_STYLE + frame_style + '</style>'
+        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + gif_style + HOME_STYLE + frame_style + monitor_style + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
-        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + video_workspace_script + provider_script + audio_script + gif_script + x_script + xhs_script + schedule_script + operating_script + project_script + SCRIPT + '</script></body></html>')
+        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + monitor_script + x_script + xhs_script + schedule_script + operating_script + project_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
-        '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com'], 'frameDomains': []}},
+        '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://cdn1.suno.ai',
+                                                                 'https://cdn2.suno.ai', 'https://suno-data-uploads.s3.amazonaws.com'], 'frameDomains': []}},
                   'openai/ui': {'availableDisplayModes': ['inline', 'fullscreen'], 'preferredDisplayMode': 'inline'}}}]}
 
 

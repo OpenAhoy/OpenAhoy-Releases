@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 from .contracts import WCEError
+from .media_library import LIBRARY_ID
 from .audio_jobs import AudioJobs
 from .openai_gif_jobs import GifJobs
 from .openai_gif_keychain import PROVIDER as GIF_PROVIDER, status as gif_status
@@ -31,6 +32,7 @@ GIF_STATUS = 'image.openai.gif.status'
 GIF_CONFIG = 'image.openai.gif.configuration.status'
 AUDIO_IMPORT='audio.project.import'
 AUDIO_MIX='audio.project.mix'
+MEDIA_PREPARE = 'media.library.prepare'
 AUDIO_COVER='audio.project.cover_video'
 AUDIO_HISTORY='audio.project.history'
 AUDIO_VIDEO='audio.project.video.inspect'
@@ -81,6 +83,16 @@ ARK_MODEL = {'model': {'type': 'string', 'enum': list(SUPPORTED_MODELS)}}
 
 
 WORKSPACE_SPECS = {'oneOf': [
+    action('media_monitor', {}),
+    action('media_monitor_task', JOB),
+    action('audio_library', {}),
+    action('suno_snapshot', {}, {'downloaded': {'type': 'boolean'},
+                                 'cursor': {'type': 'string', 'maxLength': 2048},
+                                 'expected': {'type': 'string', 'maxLength': 80},
+                                 'library_only': {'type': 'boolean'}}),
+    action('suno_playback', {'track': {'type': 'string', 'pattern': r'^[a-f0-9-]{36}$'},
+                             'expected': {'type': 'string', 'maxLength': 80}},
+                            {'cursor': {'type': 'string', 'maxLength': 2048}}),
     action('provider_catalog', {}),
     action('audio_history', {}, {'project_id': PROJECT}),
     action('audio_chunk', AUDIO_SCOPE | {'offset': {'type':'integer','minimum':0}}),
@@ -115,10 +127,15 @@ RELAY_OPTIONS = {'reference_audio': RELAY_AUDIO,
 
 SPECS = {
     AUDIO_IMPORT: schema(AUDIO_SCOPE | {'title':PROMPT,'audio':FRAME},
-         {'provider':{'type':'string','const':'suno'},'provider_id':ATTEMPT}),
+         {'provider':{'type':'string','const':'suno'},'provider_id':ATTEMPT,'source_project_id':PROJECT}),
     AUDIO_MIX: schema(AUDIO_SCOPE | {'title':PROMPT,'video_attempt_id':ATTEMPT,'song_attempt_id':ATTEMPT,
-        'timeline':AUDIO_TIMELINE}, {'score_plan':PROMPT}),
-    AUDIO_COVER: schema(AUDIO_SCOPE | {'title':PROMPT, 'song_attempt_id':ATTEMPT, 'cover':FRAME}),
+        'timeline':AUDIO_TIMELINE}, {'score_plan':PROMPT, 'song_project_id':PROJECT, 'video_project_id':PROJECT}),
+    AUDIO_COVER: schema(AUDIO_SCOPE | {'title':PROMPT, 'song_attempt_id':ATTEMPT, 'cover':FRAME},
+                       {'song_project_id':PROJECT, 'cover_project_id':PROJECT}),
+    MEDIA_PREPARE: schema({}, {'source_project_id':PROJECT, 'target':schema({
+        'kind': {'type':'string','const':'audio'}, 'attempt_id':ATTEMPT,
+    }, {'account':schema({'platform_id':{'type':'string','enum':['wechat_official_account','x','xiaohongshu']},
+                          'connection_id':{'type':'string','minLength':1,'maxLength':128}})})}),
     AUDIO_HISTORY: schema({'project_id':PROJECT}),
     AUDIO_VIDEO: schema(JOB, {'frame_start': FRAME_INDEX, 'include_audio_evidence': {'type':'boolean'}}),
 
@@ -160,6 +177,7 @@ SPECS = {
     ]},
 }
 DESCRIPTIONS = {
+    MEDIA_PREPARE: 'Prepare the unified local audio library. Optionally record a known project and a bound account for the original audio attempt. Omit unknown context. Does not contact the platform.',
     AUDIO_IMPORT: 'Copy and decode an existing WAV, MP3 or M4A from the registered project. Requires a relative path and SHA-256. Provider and ID link a confirmed official download. No network or Suno generation.',
     AUDIO_MIX: 'Create a new local soundtrack MP4 for a completed video, reusing imported project audio. Timeline positions and fades are milliseconds; gain is a percentage. Original media is retained. A different mix uses a new local attempt; does not use Suno credits.',
     AUDIO_COVER: 'Create a local H.264/AAC MP4 from a project song and a project PNG or JPEG cover. Requires the cover SHA-256. Returns its project-relative file; does not publish it.',
@@ -215,6 +233,27 @@ class VideoRouter:
         if name not in SPECS:
             return self.inner.call(name, arguments)
         strict_validate(arguments, SPECS[name])
+        if name == MEDIA_PREPARE:
+            media = self.audio_jobs.media
+            source = arguments.get('source_project_id')
+            label = self.audio_jobs.project(source)['name'] if source else None
+            target = arguments.get('target')
+            if target is not None:
+                selected = target.get('account')
+                account = None
+                if selected is not None:
+                    platform, connection = selected['platform_id'], selected['connection_id']
+                    overview = self.inner.call('wce.ui.management.overview', {})
+                    rows = [row for row in overview['connections'] if row['platform_id'] == platform
+                            and row['connection_id'] == connection
+                            and row['state'] in {'BOUND', 'BOUND_IDLE', 'BUSY', 'CONNECTED'}]
+                    if len(rows) != 1:
+                        raise WCEError('MEDIA_ACCOUNT_UNAVAILABLE')
+                    presentation = rows[0].get('presentation') or {}
+                    account = media.attribution(platform, connection, presentation.get('display_name') or platform)
+                media.reserve('audio', target['attempt_id'], account, project_label=label)
+            project = media.project(create=True)
+            return {'state':'READY','project_id':project['id'],'root':project['root']}
         if name == AUDIO_HISTORY:
             return self.audio_jobs.history(arguments['project_id'])
         if name == AUDIO_VIDEO:
@@ -223,10 +262,28 @@ class VideoRouter:
                                                  arguments.get('include_audio_evidence', False))
         if name == AUDIO_IMPORT:
             return self.audio_jobs.ingest(arguments['attempt_id'],arguments['project_id'],arguments['title'],
-                arguments['audio'],arguments.get('provider'),arguments.get('provider_id'))
+                arguments['audio'],arguments.get('provider'),arguments.get('provider_id'),
+                source_project_id=arguments.get('source_project_id'))
+        if name in {AUDIO_COVER, AUDIO_MIX} and arguments['project_id'] == LIBRARY_ID:
+            media = self.audio_jobs.media
+            song_project = arguments.get('song_project_id', arguments['project_id'])
+            inherited = media.account('audio', arguments['song_attempt_id'], song_project)
+            if name == AUDIO_MIX:
+                video_project = arguments.get('video_project_id', arguments['project_id'])
+                video_account = media.account('video', arguments['video_attempt_id'], video_project)
+                if video_account and inherited and inherited.get('account_key') != video_account.get('account_key'):
+                    inherited = {}
+                elif video_account:
+                    inherited = inherited or video_account
+            label = inherited.get('project_label')
+            if not label and song_project != LIBRARY_ID:
+                label = self.audio_jobs.project(song_project)['name']
+            media.reserve('audio', arguments['attempt_id'], inherited=inherited, project_label=label)
         if name == AUDIO_COVER:
             return self.audio_jobs.cover_video(arguments['attempt_id'], arguments['project_id'],
-                                               arguments['song_attempt_id'], arguments['title'], arguments['cover'])
+                                               arguments['song_attempt_id'], arguments['title'], arguments['cover'],
+                                               song_project_id=arguments.get('song_project_id'),
+                                               cover_project_id=arguments.get('cover_project_id'))
         if name == AUDIO_MIX:
             settings=arguments['timeline']
             timeline={key.removesuffix('_ms'):value/1000 for key,value in settings.items() if key.endswith('_ms')}
@@ -234,7 +291,8 @@ class VideoRouter:
             if 'duck' in settings:
                 timeline['duck'] = settings['duck']
             return self.audio_jobs.mix(arguments['attempt_id'],arguments['project_id'],arguments['video_attempt_id'],
-                arguments['song_attempt_id'],arguments['title'],timeline,arguments.get('score_plan'))
+                arguments['song_attempt_id'],arguments['title'],timeline,arguments.get('score_plan'),
+                song_project_id=arguments.get('song_project_id'),video_project_id=arguments.get('video_project_id'))
         if name == GIF_CONFIG:
             return gif_status()
         if name == GIF_STATUS:
@@ -306,6 +364,16 @@ class VideoRouter:
         command = arguments['action']
         project = arguments.get('project_id')
         attempt = arguments.get('generation_attempt_id')
+        if command in {'suno_snapshot', 'suno_playback'}:
+            from .suno_panel import run
+            return run(command, {key: value for key, value in arguments.items() if key != 'action'})
+        if command == 'media_monitor_task':
+            return job.monitor_task(attempt, project)
+        if command == 'media_monitor':
+            from .media_monitor import collect
+            return collect(job, self.gif_jobs, self.audio_jobs)
+        if command == 'audio_library':
+            return self.audio_jobs.history(unified=True)
         if command == 'audio_history':
             return self.audio_jobs.history(project)
         if command == 'audio_chunk':
