@@ -21,14 +21,11 @@ from .contracts import WCEError
 from .own_bootstrap_security import path_check
 from .own_connection_policy import atomic_write, locked, read_optional, read_registry, registry_path, resolve
 from .own_connection_registry import mkdir
-from .own_updates import OID, REMOTE, REPOSITORY, VERSION, _version, check
+from .own_updates import (MAX_ASSET, OID, PLUGIN, PUBLIC_MARKET, REMOTE, REPOSITORY, SHA, VERSION,
+                          UpdateCheckUnavailable, _version, check, release_metadata)
 
-PLUGIN = 'wechat-ecosystem'
-PUBLIC_MARKET = 'openahoy-distribution'
 BUNDLED_CLI = Path('/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex')
 ACTIVE = {'CHECKING', 'DOWNLOADING', 'VERIFYING', 'STAGED', 'WAITING_FOR_IDLE', 'INSTALLING'}
-MAX_ASSET = 128 * 1024 * 1024
-SHA = re.compile(r'[0-9a-f]{64}')
 REQUEST_ID = re.compile(r'[0-9a-f]{32}')
 SELECTOR = re.compile(r'wechat-ecosystem@([A-Za-z0-9_-]+)')
 BUSY_CODES = {'CONNECTION_BUSY', 'CONNECTION_START_PENDING', 'UPDATE_BUSINESS_BUSY'}
@@ -61,19 +58,11 @@ def release(version, revision, folder, progress):
     opener = build_opener(ReleaseRedirect())
     with opener.open(base + '/RELEASE.json', timeout=15) as response:
         raw = response.read(32769)
-    require(len(raw) <= 32768, 'UPDATE_RELEASE_INVALID')
-    metadata = json.loads(raw)
-    require(type(metadata) is dict, 'UPDATE_RELEASE_INVALID')
-    expected = {'schema': 1, 'product': 'OpenAhoy', 'version': version, 'tag': tag,
-                'repository': REPOSITORY, 'plugin': PLUGIN, 'platform': 'macos-arm64',
-                'marketplace': PUBLIC_MARKET, 'marketplace_source': REMOTE,
-                'plugin_path': './plugins/' + PLUGIN, 'asset': filename, 'asset_url': url,
-                'contains_user_accounts': False}
-    size = metadata.get('size')
-    require(all(metadata.get(key) == value for key, value in expected.items())
-            and type(size) is int and 0 < size <= MAX_ASSET
-            and all(type(metadata.get(key)) is str and SHA.fullmatch(metadata[key])
-                    for key in ('sha256', 'package_manifest_sha256')), 'UPDATE_RELEASE_INVALID')
+    try:
+        metadata = release_metadata(raw, version)
+    except UpdateCheckUnavailable:
+        raise WCEError('UPDATE_RELEASE_INVALID') from None
+    size = metadata['size']
     progress('DOWNLOADING', downloaded=0, total=size)
     archive = folder / filename
     checksum = sha256()
@@ -367,6 +356,24 @@ def _verify_git_market(run, codex_home, name, source, ref, version, manifest):
     verify_launch_modes(target)
 
 
+def _stable_rollback_ref(previous, original, manifest):
+    if isinstance(original, str) and (original == 'v' + previous or OID.fullmatch(original)):
+        return original
+    require(original in (None, 'main', 'refs/heads/main'), 'UPDATE_MARKETPLACE_UNSUPPORTED')
+    # A branch can advance independently of the installed plugin. Verify an
+    # immutable previous-version package before changing the registration.
+    tag = 'v' + previous
+    url = f'https://raw.githubusercontent.com/{REPOSITORY}/{tag}/package-manifest.json'
+    try:
+        with build_opener(ReleaseRedirect()).open(url, timeout=5) as response:
+            content = response.read(1024 * 1024 + 1)
+    except OSError:
+        raise WCEError('UPDATE_ROLLBACK_REF_UNAVAILABLE') from None
+    require(len(content) <= 1024 * 1024 and sha256(content).hexdigest() == manifest,
+            'UPDATE_ROLLBACK_REF_UNAVAILABLE')
+    return tag
+
+
 def install(previous, version, target, manifest_sha, registry, folder, progress, *, run=cli):
     active = installed(run('list'))
     require(len(active) == 1 and active[0]['version'] == previous, 'UPDATE_INSTALLED_VERSION_CHANGED')
@@ -394,7 +401,6 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
         require(registration.get('source_type') == 'git'
                 and source == market_source.get('source')
                 and market_source.get('source') in (REMOTE, REMOTE.removesuffix('.git'), REPOSITORY)
-                and type(old_ref) is str and (old_ref == 'v' + previous or OID.fullmatch(old_ref))
                 and len(data['plugins']) == 1, 'UPDATE_MARKETPLACE_UNSUPPORTED')
         require(matches[0]['source'] == {'source': 'local', 'path': './plugins/' + PLUGIN},
                 'UPDATE_MARKETPLACE_UNSUPPORTED')
@@ -410,6 +416,8 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
         shutil.copytree(old, rollback)
     verify_package(rollback, previous)
     rollback_manifest = sha256((rollback / 'package-manifest.json').read_bytes()).hexdigest()
+    if git_market:
+        rollback_ref = _stable_rollback_ref(previous, old_ref, rollback_manifest)
     progress('WAITING_FOR_IDLE')
     with maintenance(registry):
         require(read_market(path)[0] == raw and installed(run('list')) == active, 'UPDATE_MARKETPLACE_CHANGED')
@@ -438,8 +446,8 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
                     require(current.get('source_type') == 'git' and current.get('source') == source
                             and current.get('ref') == target_ref, 'UPDATE_MARKETPLACE_CHANGED')
                     run('marketplace', 'remove', market_name)
-                run('marketplace', 'add', source, '--ref', old_ref)
-                _verify_git_market(run, codex_home, market_name, source, old_ref, previous, rollback_manifest)
+                run('marketplace', 'add', source, '--ref', rollback_ref)
+                _verify_git_market(run, codex_home, market_name, source, rollback_ref, previous, rollback_manifest)
                 if not installed(run('list')):
                     run('add', selector)
                 verify_installation(previous, selector, rollback_manifest, run('list'))
@@ -726,7 +734,7 @@ class UpdateInstaller:
                 if request_id is not None:
                     intent['request_id'] = request_id
                 row = dict(intent, state='CHECKING')
-                if superseded or prior.get('request_id') or (prior.get('state'), prior.get('code')) in UPDATE_HISTORY:
+                if prior:
                     from .own_connection_policy import private_read
                     from .own_identity_recovery import atomic_raw
                     original = private_read(self.root / 'status.json')[0]
@@ -773,8 +781,10 @@ class UpdateInstaller:
 
             try:
                 ad = self.checker(self.version)
+                require(ad.get('state') != 'CHECK_UNAVAILABLE', 'UPDATE_CHECK_UNAVAILABLE')
                 require(ad.get('state') == 'UPDATE_AVAILABLE' and ad.get('latest_version') == version
                         and ad.get('advertised_revision') == revision, 'UPDATE_ADVERTISEMENT_CHANGED')
+                advertised_manifest = ad.get('package_manifest_sha256')
                 stage = self.root / (version + '-' + revision)
                 try:
                     mkdir(self.root, stage.name)
@@ -790,10 +800,12 @@ class UpdateInstaller:
                     manifest = cached['manifest']
                     progress('VERIFYING')
                     verify_package(target, version, manifest)
+                    require(advertised_manifest in (None, manifest), 'UPDATE_MANIFEST_MISMATCH')
                 else:
                     folder = Path(tempfile.mkdtemp(prefix='release-', dir=stage))
                     try:
                         target, manifest = self.download(version, revision, folder, progress)
+                        require(advertised_manifest in (None, manifest), 'UPDATE_MANIFEST_MISMATCH')
                     except BaseException:
                         # This fresh directory has no reference from the CLI or another worker.
                         shutil.rmtree(folder)

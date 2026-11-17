@@ -13,7 +13,7 @@ RESOURCE = 'ui://wechat-ecosystem/management-updates-v1.html'
 
 def descriptor():
     return {'name': CHECK, 'title': '检查 OpenAhoy 稳定版本',
-        'description': 'App-only read of stable release tags from the fixed public OpenAhoy release repository. Uses noninteractive HTTPS Git access. No install, marketplace refresh, account/configuration or credential-file reads/writes.',
+        'description': 'App-only anonymous read of the published stable OpenAhoy release and its Git tag from the fixed public repository. No installation, marketplace refresh, or account access.',
         'inputSchema': {'type': 'object', 'properties': {}, 'additionalProperties': False},
         'outputSchema': {'type': 'object'},
         'annotations': {'readOnlyHint': True, 'destructiveHint': False,

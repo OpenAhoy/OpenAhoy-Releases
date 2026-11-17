@@ -69,6 +69,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
  const recheckAfter=30*60*1000;
  let ready=false,closed=false,checking=false,starting=false,reading=false,latest=null,job='STATUS_UNAVAILABLE',pollTimer;
  let pendingRequest=null,canOpenLinks=false,blurred=false,lastCheckAt=null,lastStable=null;
+ let jobHelp=false;
  try{
   const stored=sessionStorage.getItem(pendingKey);
   if(requestPattern.test(stored))pendingRequest=stored;
@@ -90,6 +91,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
   receiptButton.disabled=!ready||closed||reading||starting;
   startButton.hidden=!latest||busy||terminal.has(job)||Boolean(pendingRequest);
   startButton.disabled=!ready||closed||checking||reading||startButton.hidden;
+  helpButton.hidden=!canOpenLinks||!(jobHelp||box.dataset.discovery==='CHECK_UNAVAILABLE');
  }
  function sayJob(text,state,...values){ui.set(jobStatus,text,...values);box.dataset.state=state;paintAvailable();buttons();}
  function paintAvailable(){
@@ -118,6 +120,9 @@ window.OASoftwareUpdates={mount(rpc,installed){
   TLS_FAILED:'更新源证书校验失败',REDIRECT_REFUSED:'更新源已重定向，需切换到官方新地址',NO_STABLE_TAGS:'未读到稳定版本标签',
   INVALID_TAG_RESPONSE:'版本标签响应不完整',GIT_UNAVAILABLE:'本机 Git 不可用',GIT_FAILED:'Git 更新查询失败',
   CARRIER_LIMIT:'更新响应过大',INVALID_VERSION:'已安装版本信息无效',PROCESS_TIMEOUT:'本机更新查询超时',
+  RELEASE_CHANNEL_UNAVAILABLE:'暂时无法读取公开稳定发行',
+  RELEASE_CHANNEL_INVALID:'公开稳定发行的文件信息未通过校验',
+  RELEASE_CHANNEL_CHANGED:'公开发行与版本标签正在同步，请稍后检查',
   LOCAL_PROCESS_ERROR:'本机更新进程不可用',UNAVAILABLE:'更新查询暂不可用'
  };
  function checkUnavailable(code){
@@ -138,6 +143,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
    const reply=await rpc('tools/call',{name:'wce.ui.updates.check',arguments:{}});if(closed)return;
    const value=reply?.structuredContent;if(reply?.isError||!valid(value))throw new Error('UPDATE_CHECK_FAILED');
    if(value.state==='CHECK_UNAVAILABLE'){checkUnavailable(value.diagnostic?.code);return;}
+   if(lastStable&&compare(value.latest_version,lastStable)<0){checkUnavailable('RELEASE_CHANNEL_CHANGED');return;}
    lastStable=value.latest_version;ui.raw(stable,lastStable);detail(checkDetail,null);
    latest=value.state==='UPDATE_AVAILABLE'?value:null;
    box.dataset.discovery=value.state;
@@ -171,7 +177,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
   job=value.state;
   installedRow.hidden=job!=='INSTALLED_RELOAD_REQUIRED';
   ui.raw(installedRow.querySelector('dd'),installedRow.hidden?'':value.version);
-  helpButton.hidden=true;
+  jobHelp=false;
   detail(jobDetail,null);
   const old=value.history;
   const historyText={
@@ -190,9 +196,8 @@ window.OASoftwareUpdates={mount(rpc,installed){
   const code=typeof value.code==='string'&&/^(UPDATE|CONNECTION)_[A-Z0-9_]{1,65}$/.test(value.code)
     ? value.code : null;
   detail(jobDetail,code);
-  if(job==='INSTALL_UNKNOWN'||(job==='FAILED'&&['CONNECTION_NOT_COMMITTED','UPDATE_ACTIVITY_UNVERIFIED'].includes(code))){
-   helpButton.hidden=!canOpenLinks;
-  }
+  jobHelp=job==='INSTALL_UNKNOWN'||(job==='FAILED'&&
+    ['CONNECTION_NOT_COMMITTED','UPDATE_ACTIVITY_UNVERIFIED','UPDATE_ROLLBACK_REF_UNAVAILABLE','UPDATE_MARKETPLACE_UNSUPPORTED'].includes(code));
   if(job==='FAILED'&&code==='CONNECTION_NOT_COMMITTED'){
    sayJob('公众号绑定校验未通过。可从原 Codex 市场升级。',job);
   }else if(job==='FAILED'&&code==='UPDATE_ACTIVITY_UNVERIFIED'){
@@ -202,6 +207,12 @@ window.OASoftwareUpdates={mount(rpc,installed){
    sayJob('正在下载更新 {0}%',job,Math.floor(value.downloaded*100/value.total));
   }else if(job==='LOADED'&&historyText[old?.code]&&versionPattern.test(old?.version)&&compare(old.version,installed)>0){
    sayJob('已核对当前运行版本 {0}。',job,installed);
+  }else if(job==='FAILED'&&code==='UPDATE_ADVERTISEMENT_CHANGED'){
+   latest=null;
+   sayJob('稳定版已有变化。请核对最新版本后再升级。',job);
+  }else if(job==='FAILED'&&code==='UPDATE_CHECK_UNAVAILABLE'){
+   checkUnavailable('RELEASE_CHANNEL_UNAVAILABLE');
+   sayJob('暂时无法核对安装目标。可重新检查更新。',job);
   }else if(job==='FAILED'&&value.downloaded===true){
    sayJob('更新文件已下载，安装未完成。',job);
   }else{
@@ -215,7 +226,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
   }
   job=pendingRequest?'START_UNCONFIRMED':'STATUS_UNAVAILABLE';
   installedRow.hidden=true;history.hidden=true;
-  helpButton.hidden=!canOpenLinks;
+  jobHelp=true;
   detail(jobDetail,'UPDATE_STATUS_UNAVAILABLE');
   sayJob(pendingRequest?'升级请求的结果尚未确认。可查看原请求状态。':'暂时无法读取升级进度。',job);
  }
@@ -239,9 +250,22 @@ window.OASoftwareUpdates={mount(rpc,installed){
    if(pendingRequest&&(value?.request_id!==pendingRequest||value.state==='START_UNCONFIRMED')){
     statusUnavailable();return;
    }
+   if(pendingRequest&&['START_NOT_RECORDED','START_ARCHIVED'].includes(value.state)){
+    // A different worker may own the current receipt. An orphaned request
+    // cannot clear its unknown or restart-required state.
+    remember(null);
+    const current=await rpc('tools/call',{name:'wce.ui.updates.install',arguments:{action:'status'}});
+    if(closed)return;
+    if(current?.isError)throw new Error('UPDATE_STATUS_UNAVAILABLE');
+    if(current?.structuredContent?.state==='IDLE')renderJob(value);
+    else renderJob(current?.structuredContent);
+    if(active.has(job))schedule();
+    return;
+   }
    renderJob(value);
    if(pendingRequest)remember(null);
    if(active.has(job))schedule();
+   else if(value?.code==='UPDATE_ADVERTISEMENT_CHANGED')void check();
   }catch(_){
    if(closed)return;
    statusUnavailable();
