@@ -2,6 +2,8 @@
 from copy import deepcopy
 
 from .contracts import WCEError
+from .openai_gif_jobs import GifJobs
+from .openai_gif_keychain import PROVIDER as GIF_PROVIDER, status as gif_status
 from .prepared_contracts import strict_validate
 from .tools import schema
 from .video_jobs import Jobs
@@ -19,6 +21,10 @@ CREDENTIAL = 'wce.ui.video.credential'
 WORKSPACE = 'wce.ui.video.workspace'
 H3_SUBMIT = 'video.minimax.generation.submit'
 RELAY_SUBMIT = 'video.relay.generation.submit'
+GIF_SUBMIT = 'image.openai.gif.submit'
+GIF_STATUS = 'image.openai.gif.status'
+GIF_CONFIG = 'image.openai.gif.configuration.status'
+KEY_PROVIDERS = [*PROVIDERS, GIF_PROVIDER]
 SITE = {'type': 'string', 'enum': list(SITES)}
 RATIO = {'type': 'string', 'enum': ['adaptive', *RATIOS]}
 HANDLE = {'type': 'string', 'pattern': '^[a-f0-9]{64}$'}
@@ -65,6 +71,9 @@ WORKSPACE_SPECS = {'oneOf': [
     action('preview_frames', JOB | {'start': FRAME_INDEX}),
     action('intro_frames', {'start': FRAME_INDEX}),
     action('export', JOB),
+    action('gif_history', {}, {'project_id': PROJECT}),
+    action('gif_chunk', JOB | {'offset': {'type': 'integer', 'minimum': 0}}),
+    action('gif_export', JOB),
     action('rename', JOB | {'name': {'type': 'string', 'minLength': 1, 'maxLength': 120}}),
     action('trash', JOB),
     action('restore', JOB),
@@ -85,12 +94,15 @@ RELAY_OPTIONS = {'reference_audio': RELAY_AUDIO,
                  'resolution': {'type': 'string', 'enum': list(RESOLUTIONS)}}
 
 SPECS = {
+    GIF_SUBMIT: schema(JOB | {'reference_image': FRAME, 'prompt': PROMPT}),
+    GIF_STATUS: schema(JOB),
+    GIF_CONFIG: schema({}),
     RELAY_SUBMIT: schema(JOB | {'prompt': RELAY_PROMPT, 'reference_images': RELAY_IMAGES}, RELAY_OPTIONS),
     CONNECTION: schema({}),
     CREDENTIAL: {'oneOf': [
-        action('begin', {}, {'provider': {'type': 'string', 'enum': list(PROVIDERS)}}),
+        action('begin', {}, {'provider': {'type': 'string', 'enum': KEY_PROVIDERS}}),
         action('begin_relay', {'base_url': {'type': 'string', 'minLength': 1, 'maxLength': 512}}),
-        action('status', {'provider': {'type': 'string', 'enum': [*PROVIDERS, 'relay']}}),
+        action('status', {'provider': {'type': 'string', 'enum': [*KEY_PROVIDERS, 'relay']}}),
         schema({'action': {'type': 'string', 'const': 'submit'}, 'session': HANDLE,
                 'jwe': {'type': 'string', 'minLength': 1, 'maxLength': 16384,
                         'pattern': r'^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){4}$'}}),
@@ -109,9 +121,12 @@ SPECS = {
                   'items': {'type': 'string', 'minLength': 1, 'maxLength': 4096}}}),
 }
 DESCRIPTIONS = {
+    GIF_SUBMIT: 'When the user requests an animated GIF with their configured OpenAI Key, submit one authorized billable GPT-Image-2.6 Flare image edit for a registered project. Provide a selected original static PNG/JPEG/WebP project-relative path, its SHA-256, and a motion/loop prompt. Reuse the exact attempt and arguments only to read its existing result or finish an interrupted local copy. Never resubmit an unknown request. Use image.openai.gif.status to read the local receipt; there is no remote poll.',
+    GIF_STATUS: 'Read the original local animated GIF receipt. ASSET_READY returns the exact project file path and its SHA-256. This tool does not call OpenAI.',
+    GIF_CONFIG: 'Read whether the separate OpenAI GIF Key is configured. Does not verify GIF preview access or return the Key.',
     RELAY_SUBMIT: 'Submit one authorized billable AutoDL · MiniMax H3 workflow task. Use 1–9 ordered HTTPS reference image URLs and optionally up to 3 HTTPS audio URLs accessible to the configured relay. Optional duration: 1–15 seconds. Resolution is a provider enum. This workflow offers reference images, with no dedicated first/last frame roles. Reuse the original generation_attempt_id. Query video.ark.generation.status with the original project and attempt. Never replace an unknown submission.',
     CONNECTION: 'Read local Ark credential configuration state. Does not verify model access or return the API Key.',
-    CREDENTIAL: 'App-only local Ark Key configuration. Accepts only a one-use encrypted envelope, never a plaintext Key.',
+    CREDENTIAL: 'App-only local video and OpenAI GIF Key configuration. Accepts only a one-use encrypted envelope, never a plaintext Key.',
     WORKSPACE: 'App-only project video history, previews, library and export. Supports legacy panel requests.',
     SUBMIT: 'Submit one authorized billable Seedance task. Supply either first_frame and last_frame or, for Seedance 2.5, 1–30 ordered reference_images. Each image needs a project-local original PNG/JPEG path and SHA-256 hash. Default: Seedance 2.5, 5 seconds. Seedance 2.5 accepts 4–30 seconds or -1 for Auto. For explicit mode, resolution or audio use configuration with mode, paths (ordered project-relative PNG/JPEG), duration, resolution and audio. Seedance 2.5 also supports text, edit and extend; edit/extend require the original source_attempt_id and source_sha256 in the same project. Reuse the original generation_attempt_id and identical inputs. Never submit a replacement after SUBMIT_UNKNOWN.',
     STATUS: 'Read the original video receipt (Ark, MiniMax or video relay). With poll=true, query only the original provider task and save its verified MP4 if ready.',
@@ -123,6 +138,7 @@ class VideoRouter:
     def __init__(self, inner, registry=None):
         self.inner = inner
         self.video_jobs = Jobs(registry)
+        self.gif_jobs = GifJobs(self.video_jobs)
         self.video_credential = InlineVideoCredential()
 
     def __getattr__(self, name):
@@ -139,10 +155,10 @@ class VideoRouter:
     def list_tools(self):
         rows = self.inner.list_tools()
         for name, spec in SPECS.items():
-            local_read = name == CONNECTION
+            local_read = name in {CONNECTION, GIF_CONFIG, GIF_STATUS}
             row = {'name': name, 'inputSchema': deepcopy(spec), 'description': DESCRIPTIONS[name],
                    'annotations': {'readOnlyHint': local_read, 'destructiveHint': False,
-                                   'idempotentHint': name != CREDENTIAL, 'openWorldHint': name in {SUBMIT, STATUS, WORKSPACE, H3_SUBMIT, RELAY_SUBMIT}}}
+                                   'idempotentHint': name != CREDENTIAL, 'openWorldHint': name in {SUBMIT, STATUS, WORKSPACE, H3_SUBMIT, RELAY_SUBMIT, GIF_SUBMIT}}}
             if name in (CREDENTIAL, WORKSPACE):
                 row['_meta'] = {'ui': {'visibility': ['app']}}
             rows.append(row)
@@ -152,12 +168,21 @@ class VideoRouter:
         if name not in SPECS:
             return self.inner.call(name, arguments)
         strict_validate(arguments, SPECS[name])
+        if name == GIF_CONFIG:
+            return gif_status()
+        if name == GIF_STATUS:
+            return self.gif_jobs.status(arguments['generation_attempt_id'], arguments['project_id'])
+        if name == GIF_SUBMIT:
+            return self.gif_jobs.submit(arguments['generation_attempt_id'], arguments['project_id'],
+                                        arguments['reference_image'], arguments['prompt'])
         if name == CONNECTION:
             return dict(status(), model=MODEL, supported_models=list(SUPPORTED_MODELS),
                         model_access='UNVERIFIED')
         if name == CREDENTIAL:
             action = arguments['action']
             if action == 'status':
+                if arguments['provider'] == GIF_PROVIDER:
+                    return gif_status()
                 return relay_status() if arguments['provider'] == 'relay' else status(provider=arguments['provider'])
             if action == 'begin_relay':
                 return self.video_credential.begin('relay', base_url=arguments['base_url'])
@@ -202,6 +227,10 @@ class VideoRouter:
         attempt = arguments.get('generation_attempt_id')
         if command == 'history':
             return job.history(project)
+        if command == 'gif_history':
+            if project is None:
+                return {'projects': [{'id': row['id'], 'name': row['name']} for row in job.projects.view()['projects']]}
+            return {'gifs': self.gif_jobs.history(project)}
         if command == 'select':
             return job.select_versions(project, arguments['primary'], arguments.get('compare'))
         if command == 'playback':
@@ -210,6 +239,10 @@ class VideoRouter:
             return job.preview_frames(arguments['start'], attempt, project)
         if command == 'export':
             return job.export(attempt, project)
+        if command == 'gif_chunk':
+            return self.gif_jobs.chunk(attempt, project, arguments['offset'])
+        if command == 'gif_export':
+            return self.gif_jobs.export(attempt, project)
         if command in {'rename', 'trash', 'restore', 'copy'}:
             return job.library_action(command, attempt, project, arguments.get('name'))
         if command == 'status':

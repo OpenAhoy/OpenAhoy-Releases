@@ -7,12 +7,12 @@ from .management_locale import FALLBACK, mark_chrome
 
 STYLE = '''
 #softwareUpdateSlot:empty{display:none}.oa-software-update{display:flex;flex-direction:column;gap:8px;padding:10px 0;margin:0;border-block:1px solid var(--line,#dce4e1);font-size:11px;line-height:1.5;min-width:0}
-.oa-update-copy{min-width:0;display:flex;flex-direction:column;gap:4px}.oa-update-version{font-weight:600;white-space:nowrap}.oa-update-status{color:var(--muted,#61746c);overflow-wrap:anywhere}.oa-software-update[data-state="UPDATE_AVAILABLE"]{border-color:var(--accent,#026364)}
+.oa-update-copy{min-width:0;display:flex;flex-direction:column;gap:4px}.oa-update-version{font-weight:600;overflow-wrap:anywhere}.oa-update-latest,.oa-update-status{color:var(--muted,#61746c);overflow-wrap:anywhere}.oa-update-status:empty{display:none}.oa-software-update[data-update-available="true"]{border-color:var(--accent,#026364)}
 .oa-update-actions{display:flex;flex-direction:column;gap:6px}.oa-update-actions button{width:100%;font-size:11px;min-height:30px;padding:4px 8px;white-space:nowrap}.oa-update-actions .oa-update-start{background:var(--accent,#026364);color:#fff;border-color:transparent}
 @media(max-width:799px),(max-height:599px){.oa-sidebar{display:grid;grid-template-columns:112px minmax(0,1fr);align-items:start}.oa-sidebar #softwareUpdateSlot{width:100%}.oa-sidebar>div:last-child{grid-column:1/-1}.oa-software-update{padding:8px 0}.oa-update-actions{flex-direction:row;flex-wrap:wrap}.oa-update-actions button{width:auto}}
 '''
 
-UPDATE_HTML = '''<div class="oa-update-copy"><span class="oa-update-version"></span><span class="oa-update-status" role="status" aria-live="polite">正在连接更新检查…</span><details class="oa-update-history" hidden><summary>更新历史</summary><span></span></details></div><div class="oa-update-actions"><button type="button" class="oa-update-check" disabled>检查更新</button><button type="button" class="oa-update-start" hidden disabled>立即升级</button><button type="button" class="oa-update-help" hidden>查看升级与恢复方法</button></div>'''
+UPDATE_HTML = '''<div class="oa-update-copy"><span class="oa-update-version"></span><span class="oa-update-latest" role="status" aria-live="polite"></span><span class="oa-update-status" role="status" aria-live="polite">正在连接更新检查…</span><details class="oa-update-history" hidden><summary>更新历史</summary><span></span></details></div><div class="oa-update-actions"><button type="button" class="oa-update-check" disabled>检查更新</button><button type="button" class="oa-update-start" hidden disabled>立即升级</button><button type="button" class="oa-update-help" hidden>查看升级与恢复方法</button></div>'''
 
 SCRIPT = FALLBACK + r'''
 window.OASoftwareUpdates={mount(rpc,installed){
@@ -23,6 +23,8 @@ window.OASoftwareUpdates={mount(rpc,installed){
  box.innerHTML=__UPDATE_HTML__;
  const slot=document.getElementById('softwareUpdateSlot');if(!slot)throw new Error('UPDATE_VIEW_UNAVAILABLE');slot.append(box);ui.scan?.(box);
  const version=box.querySelector('.oa-update-version'),status=box.querySelector('.oa-update-status'),checkButton=box.querySelector('.oa-update-check'),startButton=box.querySelector('.oa-update-start');
+ const stable=box.querySelector('.oa-update-latest');
+ ui.set(stable,'尚未检查最新稳定版');
  version.textContent='OpenAhoy '+installed;
  const helpButton=box.querySelector('.oa-update-help');
  const history=box.querySelector('.oa-update-history');
@@ -49,28 +51,50 @@ window.OASoftwareUpdates={mount(rpc,installed){
   checkButton.disabled=!ready||closed||checking||reading||busy;
   startButton.hidden=!latest||busy||terminal.has(job)||Boolean(pendingRequest);
   startButton.disabled=!ready||closed||checking||reading||startButton.hidden;
+  box.dataset.updateAvailable=String(!startButton.hidden);
  }
  function say(text,state,...values){ui.set(status,text,...values);box.dataset.state=state;buttons();}
  function valid(value){
   if(!value||typeof value!=='object'||Array.isArray(value)||value.repository!==repository||value.installed_version!==installed)return false;
   if(value.state==='CHECK_UNAVAILABLE')return true;
-  if(!versionPattern.test(value.latest_version)||!versionPattern.test(installed)||value.tag!=='v'+value.latest_version||typeof value.advertised_revision!=='string'||!/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(value.advertised_revision))return false;
+  if(typeof value.latest_version!=='string'||!versionPattern.test(value.latest_version)||!versionPattern.test(installed)||value.tag!=='v'+value.latest_version||typeof value.advertised_revision!=='string'||!/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(value.advertised_revision))return false;
   const order=compare(value.latest_version,installed),expected=order>0?'UPDATE_AVAILABLE':order===0?'UP_TO_DATE':'DEVELOPMENT_AHEAD';return value.state===expected;
  }
+ const checkErrors={
+  SOURCE_REWRITTEN:'Git 配置改变了更新源地址',NETWORK_TIMEOUT:'连接更新源超时',NETWORK_DNS:'更新源域名解析失败',
+  NETWORK_CONNECT:'无法连接更新源',AUTH_REQUIRED:'当前 Git 访问需要登录',ACCESS_UNAVAILABLE:'当前 Git 身份无法访问更新源',
+  TLS_FAILED:'更新源证书校验失败',REDIRECT_REFUSED:'更新源已重定向，需切换到官方新地址',NO_STABLE_TAGS:'未读到稳定版本标签',
+  INVALID_TAG_RESPONSE:'版本标签响应不完整',GIT_UNAVAILABLE:'本机 Git 不可用',GIT_FAILED:'Git 更新查询失败',
+  CARRIER_LIMIT:'更新响应过大',INVALID_VERSION:'已安装版本信息无效',PROCESS_TIMEOUT:'本机更新查询超时',
+  LOCAL_PROCESS_ERROR:'本机更新进程不可用',UNAVAILABLE:'更新查询暂不可用'
+ };
+ function checkUnavailable(preserve,code){
+  latest=null;
+  const reason=typeof code==='string'&&Object.hasOwn(checkErrors,code)
+    ?ui.message('{0}（{1}）。可在“诊断日志”查看安全记录。',ui.message(checkErrors[code]),code)
+    :ui.message('暂时无法检查更新，请稍后重试。');
+  if(preserve)ui.set(stable,'最新稳定版暂不可获取。{0}',reason);
+  else{
+   ui.set(stable,'最新稳定版暂不可获取');
+   say('{0}','CHECK_UNAVAILABLE',reason);
+  }
+ }
  async function check(preserve=false){
-  if(!ready||closed||checking||starting||active.has(job))return;checking=true;buttons();
-  if(!preserve)say('正在检查稳定版本…','CHECKING');
+  if(!ready||closed||checking||starting||active.has(job))return;
+  checking=true;latest=null;ui.set(stable,'正在检查稳定版本…');
+  if(!preserve)say('','CHECKING');
+  else buttons();
   try{
    const reply=await rpc('tools/call',{name:'wce.ui.updates.check',arguments:{}});if(closed)return;
    const value=reply?.structuredContent;if(reply?.isError||!valid(value))throw new Error('UPDATE_CHECK_FAILED');
+   if(value.state==='CHECK_UNAVAILABLE'){checkUnavailable(preserve,value.diagnostic?.code);return;}
+   ui.set(stable,'最新稳定版 {0}',value.latest_version);
    latest=value.state==='UPDATE_AVAILABLE'?value:null;
    if(preserve||terminal.has(job))return;
    helpButton.hidden=true;
-   if(value.state==='UPDATE_AVAILABLE')say('新版本 {0} 可用','UPDATE_AVAILABLE',value.latest_version);
-   else if(value.state==='UP_TO_DATE')say('已是最新稳定版','UP_TO_DATE');
-   else if(value.state==='DEVELOPMENT_AHEAD')say('当前版本高于稳定版 '+value.latest_version+'，不会降级。','DEVELOPMENT_AHEAD');
-   else {const codes={SOURCE_REWRITTEN:'Git 配置改变了更新源地址',NETWORK_TIMEOUT:'连接更新源超时',NETWORK_DNS:'更新源域名解析失败',NETWORK_CONNECT:'无法连接更新源',AUTH_REQUIRED:'当前 Git 访问需要登录',ACCESS_UNAVAILABLE:'当前 Git 身份无法访问更新源',TLS_FAILED:'更新源证书校验失败',REDIRECT_REFUSED:'更新源已重定向，需切换到官方新地址',NO_STABLE_TAGS:'未读到稳定版本标签',INVALID_TAG_RESPONSE:'版本标签响应不完整',GIT_UNAVAILABLE:'本机 Git 不可用',GIT_FAILED:'Git 更新查询失败',CARRIER_LIMIT:'更新响应过大',INVALID_VERSION:'已安装版本信息无效',PROCESS_TIMEOUT:'本机更新查询超时',LOCAL_PROCESS_ERROR:'本机更新进程不可用',UNAVAILABLE:'更新查询暂不可用'};const code=value.diagnostic?.code;say((Object.hasOwn(codes,code)?codes[code]+'（'+code+'）':'暂时无法检查更新')+'。可在“诊断日志”查看安全记录。','CHECK_UNAVAILABLE');}
-  }catch(_){if(!closed){latest=null;if(!preserve&&!terminal.has(job))say('暂时无法检查更新，请稍后重试。','CHECK_UNAVAILABLE');}}
+   if(value.state==='DEVELOPMENT_AHEAD')say('当前为较新的开发版本，不会降级。','DEVELOPMENT_AHEAD');
+   else say('',value.state);
+  }catch(_){if(!closed)checkUnavailable(preserve);}
   finally{checking=false;if(!closed)buttons();}
  }
  const messages={
@@ -92,7 +116,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
      (!versionPattern.test(value.version)||compare(value.version,installed)<=0))throw new Error('UPDATE_STATUS_INVALID');
   job=value.state;
   if(job==='INSTALLED_RELOAD_REQUIRED')ui.set(version,'OpenAhoy {0} · 已安装 {1}',installed,value.version);
-  else version.textContent='OpenAhoy '+installed;
+  else ui.raw(version,'OpenAhoy '+installed);
   helpButton.hidden=true;
   const old=value.history;
   const historyText={
@@ -146,16 +170,18 @@ window.OASoftwareUpdates={mount(rpc,installed){
    if(result?.isError)throw new Error('UPDATE_STATUS_UNAVAILABLE');
    const value=result?.structuredContent;
    if(pendingRequest&&value?.request_id!==pendingRequest){
+    if(refresh)checkUnavailable(true);
     statusUnavailable();schedule(3000);return;
    }
    renderJob(value);
    if(pendingRequest)remember(null);
    if(active.has(job))schedule();
-   else if(!terminal.has(job)&&(refresh||!latest)){
+   else if((!terminal.has(job)&&(refresh||!latest))||(refresh&&job==='INSTALLED_RELOAD_REQUIRED')){
     await check(job!=='IDLE');
    }
   }catch(_){
    if(closed)return;
+   if(refresh)checkUnavailable(true);
    statusUnavailable();schedule(3000);
   }finally{reading=false;if(!closed)buttons();}
  }

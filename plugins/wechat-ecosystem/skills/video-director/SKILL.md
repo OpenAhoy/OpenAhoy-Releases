@@ -10,4 +10,5 @@ description: Plan and produce social videos in OpenAhoy. Use when Codex should t
 3. Codex 先用当前可用的图像生成工具制作缺失资产。已确认的角色或产品以原参考图为准。按目标画幅生成，核对人物身份、服装、道具、运动方向、光线及相邻镜头衔接，再用所在项目的实际路径和 SHA-256 交给插件。
 4. 为每段给出时长、模式、按顺序的素材、可直接提交的提示词和预期终点。使用 MiniMax 时读 [MiniMax H3 操作规则](references/MINIMAX_H3.md)。使用方舟时按 [Seedance 操作规则](../wechat-ecosystem/references/SEEDANCE.md) 调用插件。方舟可继续用 `first_frame`、`last_frame` 或 `reference_images`。需要指定分辨率、音频，或使用文生视频、修改画面、续写时，按方舟规则传 `configuration`。生成、选帧和提示词由 Codex 完成。内嵌页用于模型 API Key、项目成片和资产。仅在本次生成已获授权时提交；结果未知时查原任务。
 - AutoDL · MiniMax H3 的账号设置、显式工作流字段及原任务查询见 [MINIMAX_H3_RELAY.md](references/MINIMAX_H3_RELAY.md)。
+- 用户明确要求制作动图时，已配置 OpenAI 动图 Key 就默认使用 GPT‑Image‑2.6 Flare，按[OpenAI 动图](references/OPENAI_GIF.md)选择项目静态参图、提交一次、读回原 GIF。
 5. 读回原片并看实际视频，检查开头、动作变化、片尾、字幕安全区、声画以及拼接点。从可见缺陷回修具体资产或提示词。仅按本次委托交付或发布。

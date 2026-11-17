@@ -95,7 +95,7 @@ def strict_validate(value, spec, depth=0):
         for key, item in value.items():
             strict_validate(item, spec["properties"][key], depth + 1)
     elif kind == "array":
-        if type(value) is not list or not spec["minItems"] <= len(value) <= spec["maxItems"]:
+        if type(value) is not list or not spec.get("minItems", 0) <= len(value) <= spec.get("maxItems", len(value)):
             raise WCEError("INVALID_TOOL_ARGUMENTS")
         for item in value:
             strict_validate(item, spec["items"], depth + 1)

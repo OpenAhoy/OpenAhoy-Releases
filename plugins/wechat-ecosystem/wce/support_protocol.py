@@ -9,6 +9,7 @@ from .prepared_contracts import strict_validate
 from .tools import schema
 from .support_feedback import Support
 from .support_diagnostics import RESULTS, CODES, PRESERVATION_FIELDS, OPERATION_PHASES
+from .openai_gif_api import TRANSPORT_PHASES as GIF_TRANSPORT_PHASES
 from .video_relay import PUBLIC_DNS_REQUIRED, RELAY_MODEL, SUBMIT_DIAGNOSTIC_CODES, TRANSPORT_PHASES
 from .x_api import X_RESPONSE_ERROR_KINDS, XResponseUnknown
 
@@ -31,6 +32,7 @@ CHAT_DESCRIPTIONS = {
 }
 # readOnlyHint does not exclude refresh-token rotation or metadata writes.
 LOCAL_ONLY_TOOLS=frozenset({PREVIEW,STATUS,'own.connections.list','x.connections.list','own.drafts.current.read','own.drafts.current.status','wce.ui.management.overview'})
+LOCAL_ONLY_TOOLS = LOCAL_ONLY_TOOLS | {'image.openai.gif.status', 'image.openai.gif.configuration.status'}
 
 
 def descriptor():
@@ -94,6 +96,16 @@ class SupportRouter:
                 transport_phase=None
                 projection=outcome(value)
                 if projection is not None:state,code=projection
+                if name in {'image.openai.gif.submit', 'image.openai.gif.status'}:
+                    gif_state = value.get('state')
+                    if code == 'GIF_TRANSPORT_UNKNOWN' and type(diagnostic) is dict:
+                        transport_phase = diagnostic.get('operation_phase')
+                    if gif_state in ('SUBMIT_UNKNOWN', 'RESULT_RECEIVED'):
+                        state, code = 'UNKNOWN', code or 'TRANSPORT_UNDETERMINED'
+                    elif gif_state in ('SUBMIT_REJECTED', 'NOT_SENT'):
+                        state, code = 'TOOL_ERROR', code or 'GIF_LOCAL_FAILURE'
+                    elif gif_state == 'SAVE_PENDING':
+                        state, code = 'ACTION_REQUIRED', code or 'GIF_FINALIZE_PENDING'
                 request=value.get('request')
                 if (name in {'video.relay.generation.submit', 'video.ark.generation.status'}
                         and type(request) is dict and request.get('model') == RELAY_MODEL):
@@ -118,7 +130,7 @@ class SupportRouter:
                     if type(failure_kind) is str and failure_kind in X_RESPONSE_ERROR_KINDS:
                         kind=failure_kind
                 details=management_details(value)
-                if type(transport_phase) is str and transport_phase in TRANSPORT_PHASES:
+                if type(transport_phase) is str and transport_phase in (TRANSPORT_PHASES | GIF_TRANSPORT_PHASES):
                     details['operation_phase']=transport_phase
                 if name=='wce.ui.wechat.storage_recovery':
                     recovery_state=value.get('state')

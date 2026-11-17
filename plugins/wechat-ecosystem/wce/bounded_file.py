@@ -79,7 +79,7 @@ class FileSource:
         """Trusted source-page envelope; image and generic reads stay 2MiB."""
         return self._read(relative_path, MAX_SOURCE_HTML_BYTES)
 
-    def iter_html(self, relative_path, *, guard=lambda: None, expected_state=None, offset=0):
+    def iter_html(self, relative_path, *, guard=lambda: None, expected_state=None, offset=0, length=None):
         """Normal HTML source stream; total image/page bytes are not a quota."""
         if (type(relative_path) is not str or not relative_path or len(relative_path)>4096
                 or relative_path.startswith('/') or ':' in relative_path or "\x00" in relative_path):
@@ -98,16 +98,19 @@ class FileSource:
                     or before.st_uid!=os.getuid() or before.st_size<=0):raise WCEError('INVALID_LOCAL_FILE')
             if expected_state is not None and tuple(expected_state)!=file_state(before):raise WCEError('LOCAL_FILE_CHANGED')
             if type(offset)is not int or not 0<=offset<=before.st_size:raise WCEError('INVALID_LOCAL_FILE')
+            if length is not None and (type(length) is not int or not 0 <= length <= before.st_size - offset):
+                raise WCEError('LOCAL_FILE_CHANGED')
+            end = before.st_size if length is None else offset + length
             os.lseek(fd,offset,os.SEEK_SET)
             total=offset
-            while True:
+            while total < end:
                 guard()
                 if file_state(os.fstat(fd))!=file_state(before):raise WCEError('LOCAL_FILE_CHANGED')
-                chunk=os.read(fd,CHUNK_BYTES)
+                chunk=os.read(fd,min(CHUNK_BYTES,end-total))
                 if not chunk:break
                 total+=len(chunk);yield chunk
             after=os.fstat(fd);entry=os.stat(parts[-1],dir_fd=parent,follow_symlinks=False)
-            if file_state(before)!=file_state(after) or file_state(after)!=file_state(entry) or total!=before.st_size:
+            if file_state(before)!=file_state(after) or file_state(after)!=file_state(entry) or total!=end:
                 raise WCEError('LOCAL_FILE_CHANGED')
             self._check_chain(chain);guard()
         except OSError:

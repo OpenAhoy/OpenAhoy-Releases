@@ -225,7 +225,7 @@ class Jobs:
         return [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns]
 
     @staticmethod
-    def _project_video_folder(project, identity, *, create=False):
+    def _project_video_folder(project, identity, *, create=False, components=PROJECT_VIDEO_DIR):
         from .own_configuration_export import _directory
 
         with ExitStack() as stack:
@@ -235,7 +235,7 @@ class Jobs:
             info = os.fstat(parent)
             if [info.st_dev, info.st_ino] != identity:
                 raise WCEError('VIDEO_PROJECT_ROOT_CHANGED')
-            for name in PROJECT_VIDEO_DIR:
+            for name in components:
                 if create:
                     try:
                         os.mkdir(name, 0o700, dir_fd=parent)
@@ -422,7 +422,7 @@ class Jobs:
             os.close(folder)
         return {'state': 'EXPORTED', 'filename': filename, 'bytes': asset['bytes'], 'sha256': asset['sha256']}
 
-    def _copy_original(self, source, asset, pin, folder, filename, *, before_link=None):
+    def _copy_original(self, source, asset, pin, folder, filename, *, before_link=None, source_root=None):
         temporary = '.openahoy-video-' + os.urandom(16).hex()
         created = False
         try:
@@ -433,7 +433,8 @@ class Jobs:
                 created = True
                 digest = sha256()
                 with os.fdopen(fd, 'wb') as out:
-                    for block in FileSource(self.root).iter_html(source.name, expected_state=pin):
+                    for block in FileSource(self.root if source_root is None else source_root).iter_html(
+                            source.name, expected_state=pin):
                         digest.update(block)
                         out.write(block)
                     out.flush()

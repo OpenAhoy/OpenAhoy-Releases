@@ -59,3 +59,11 @@
 上传或创建RESULT_UNKNOWN时，先 `x.attempt.status` 查询原请求；带媒体帖还可用 `x.posts.readback` 通过原账号时间线核对原媒体。纯文字帖缺少原响应的帖子 ID 时保持 UNKNOWN，时间线里的同文不能证明归属。无唯一匹配保持UNKNOWN，不换key重发，不以“没看到”推定失败。已有成功在重启后沿原attempt续接。读回MISMATCH保留原发布，报告实际差异，不重复发帖或删帖。
 
 X可能对读写收取官方费用，实际应用资格、权限、余额和平台错误分别核对；未经本人授权不充值、开自动充值或购买新资源。刷新未知须重新走官方授权，不盲重放旧refresh token。密钥只在X专用系统钥匙串；微信两号的绑定、秘密、规则和历史不改。
+
+## 原生长文（X Articles）
+
+需要保留封面、正文图和段落结构时，按用户本轮指定的 X 账号制作原生 Articles。使用 `x.media.upload` 分别上传封面与每张正文图，保留同号的成功上传回执。依正文顺序调用 `x.articles.draft.create`，用 `blocks` 描述段落、标题、列表、引用及图片位置。图块填 `upload_attempt_id`，可选 `caption`。封面单独填 `cover_upload_attempt_id`。平台决定可用媒体和文章限制。
+
+有明确发表委托时用 `x.articles.publish` 传原 `draft_attempt_id`。工具从原回执取得真实 Article ID，发表回包中的 Post ID 另存。用 `x.articles.status` 和原 `draft_attempt_id` 回查，打开 `readback` 时独立读取该 Post ID。账号、标题、封面及正文图的可见字段按真实回包核对。文章专属链接仅在回包给出时报告，帖子链接单独标明。出现 `INCOMPLETE` 或 `MISMATCH`，保留原结果并说明差项。
+
+缺少草稿 ID 或发表 Post ID 时查看同一原回执，保持结果未知。X 当前公开 Articles API 提供建草稿和发表。回包丢失时，已有本地内容、相同标题或搜索结果不足以确认原请求，继续使用原尝试编号查询，不换号或换编号重发。[X Articles 官方文档](https://docs.x.com/x-api/articles/introduction)

@@ -38,7 +38,7 @@ SCRIPT = r'''
    ['x','管理 X 账号、创作规则和开发者应用。'],
    ['xiaohongshu','绑定小红书账号并管理笔记发布。']
  ]);
- function route(value){return value==='home'||value==='video'||platformNames.has(value)?value:'';}
+ function route(value){return value==='home'||value==='video'||value==='gif'||platformNames.has(value)?value:'';}
  function routeFromURL(){
    const query=new URLSearchParams(location.search),fragment=new URLSearchParams(location.hash.slice(1));
    return route(query.get('view')||query.get('platform')||fragment.get('view')||fragment.get('platform'));
@@ -105,7 +105,7 @@ SCRIPT = r'''
   }
  })]));
  function applyHostTheme(context){if(context?.theme==='light'||context?.theme==='dark')document.body.dataset.colorScheme=context.theme;}
- function dispose(){homeIntro?.close();videoWorkspace.close();video.dispose();binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
+ function dispose(){homeIntro?.close();videoWorkspace.close();gifWorkspace.close();video.dispose();binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
    for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('VIEW_CLOSED'));}pending.clear();
    for(const el of document.querySelectorAll('button,input,select,textarea'))el.disabled=true;
  }
@@ -173,7 +173,7 @@ SCRIPT = r'''
    return supported;
  }
  async function selectPlatform(id,focus=false){
-   showVideo(false);const intent=++platformEpoch;navigationEpoch++;closeXTools();activePlatform=id;renderView();renderPlatforms();await renderAccounts();if(closed||intent!==platformEpoch||view!=='platform'||activePlatform!==id)return;showSettings(id);
+   showMedia('');const intent=++platformEpoch;navigationEpoch++;closeXTools();activePlatform=id;renderView();renderPlatforms();await renderAccounts();if(closed||intent!==platformEpoch||view!=='platform'||activePlatform!==id)return;showSettings(id);
    if(id==='x'&&ready&&!contextOpen)xManagement.activate();else xManagement.deactivate();
    if(id==='xiaohongshu'&&ready&&!contextOpen)xhsManagement.activate();else xhsManagement.deactivate();
    $('xCapabilities').hidden=id!=='x';
@@ -635,11 +635,13 @@ SCRIPT = r'''
  }
  async function secure(){if(!ready||!bindingPlatform()?.binding_supported)return;if(activePlatform==='xiaohongshu'){await xhsManagement.begin();return;}if(activePlatform==='x'){await openXAuthorization(false);return;}await binding.open();}
  const video = OAVideoCredential((name,args)=>tool(name,args).then(content),()=>ready&&!closed);
- const videoWorkspace = OAVideoWorkspace(async(name,args)=>{
+ const mediaTool=async(name,args)=>{
    const result=await tool(name,args);
    if(result?.isError)throw new Error(result.structuredContent?.error||result.content?.[0]?.text||'VIDEO_TOOL_FAILED');
    return content(result);
- },video,async site=>{
+ };
+ const gifWorkspace=OAGifWorkspace(mediaTool,video);
+ const videoWorkspace=OAVideoWorkspace(mediaTool,video,async site=>{
    if(!hostCapabilities.openLinks)throw new Error('HOST_OPEN_LINK_UNAVAILABLE');
    const url={cn:'https://platform.minimax.cn/user-center/payment/balance',
               global:'https://platform.minimax.io/user-center/payment/balance'}[site]||'https://console.volcengine.com/finance/bill/detail';
@@ -651,13 +653,19 @@ SCRIPT = r'''
    OAUI.set($('homeIntroStatus'),'');
    return content(await tool('wce.ui.video.workspace',{action:'intro_frames',start}));
  },10.5,{poster:intro.dataset.poster,showControls:false,loop:true,failed:()=>OAUI.set($('homeIntroStatus'),'宣传片暂时无法播放。')}):null;
- function showVideo(open){
-   if(open===document.body.classList.contains('oa-video-open'))return;
+ let mediaView='';
+ function showMedia(target){
+   if(target===mediaView)return;
    navigationEpoch++;
-   document.body.classList.toggle('oa-video-open',open);
-   $('videoWorkspace').hidden=!open;
-   if(open){closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();videoWorkspace.open();}
-   else videoWorkspace.close();
+   if(mediaView==='video')videoWorkspace.close();
+   if(mediaView==='gif')gifWorkspace.close();
+   mediaView=target;
+   document.body.classList.toggle('oa-video-open',!!target);
+   $('videoWorkspace').hidden=target!=='video';
+   $('gifWorkspace').hidden=target!=='gif';
+   if(target){closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();}
+   if(target==='video')videoWorkspace.open();
+   if(target==='gif')gifWorkspace.open();
  }
  function renderView(){
    if(view==='home'&&ready)homeIntro?.play();else homeIntro?.pause();
@@ -665,17 +673,18 @@ SCRIPT = r'''
    $('nativeWorkspace').hidden=view!=='platform'||!$('inlineBinding').hidden;
    $('openHome').setAttribute('aria-current',view==='home'?'page':'false');
    $('openVideoWorkspace').setAttribute('aria-current',view==='video'?'page':'false');
+   $('openGifWorkspace').setAttribute('aria-current',view==='gif'?'page':'false');
  }
  async function openView(target,{user=false,focus=false}={}){
    closeFloatingMenus();
    if(closed||!ready||!$('inlineBinding').hidden)return;
    if(activePlatform!==target||view!=='platform')notice('');
    if(user){explicitNavigation=true;rememberView(target);}
-   if(target==='home'||target==='video'){
+   if(target==='home'||target==='video'||target==='gif'){
      platformEpoch++;selectionIntent++;selectEpoch++;navigationEpoch++;
      if(target==='home'){closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();}
-     view=target;showVideo(target==='video');renderView();renderPlatforms();
-     if(focus)(target==='home'?$('homeTitle'):$('videoPageTitle')).focus();
+     view=target;showMedia(target==='home'?'':target);renderView();renderPlatforms();
+     if(focus)$({home:'homeTitle',video:'videoPageTitle',gif:'gifPageTitle'}[target]).focus();
      return;
    }
    view='platform';
@@ -683,6 +692,7 @@ SCRIPT = r'''
  }
  $('openHome').onclick=()=>openView('home',{user:true,focus:true});
  for(const id of ['openVideoWorkspace','homeVideo'])$(id).onclick=()=>openView('video',{user:true,focus:true});
+ for(const id of ['openGifWorkspace','homeGif'])$(id).onclick=()=>openView('gif',{user:true,focus:true});
  $('refresh').addEventListener('click',()=>void refresh());$('showAdd').addEventListener('click',secure);
  $('accountCreate').addEventListener('click',async()=>{
    const row=current(),original=selected,editor=row&&editors.get(row.platform_id);if(!editor||!platform(row.platform_id)?.settings_supported)return;
@@ -714,7 +724,7 @@ SCRIPT = r'''
  rpc('ui/initialize',{appInfo:{name:'openahoy-management',version:'3.0.0'},protocolVersion:'2026-01-26',appCapabilities:{availableDisplayModes:['inline','fullscreen']}})
  .then(async host=>{if(closed||host?.protocolVersion!=='2026-01-26'||!host.hostCapabilities?.serverTools)throw new Error('NO_SERVER_TOOLS');
    hostCapabilities=host.hostCapabilities;ready=true;applyHostTheme(host.hostContext);projectContext.setReady(true,!!hostCapabilities.message?.text);bridge.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized'},'*');
-   $('homeVideo').disabled=false;
+   $('homeVideo').disabled=$('homeGif').disabled=false;
    const startup=initialView||routeFromURL();if(startup)void openView(startup);else renderView();
    buttons();await refresh();
  }).catch(()=>{ready=false;buttons();notice('当前宿主管理工具桥不可用，未进行任何账号操作。',true);OAUI.set($('homeStatus'),'当前宿主管理工具桥不可用，未进行任何账号操作。');});
@@ -730,6 +740,7 @@ def resource():
     from .own_wechat_management import settings_html, settings_script
     from .own_inline_binding_ui import SCRIPT as binding_script
     from .video_inline_ui import SCRIPT as video_script
+    from .openai_gif_ui import STYLE as gif_style, SCRIPT as gif_script
     from .video_workspace_ui import STYLE as video_style, SCRIPT as video_workspace_script
     from .video_frame_player import STYLE as frame_style, SCRIPT as frame_script
     from .x_management_ui import HTML as x_html, SCRIPT as x_script
@@ -742,9 +753,9 @@ def resource():
     html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>OpenAhoy · Platform management</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + HOME_STYLE + frame_style + '</style>'
+        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + gif_style + HOME_STYLE + frame_style + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
-        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + video_workspace_script + x_script + xhs_script + schedule_script + operating_script + project_script + SCRIPT + '</script></body></html>')
+        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + video_workspace_script + gif_script + x_script + xhs_script + schedule_script + operating_script + project_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
         '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com'], 'frameDomains': []}},
                   'openai/ui': {'availableDisplayModes': ['inline', 'fullscreen'], 'preferredDisplayMode': 'inline'}}}]}

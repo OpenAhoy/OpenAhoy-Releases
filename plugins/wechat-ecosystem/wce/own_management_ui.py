@@ -58,6 +58,7 @@ def icon(name):
         'settings':'<path d="M3 6h5m4 0h9M3 12h11m4 0h3M3 18h2m4 0h12"/><circle cx="10" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="7" cy="18" r="2"/>',
         'wechat':'<path d="M17 9a7 6 0 0 0-14 0c0 2 1 3.5 3 4.5L5 16l3-1.5h2"/><path d="M21 15c0-3-2.5-5-6-5s-6 2-6 5 2.5 5 6 5h2l3 1-.7-2.5c1.1-1 1.7-2 1.7-3.5Z"/><path d="M7 8h.01M12 8h.01M13 14h.01M17 14h.01"/>',
         'arrow':'<path d="m9 5 7 7-7 7"/>',
+        'image':'<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9" r="1.4"/><path d="m3 16 5-4 4 3 3-4 6 5"/>',
         'video':'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m10 9 5 3-5 3z"/>'}
     return '<svg class="oa-icon" viewBox="0 0 24 24" aria-hidden="true">'+paths[name]+'</svg>'
 
@@ -69,13 +70,14 @@ def platform_sidebar(logo, navigation, *, localized=False):
                  + brand + '</button><button type="button" id="oaLocale">English</button>')
     return '<aside class="oa-sidebar"><div class="oa-brand">'+brand+'''</div>
 <div id="softwareUpdateSlot"></div>
-<div>'''+('<nav class="oa-nav"><button id="openVideoWorkspace" type="button">'+icon('video')+'<span>视频生成</span></button></nav>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
+<div>'''+('<nav class="oa-nav"><button id="openVideoWorkspace" type="button">'+icon('video')+'<span>视频生成</span></button><button id="openGifWorkspace" type="button">'+icon('image')+'<span>动图生成</span></button></nav>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
 
 
 def native_page_body(logo, platform_settings):
     """Single native workspace; secret input has its own view in this resource."""
     from .own_inline_binding_ui import HTML as binding_html
     from .video_workspace_ui import HTML as video_html
+    from .openai_gif_ui import HTML as gif_html
     from .own_branding import video_model_mark
     from .own_branding import icons
     from .video_jobs import PROMO_DIR
@@ -96,6 +98,7 @@ def native_page_body(logo, platform_settings):
 <h2 id="homeFeaturesTitle">开始使用</h2>
 <div class="oa-home-grid" id="homeFeatures">
 <button id="homeVideo" type="button" class="oa-home-card" disabled><span class="oa-home-card-title">'''+icon('video')+'''<span>视频生成</span></span><span class="oa-home-card-description">预览、对比并下载项目成片。</span>'''+icon('arrow')+'''</button>
+<button id="homeGif" type="button" class="oa-home-card" disabled><span class="oa-home-card-title">'''+icon('image')+'''<span>动图生成</span></span><span class="oa-home-card-description">查看、预览并下载项目动图。</span>'''+icon('arrow')+'''</button>
 </div></section>'''+promo+'''
 <section id="homeRecommendations" aria-labelledby="homeRecommendationsTitle" hidden>
 <h2 id="homeRecommendationsTitle">推荐插件</h2><div class="oa-home-grid"></div>
@@ -124,7 +127,8 @@ def native_page_body(logo, platform_settings):
 <input id="videoRelayCredential" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" required disabled>
 <div class="oa-video-relay-footer"><p id="videoRelayState" role="status" aria-live="polite"></p>
 <button id="videoRelaySave" type="button" class="primary" disabled>保存中转站配置</button></div>
-</div></section>'''
+</div></section>
+'''
     return '''<body class="oa-management oa-platform-workspace oa-native"><div class="oa-shell">
 '''+platform_sidebar(logo, '<p class="help">正在读取平台…</p>', localized=True)+'''
 <main class="oa-content">'''+home+'''<div id="nativeWorkspace" hidden><header class="oa-account-header">
@@ -158,7 +162,7 @@ def native_page_body(logo, platform_settings):
 <button id="accountRecoveryAsk" type="button" class="primary" hidden>在 macOS 中确认恢复</button></div>
 <p id="accountRecoveryStatus" role="status"></p>
 </dialog>
-<footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div>'''+video_html.replace('__CREDENTIAL__', credential)+binding_html+'''</main></div>'''
+<footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div>'''+video_html.replace('__CREDENTIAL__', credential)+gif_html+binding_html+'''</main></div>'''
 
 
 HOME_STYLE = '''

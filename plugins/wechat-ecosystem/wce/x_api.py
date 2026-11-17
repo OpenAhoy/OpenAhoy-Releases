@@ -46,7 +46,8 @@ class XHTTP:
         self.opener = build_opener(NoRedirect())
 
     def request(self, method, path, *, token=None, body=None, query=None, form=False, multipart=None):
-        if (method, path) != ('GET', '/2/usage/credits') and (method not in {'GET', 'POST'} or re.fullmatch(
+        article_write = method == 'POST' and re.fullmatch(r'/2/articles/(draft|[0-9]{1,19}/publish)', path)
+        if not article_write and (method, path) != ('GET', '/2/usage/credits') and (method not in {'GET', 'POST'} or re.fullmatch(
                 r'/2/(oauth2/token|users/me|users/by/username/[A-Za-z0-9_]{1,15}|users/[0-9]{1,19}/tweets|tweets/search/recent|tweets(?:/[0-9]{1,19})?|media/upload(?:/initialize|/[0-9]{1,19}/(?:append|finalize))?)', path) is None):
             raise WCEError('X_ENDPOINT_UNSUPPORTED')
         url = 'https://api.x.com' + path
@@ -74,7 +75,7 @@ class XHTTP:
             with self.opener.open(Request(url, raw, headers, method=method), timeout=30) as response:
                 response_raw=response.read()
                 value = {} if not response_raw and path.endswith('/append') else json.loads(response_raw)
-            if type(value) is not dict or value.get('errors'):
+            if type(value) is not dict or (value.get('errors') and not article_write):
                 raise WCEError('X_RESPONSE_INCOMPLETE')
             return value
         except HTTPError as error:
@@ -158,6 +159,18 @@ class XHTTP:
     def post(self, token, post_id):
         query = self.post_query()
         query['expansions'] += ',referenced_posts'
+        return self.request('GET', '/2/tweets/' + identifier(post_id), token=token, query=query)
+
+    def article_draft(self, token, content):
+        return self.request('POST', '/2/articles/draft', token=token, body=content)
+
+    def article_publish(self, token, article_id):
+        return self.request('POST', '/2/articles/' + identifier(article_id) + '/publish', token=token)
+
+    def article_post(self, token, post_id):
+        query = {'post.fields': 'id,article,article_title,entities',
+                 'expansions': 'author_id,article.cover_media,article.media_entities',
+                 'media.fields': 'media_key,type'}
         return self.request('GET', '/2/tweets/' + identifier(post_id), token=token, query=query)
 
     @staticmethod

@@ -4,6 +4,7 @@ from copy import deepcopy
 from .contracts import WCEError
 from .prepared_contracts import strict_validate
 from .tools import schema
+from . import x_articles
 from .x_api import PLATFORM
 from .x_platform import XPlatform
 from .x_discovery import DISCOVERY_TYPES
@@ -15,6 +16,13 @@ CID = {'type': 'string', 'minLength': 3, 'maxLength': 21, 'pattern': r'x-[0-9]{1
 POST = {'type': 'string', 'minLength': 1, 'maxLength': 19, 'pattern': r'[0-9]{1,19}'}
 AI_LABEL = {'made_with_ai': {'type': 'boolean'}}
 POST_FIELDS = {'connection_id': CID, 'attempt_id': ID, 'text': TEXT}
+ARTICLE_BLOCK = {'oneOf': [
+    schema({'type': {'type': 'string', 'enum': list(x_articles.TEXT_BLOCKS)},
+            'text': dict(TEXT, minLength=0)}),
+    schema({'type': {'type': 'string', 'const': 'image'}, 'upload_attempt_id': ID},
+           {'caption': dict(TEXT, minLength=0)}),
+]}
+ARTICLE_ATTEMPT = {'connection_id': CID, 'draft_attempt_id': ID}
 CLIENT = {'type': 'string', 'minLength': 1, 'maxLength': 4096, 'pattern': r'[A-Za-z0-9._~+/=-]+'}
 APP_NAME = {'type': 'string', 'minLength': 1, 'maxLength': 80}
 APP_SELECTION = {'type': 'string', 'pattern': '[a-f0-9]{64}', 'minLength': 64, 'maxLength': 64}
@@ -65,6 +73,12 @@ SPECS = {
     'x.attempt.status': schema({'connection_id': CID, 'kind': {'type': 'string', 'enum': ['upload', 'post', 'reply']},
                                 'attempt_id': ID}, {'poll_media':{'type':'boolean'}}),
     'x.posts.readback': schema({'connection_id': CID, 'attempt_id': ID}),
+    'x.articles.draft.create': schema({
+        'connection_id': CID, 'attempt_id': ID, 'title': TEXT,
+        'blocks': {'type': 'array', 'minItems': 1, 'items': ARTICLE_BLOCK}},
+        {'cover_upload_attempt_id': ID}),
+    'x.articles.publish': schema(ARTICLE_ATTEMPT),
+    'x.articles.status': schema(ARTICLE_ATTEMPT, {'readback': {'type': 'boolean'}}),
     SETUP: schema({'handoff': SETUP_KEY, 'user_id': POST, 'application_name': SETUP_NAME, 'client_id': CLIENT}),
     UI: UI_SPEC,
 }
@@ -85,10 +99,14 @@ def descriptors():
         'x.posts.create': 'Publish authorized text. Omit both upload parameters for a text-only post, or supply one of them for 1–4 ordered photos or one GIF/video. All uploads must be ready on the same account. Set made_with_ai=true only for an attached-media post. Send once per original attempt_id; use original readback for UNKNOWN.',
         'x.attempt.status': 'Read the original upload/post/reply receipt. Default is local only; poll_media=true may GET processing status for the original known media, respecting check_after_secs and expiry, and may refresh this account token. Never upload bytes, retry an unknown write or create a post.',
         'x.posts.readback': 'Independently GET the original X post and verify account, text and media. For UNKNOWN media posts, reconcile the original account timeline without reposting. Text-only posts with no original post ID remain UNKNOWN.',
+        'x.articles.draft.create': 'Create one native X Article draft from ordered text and image blocks. Use successful upload attempts from this exact connection for cover and images. Keep the original attempt_id, including for UNKNOWN. This does not publish.',
+        'x.articles.publish': 'Publish a currently authorized X Article by its original successful local draft_attempt_id. Sends at most once for the native Article ID. Save the returned post_id and read it separately.',
+        'x.articles.status': 'Read original locally recorded X Article draft and publication. With readback=true, independently GET the known post ID and compare article fields. A missing original post ID or incomplete response never triggers another write.',
         SETUP: 'Put a verified public OAuth 2.0 Client ID and app name into the one-time OpenAhoy setup handoff from this chat. Draft only; cannot change a binding or start OAuth. Never send secrets.',
         UI: 'App-only public Client ID settings and official OAuth launch. No model credential or consent entry.',
     }
-    writes = {'x.media.upload', 'x.posts.create', 'x.posts.reply', UI, SETUP}
+    writes = {'x.media.upload', 'x.posts.create', 'x.posts.reply',
+              'x.articles.draft.create', 'x.articles.publish', UI, SETUP}
     rows = []
     for name, spec in SPECS.items():
         row = {'name': name, 'description': descriptions[name], 'inputSchema': deepcopy(spec),
@@ -172,6 +190,13 @@ class XPlatformRouter:
         if name == 'x.connections.list':
             return {'connections': self.x.overview()}
         cid = args['connection_id']
+        if name == 'x.articles.draft.create':
+            return x_articles.create_draft(self.x, cid, args['attempt_id'], args['title'],
+                                           args['blocks'], args.get('cover_upload_attempt_id'))
+        if name == 'x.articles.publish':
+            return x_articles.publish(self.x, cid, args['draft_attempt_id'])
+        if name == 'x.articles.status':
+            return x_articles.status(self.x, cid, args['draft_attempt_id'], args.get('readback', False))
         if name == 'x.profile.read':
             return self.x.read(cid, 'profile')
         if name == 'x.posts.list':
