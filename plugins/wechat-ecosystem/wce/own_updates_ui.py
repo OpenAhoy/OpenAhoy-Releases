@@ -124,7 +124,9 @@ window.OASoftwareUpdates={mount(rpc,installed){
    UPDATE_BUSINESS_BUSY:'{0} 的一次升级曾停在业务占用检查。',
    CONNECTION_BUSY:'{0} 的一次升级曾停在业务占用检查。',
    CONNECTION_START_PENDING:'{0} 的一次升级曾停在业务占用检查。',
-   UPDATE_ACTIVITY_UNVERIFIED:'{0} 的一次升级曾因无法确认后台状态而停止。'
+   UPDATE_ACTIVITY_UNVERIFIED:'{0} 的一次升级曾因无法确认后台状态而停止。',
+   UPDATE_PREVIOUS_INSTALL_RECEIPT:'已保留 {0} 的原安装回执。',
+   UPDATE_INSTALL_READBACK_FAILED:'已保留 {0} 当时未核实的安装结果。'
   };
   history.hidden=!['LOADED','INSTALLED_RELOAD_REQUIRED'].includes(job)||
    !Object.hasOwn(historyText,old?.code)||!versionPattern.test(old?.version);

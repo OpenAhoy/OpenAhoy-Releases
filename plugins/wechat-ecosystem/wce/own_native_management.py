@@ -314,7 +314,6 @@ SCRIPT = r'''
      if(row.platform_id==='wechat_official_account')return binding.open(row);
      if(row.platform_id==='xiaohongshu')return xhsManagement.reconnect(row.connection_id);
      await openXAuthorization(true);
-     if(current()&&key(current())===key(row))await xManagement.reauthorize();
    };
    if(canEditName(row)){
      const edit=document.createElement('button');edit.type='button';OAUI.set(edit,'编辑显示名称');
@@ -631,7 +630,7 @@ SCRIPT = r'''
  async function openXAuthorization(existing){
    closeXTools();
    contextOpen=false;projectContext.deactivate();showSettings('x');document.body.classList.add('oa-x-tools');
-   xManagement.openAuthorization(existing);await xManagement.activate();
+   xManagement.openAuthorization(existing,existing);await xManagement.activate();
  }
  async function secure(){if(!ready||!bindingPlatform()?.binding_supported)return;if(activePlatform==='xiaohongshu'){await xhsManagement.begin();return;}if(activePlatform==='x'){await openXAuthorization(false);return;}await binding.open();}
  const video = OAVideoCredential((name,args)=>tool(name,args).then(content),()=>ready&&!closed);

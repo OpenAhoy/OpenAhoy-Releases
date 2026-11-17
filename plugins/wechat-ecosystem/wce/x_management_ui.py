@@ -69,7 +69,8 @@ HTML = '''<style>
 </details>
 <p id="xSaveApplicationStatus" class="help" role="status"></p>
 </section><section class="oa-x-binding-step"><h4>2. 在 X 授权发文</h4>
-<div class="actions"><button id="xAuthorize" class="primary">前往 X 授权</button><button id="xCheck">检查授权结果</button><button id="xCancel" hidden>取消本次授权</button></div>
+<p id="xAuthorizationHint" class="help"></p>
+<div class="actions"><button id="xSwitchAccount" type="button" hidden>前往 X 切换账号</button><button id="xReauthorizeCurrent" class="primary" type="button" hidden>重新授权原应用</button><button id="xAuthorize" type="button">授权已保存的应用</button><button id="xCheck">检查授权结果</button><button id="xCancel" hidden>取消本次授权</button></div>
 <p id="xStatus" class="notice" role="status">正在读取 X 设置…</p>
 </section></section>
 <details id="xBilling"><summary>账单与余额</summary>
@@ -92,11 +93,16 @@ window.OAXManagement = {
   const fields=()=>({application_name:appName.value.trim(),client_id:clientId.value.trim()});
   const matchesSaved=()=>saved&&Object.entries(fields()).every(([key,value])=>saved.draft[key]===value);
   const accountArgs=request=>request.cid?{connection_id:request.cid}:{};
+  const handle=value=>typeof value==='string'&&/^[A-Za-z0-9_]{1,15}$/.test(value)?value:'';
   const say=(text,error=false,...values)=>{(globalThis.OAUI||globalThis.OAPlainUI).set($('xStatus'),text,...values);$('xStatus').className='notice'+(error?' error':'');};
   const buttons=()=>{for(const id of ['xCheck','xCancel'])$(id).disabled=!ready||busy;
    const hasFields=!!appName.value.trim()&&!!clientId.value.trim();
    $('xSaveApplication').disabled=!ready||busy||!target||target.loading||!hasFields||!!matchesSaved();
    $('xAuthorize').disabled=!ready||busy||!target||waiting||!matchesSaved();
+   $('xReauthorizeCurrent').hidden=!target?.cid;
+   $('xReauthorizeCurrent').disabled=!ready||busy||!target?.cid||waiting;
+   $('xSwitchAccount').hidden=!target?.cid;
+   $('xSwitchAccount').disabled=!ready||busy||waiting;
    $('xBindingConsole').disabled=!ready||busy||!target;
    const assist=$('xSetupAssist');assist.hidden=!sendChatRequest;assist.disabled=!ready||busy||!!setup||!!target?.loading;
   };
@@ -156,20 +162,33 @@ window.OAXManagement = {
   }
   async function load(){const value=await action('READ',authorizationHandle?{authorization_handle:authorizationHandle}:{});
    connections=value.connections||[];if($('xCallback'))$('xCallback').textContent=value.callback_uri||'';updateBilling();
-   const status=value.authorization?.state;$('xCancel').hidden=!['AWAITING_AUTHORIZATION','EXCHANGING'].includes(status);
+   const status=value.authorization?.state;
    waiting=['AWAITING_AUTHORIZATION','EXCHANGING'].includes(status);
+   $('xCancel').hidden=!waiting||target!==authorizationForm;
    if(!waiting)authorizationTarget=null;
    onStatusChange();
    if(waiting)lastBound='';
    if(status==='BOUND'){
     const bound=value.authorization?.result,cid=bound?.connection_id;
-    if(target===authorizationForm)say('X 已授权并绑定：{0}',false,bound?.profile?.name||'');
+    if(target===authorizationForm){
+     const username=handle(bound?.profile?.username);
+     if(username)say('X 已核对并绑定：@{0}',false,username);
+     else say('X 已授权并绑定：{0}',false,bound?.profile?.name||'');
+    }
     if(cid&&cid!==lastBound){const current=generation;await onBound(cid,bindingSelection);if(ready&&current===generation)lastBound=cid;}
    }
-   else if(['FAILED','DENIED'].includes(status))say(errors[value.authorization?.result?.error]||'X 授权未完成，请核对官方应用、权限和 API 资格。',true);
+   else if(target!==authorizationForm)say('');
+   else if(['FAILED','DENIED'].includes(status)){
+    const result=value.authorization?.result;
+    const expected=handle(result?.expected_username)||handle(target?.username),returned=handle(result?.returned_username);
+    if(result?.error==='X_AUTHORIZATION_ACCOUNT_MISMATCH'&&expected&&returned)
+     say('目标是 @{0}，X 实际授权了 @{1}。原绑定已保留。请切换到目标账号，再发起一次授权。',true,expected,returned);
+    else say(errors[result?.error]||'X 授权未完成，请核对官方应用、权限和 API 资格。',true);
+   }
+   else if(status==='AWAITING_AUTHORIZATION'&&target?.username)say('请在 X 授权页确认显示 @{0}，再点授权。',false,target.username);
    else if(status==='AWAITING_AUTHORIZATION')say('请在 X 官方页面核对账号并授权，完成后会自动显示账号。');
    else if(status==='EXCHANGING')say('正在与 X 核对授权结果，完成后自动刷新。');
-   else if(status==='EXPIRED')say('本次授权已过期，未自动重新发起授权。',true);
+   else if(status==='EXPIRED')say('本次授权已过期。请核对 X 登录账号，再从这里发起新的授权。',true);
    else if(status==='CANCELLED')say('已取消本次授权。');
    else say('');
   }
@@ -187,7 +206,7 @@ window.OAXManagement = {
    if(existing&&!cid)return false;
    let requestToLoad;
    if(!target||target.cid!==cid){
-    closeAuthorization();target={cid,selection:captureSelection(),loading:true};
+    closeAuthorization();target={cid,selection:captureSelection(),loading:true,username:cid?handle(selected()?.profile?.username):''};
     requestToLoad=target;
     format().set($('xSaveApplicationStatus'),'');
     format().set($('xSetupStatus'),'');say('');
@@ -195,9 +214,11 @@ window.OAXManagement = {
     target.loading=true;target.loadFailed=false;requestToLoad=target;
    }
    format().set($('xBindingTitle'),cid?'连接自己的 X 开发者应用':'绑定 X 账号');
-   const user=selected()?.profile?.username;
+   const user=target.username;
    if(cid)format().set($('xBindingTarget'),user?'当前账号：@{0}':'当前账号：{0}',user||cid);
    else format().set($('xBindingTarget'),'绑定新的 X 账号');
+   format().set($('xAuthorizationHint'),target.username
+    ?'授权目标：@{0}。请先在浏览器的 X 头像菜单切换到该账号。':'',target.username);
    $('xAuthorization').hidden=false;$('xManualSetup').open=!compact||!!clientId.value||!!appName.value;
    buttons();
    if($('xManualSetup').open)appName.focus();
@@ -379,6 +400,16 @@ window.OAXManagement = {
   };
   $('xSaveApplication').onclick=saveApplication;
   $('xAuthorize').onclick=event=>{if(event.isTrusted)void authorize();};$('xCheck').onclick=requestRead;
+  $('xReauthorizeCurrent').onclick=event=>{if(event.isTrusted)void authorize(true);};
+  $('xSwitchAccount').onclick=async event=>{
+   const request=target;
+   if(!event.isTrusted||!request?.cid||!sameSetup(request)||waiting)return;
+   try{
+    await openLink('https://x.com/home');
+    if(target===request&&sameSetup(request)&&request.username)
+     say('请在 X 左侧头像菜单切换到 @{0}，再回这里授权。',false,request.username);
+   }catch(_){if(target===request)say('宿主未能打开 X。请在同一浏览器打开 X 并切换账号。',true);}
+  };
   for(const input of [appName,clientId])input.addEventListener('input',()=>{showSaveStatus();buttons();});
   $('xCancel').onclick=()=>run(async()=>{await action('CANCEL',{authorization_handle:authorizationHandle});await load();});
   addEventListener('focus',returned);document.addEventListener('visibilitychange',visibility);

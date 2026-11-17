@@ -34,6 +34,7 @@ SELECTOR = re.compile(r'wechat-ecosystem@([A-Za-z0-9_-]+)')
 BUSY_CODES = {'CONNECTION_BUSY', 'CONNECTION_START_PENDING', 'UPDATE_BUSINESS_BUSY'}
 UPDATE_HISTORY = {('BUSY', code) for code in BUSY_CODES} | {
     ('FAILED', 'CONNECTION_NOT_COMMITTED'), ('FAILED', 'UPDATE_ACTIVITY_UNVERIFIED')}
+PREVIOUS_RECEIPT = 'UPDATE_PREVIOUS_INSTALL_RECEIPT'
 RECEIPT_RACE_CODES = {'BOOTSTRAP_PATH_CHANGED', 'LOCAL_FILE_CHANGED', 'INVALID_LOCAL_FILE'}
 
 
@@ -545,9 +546,19 @@ class UpdateInstaller:
             atomic_write(self.root / 'status.json', verified)
         return verified
 
+    def _superseded_receipt(self, value):
+        target, selector, manifest = (value.get(k) for k in ('version', 'plugin_id', 'manifest_sha256'))
+        terminal = (value.get('state') == 'INSTALLED_RELOAD_REQUIRED'
+                    or (value.get('state'), value.get('code')) == ('INSTALL_UNKNOWN', 'UPDATE_INSTALL_READBACK_FAILED'))
+        return (terminal and isinstance(target, str) and VERSION.fullmatch(target)
+                and _version(target) < _version(self.version)
+                and isinstance(selector, str) and SELECTOR.fullmatch(selector)
+                and isinstance(manifest, str) and SHA.fullmatch(manifest))
+
     def _historical_update_result(self, value):
         target = value.get('version')
-        if ((value.get('state'), value.get('code')) not in UPDATE_HISTORY
+        superseded = self._superseded_receipt(value)
+        if ((not superseded and (value.get('state'), value.get('code')) not in UPDATE_HISTORY)
                 or not isinstance(target, str) or not VERSION.fullmatch(target)):
             return value
         try:
@@ -557,6 +568,8 @@ class UpdateInstaller:
                          if SELECTOR.fullmatch(key) and row.get('enabled') is True]
             require(len(selectors) == 1, 'UPDATE_INSTALL_READBACK_FAILED')
             selector = selectors[0]
+            if superseded:
+                require(selector == value['plugin_id'], 'UPDATE_INSTALL_READBACK_FAILED')
             marketplace = SELECTOR.fullmatch(selector)[1]
             rows = self.run('list', '--marketplace', marketplace, timeout=12)
             candidates = installed(rows)
@@ -586,24 +599,25 @@ class UpdateInstaller:
             return value
         return {'state': state, 'version': current,
                 'request_id': value.get('request_id'),
-                'history': {'version': target, 'code': value['code']}}
+                'history': {'version': target, 'code': value.get('code', PREVIOUS_RECEIPT)}}
 
     def _loaded_history(self, value):
         from .own_connection_policy import private_read
 
         records = []
-        for item in self.root.glob('failed-*.json'):
+        for item in (*self.root.glob('failed-*.json'), *self.root.glob('retained-*.json')):
             try:
-                pin = SHA.fullmatch(item.name.removeprefix('failed-').removesuffix('.json'))
+                pin = SHA.fullmatch(item.stem.split('-', 1)[1])
                 if pin is None:
                     continue
                 raw = private_read(item)[0]
                 archived = json.loads(raw)
                 target = archived.get('version')
                 if (sha256(raw).hexdigest() == pin[0]
-                        and (archived.get('state'), archived.get('code')) in UPDATE_HISTORY and isinstance(target, str)
+                        and ((archived.get('state'), archived.get('code')) in UPDATE_HISTORY
+                             or self._superseded_receipt(archived)) and isinstance(target, str)
                         and VERSION.fullmatch(target) and _version(target) <= _version(self.version)):
-                    records.append((target, archived['code']))
+                    records.append((target, archived.get('code', PREVIOUS_RECEIPT)))
             except (WCEError, OSError, ValueError, TypeError, AttributeError):
                 continue
         if not records:
@@ -620,6 +634,10 @@ class UpdateInstaller:
                 with locked(self.root / 'worker.lock', nonblocking=True):
                     value = self._receipt()
                     state = value['state']
+                    if self._superseded_receipt(value):
+                        resolved = self._historical_update_result(value)
+                        if resolved['state'] == 'LOADED':
+                            return resolved
                     if state == 'INSTALLING':
                         value = dict(value, state='INSTALL_UNKNOWN', code='UPDATE_INSTALL_READBACK_FAILED')
                     elif state in ACTIVE:
@@ -634,7 +652,9 @@ class UpdateInstaller:
                     value = dict(value, state='INSTALLING')
         if value['state'] == 'INSTALLED_RELOAD_REQUIRED' and value.get('version') == self.version:
             return self._loaded_history(dict(value, state='LOADED'))
-        return self._historical_update_result(value)
+        if (value.get('state'), value.get('code')) in UPDATE_HISTORY:
+            return self._historical_update_result(value)
+        return value
 
     def start(self, version, revision, request_id=None):
         require(type(version) is str and VERSION.fullmatch(version) and type(revision) is str and OID.fullmatch(revision)
@@ -659,18 +679,21 @@ class UpdateInstaller:
                     existing = self._historical_update_result(prior)
                     if existing['state'] == 'INSTALLED_RELOAD_REQUIRED':
                         return dict(existing, request_id=request_id)
-                if prior.get('state') in ('INSTALLING', 'INSTALL_UNKNOWN', 'INSTALLED_RELOAD_REQUIRED') and (
+                superseded = (self._superseded_receipt(prior)
+                              and self._historical_update_result(prior)['state'] == 'LOADED')
+                if not superseded and prior.get('state') in ('INSTALLING', 'INSTALL_UNKNOWN', 'INSTALLED_RELOAD_REQUIRED') and (
                         prior.get('state') != 'INSTALLED_RELOAD_REQUIRED' or prior.get('version') != self.version):
                     return dict(prior, state='INSTALL_UNKNOWN' if prior['state'] == 'INSTALLING' else prior['state'])
                 intent = {'version': version, 'revision': revision}
                 if request_id is not None:
                     intent['request_id'] = request_id
                 row = dict(intent, state='CHECKING')
-                if (prior.get('state'), prior.get('code')) in UPDATE_HISTORY:
+                if superseded or (prior.get('state'), prior.get('code')) in UPDATE_HISTORY:
                     from .own_connection_policy import private_read
                     from .own_identity_recovery import atomic_raw
                     original = private_read(self.root / 'status.json')[0]
-                    backup = self.root / ('failed-' + sha256(original).hexdigest() + '.json')
+                    prefix = 'retained-' if superseded else 'failed-'
+                    backup = self.root / (prefix + sha256(original).hexdigest() + '.json')
                     if os.path.lexists(backup):
                         require(private_read(backup)[0] == original, 'UPDATE_HISTORY_CHANGED')
                     else:

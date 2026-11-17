@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from hashlib import sha256
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import re
 import secrets
 import threading
 import time
@@ -11,6 +12,14 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .contracts import WCEError
 from .x_api import CALLBACK, SCOPES
+
+
+class AuthorizationAccountMismatch(WCEError):
+    """Only validated public X handles may reach the panel's OAuth receipt."""
+    def __init__(self, expected, returned):
+        super().__init__('X_AUTHORIZATION_ACCOUNT_MISMATCH')
+        self.handles = {key:value for key,value in (('expected_username',expected), ('returned_username',returned))
+                        if isinstance(value,str) and re.fullmatch(r'[A-Za-z0-9_]{1,15}',value)}
 
 
 class OAuthFlow:
@@ -106,6 +115,8 @@ class OAuthFlow:
                 tokens = self.api.exchange(self.client_id, values['code'][0], verifier)
                 result = self.finish(self.client_id, tokens, self.commit_guard)
                 state = 'BOUND'
+        except AuthorizationAccountMismatch as error:
+            result = {'error':error.code, **error.handles}
         except WCEError as error:
             result = {'error': error.code}
         except Exception:

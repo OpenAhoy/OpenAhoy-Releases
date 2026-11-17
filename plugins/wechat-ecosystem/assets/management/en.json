@@ -1156,5 +1156,17 @@
   "正在加载原片…": "Loading original…",
   "核对可用额度": "Check available quota",
   "主体参考": "Subject reference",
-  "为这个原视频版本制作配乐单。用 audio.project.video.inspect 查看实际时间码画面和音轨，以可观察事实对应音乐节点、入点、音量和淡入淡出。默认器乐并保留原声。先输出可执行配乐单，再按我当前的授权继续。项目 {0}，原视频 attempt {1}。": "Prepare a cue sheet for this exact video version. Use audio.project.video.inspect to observe timecoded frames and audio. Tie music cues, entry, gain, and fades to that evidence. Default to instrumental and retain source audio. Deliver the cue sheet before continuing as authorized. Project {0}, original video attempt {1}."
+  "为这个原视频版本制作配乐单。用 audio.project.video.inspect 查看实际时间码画面和音轨，以可观察事实对应音乐节点、入点、音量和淡入淡出。默认器乐并保留原声。先输出可执行配乐单，再按我当前的授权继续。项目 {0}，原视频 attempt {1}。": "Prepare a cue sheet for this exact video version. Use audio.project.video.inspect to observe timecoded frames and audio. Tie music cues, entry, gain, and fades to that evidence. Default to instrumental and retain source audio. Deliver the cue sheet before continuing as authorized. Project {0}, original video attempt {1}.",
+  "前往 X 切换账号": "Switch accounts on X",
+  "重新授权原应用": "Reauthorize the current app",
+  "授权已保存的应用": "Authorize the saved app",
+  "X 已核对并绑定：@{0}": "X verified and connected @{0}",
+  "目标是 @{0}，X 实际授权了 @{1}。原绑定已保留。请切换到目标账号，再发起一次授权。": "The target is @{0}. X authorized @{1}. Your existing connection is intact. Switch to the target account, then authorize again.",
+  "请在 X 授权页确认显示 @{0}，再点授权。": "On the X consent screen, confirm that it shows @{0} before authorizing.",
+  "本次授权已过期。请核对 X 登录账号，再从这里发起新的授权。": "This authorization expired. Check the account signed in on X, then start a new authorization here.",
+  "授权目标：@{0}。请先在浏览器的 X 头像菜单切换到该账号。": "Target account: @{0}. First switch to it in the X profile menu in your browser.",
+  "请在 X 左侧头像菜单切换到 @{0}，再回这里授权。": "Switch to @{0} from the profile menu on X, then return here to authorize.",
+  "宿主未能打开 X。请在同一浏览器打开 X 并切换账号。": "Could not open X. Open X in the same browser and switch accounts.",
+  "已保留 {0} 的原安装回执。": "The original installation receipt for {0} was retained.",
+  "已保留 {0} 当时未核实的安装结果。": "The unconfirmed installation result for {0} was retained."
 }

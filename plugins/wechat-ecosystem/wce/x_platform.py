@@ -19,7 +19,7 @@ from .own_connection_policy import atomic_write, locked, registry_path
 from .own_connection_registry import mkdir
 from .x_api import CALLBACK, SCOPES, XHTTP, XResponseUnknown, identifier
 from .x_application import CLIENT_ID
-from .x_oauth import OAuthFlow
+from .x_oauth import AuthorizationAccountMismatch, OAuthFlow
 from .x_discovery import DISCOVERY_TYPES, post_data, references, reply_matches, require, search_options
 
 
@@ -281,7 +281,11 @@ class XPlatform:
                                 expected_user_id=expected_user_id, removal_markers=removal_markers)
         self.flow = self.flow_factory(client_id, self.api, finish)
         self.flow_handle='x-auth-'+secrets.token_hex(24)
-        return {'state': 'AWAITING_AUTHORIZATION', 'authorization_handle':self.flow_handle, 'authorization_url': self.flow.authorization_url()}
+        result = {'state':'AWAITING_AUTHORIZATION', 'authorization_handle':self.flow_handle,
+                  'authorization_url':self.flow.authorization_url()}
+        if prior:
+            result['expected_username'] = prior['profile'].get('username')
+        return result
 
     def billing(self, cid, expected_application):
         self._connection(cid)
@@ -301,16 +305,18 @@ class XPlatform:
         secret = credential(token_value)
         tokens = json.loads(secret.reveal_for_adapter())
         profile = self.api.profile(Secret(tokens['access_token']))
+        cid = 'x-' + identifier(profile['id'])
+        if ((expected_user_id is not None and profile['id'] != expected_user_id)
+                or (expected_connection_id is not None and cid != expected_connection_id)):
+            original = self._load()['connections'].get(expected_connection_id, {})
+            raise AuthorizationAccountMismatch(original.get('profile', {}).get('username'), profile.get('username'))
         self._prepare()
         with locked(self.root / 'connection.lock'), guard():
             value = self._load()
             if application_name is None and value['client_id'] != client_id:
                 raise WCEError('X_APPLICATION_CHANGED')
-            cid='x-'+identifier(profile['id'])
-            if expected_user_id is not None and profile['id'] != expected_user_id:
-                raise WCEError('X_AUTHORIZATION_ACCOUNT_MISMATCH')
-            if expected_connection_id is not None and (expected_connection_id not in value['connections'] or cid!=expected_connection_id):
-                raise WCEError('X_AUTHORIZATION_ACCOUNT_MISMATCH')
+            if expected_connection_id is not None and expected_connection_id not in value['connections']:
+                raise WCEError('X_CONNECTION_CHANGED')
             previous = value['connections'].get(cid)
             if removal_markers is not None and (previous or {}).get('removal_marker') != removal_markers.get(cid):
                 raise WCEError('X_CONNECTION_CHANGED')
