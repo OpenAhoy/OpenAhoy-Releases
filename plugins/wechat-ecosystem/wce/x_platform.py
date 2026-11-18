@@ -20,7 +20,8 @@ from .own_connection_registry import mkdir
 from .x_api import CALLBACK, SCOPES, XHTTP, XResponseUnknown, identifier
 from .x_application import CLIENT_ID
 from .x_oauth import AuthorizationAccountMismatch, OAuthFlow
-from .x_discovery import DISCOVERY_TYPES, post_data, references, reply_matches, require, search_options
+from .x_discovery import (DISCOVERY_TYPES, post_data, post_page_read, references, reply_matches, require,
+                          search_options, single_post_read)
 
 
 def fingerprint(value):
@@ -421,9 +422,13 @@ class XPlatform:
                 value['connections'][cid]['profile'] = result
                 self._save(value)
             elif kind == 'posts':
-                result = self.api.posts(token, value['connections'][cid]['profile']['id'], cursor=cursor)
+                result = self.api.posts(token, value['connections'][cid]['profile']['id'], cursor=cursor,
+                                        user_post_read=True)
+                return {'connection_id': cid, 'source': 'X_API'} | post_page_read(result, cursor)
             else:
-                result = self.api.post(token, identifier(post_id))
+                post_id = identifier(post_id)
+                result = self.api.post(token, post_id, user_post_read=True)
+                return {'connection_id': cid, 'source': 'X_API'} | single_post_read(result, post_id)
             return {'connection_id': cid, 'source': 'X_API', 'result': result}
 
     def _attempt_path(self, cid, kind, attempt_id):
@@ -437,23 +442,11 @@ class XPlatform:
         self._connection(cid)
         with locked(self.root / 'connection.lock'):
             self._connection(cid)
-            result = self.api.search(self._access(self._load(),cid), query, **options)
-            require(type(result) is dict and not result.get('errors'), 'X_SEARCH_INCOMPLETE')
-            rows, meta = result.get('data', []), result.get('meta')
-            require(type(rows) is list and type(meta) is dict and type(meta.get('result_count')) is int
-                    and meta['result_count'] == len(rows), 'X_SEARCH_INCOMPLETE')
-            for row in rows:
-                require(type(row) is dict, 'X_SEARCH_INCOMPLETE')
-                post_data({'data': row}, identifier(row.get('id')))
-            require(len({r['id'] for r in rows}) == len(rows), 'X_SEARCH_INCOMPLETE')
-            cursor = meta.get('next_token')
-            require(cursor is None or (type(cursor) is str and cursor and cursor not in (
-                options.get('next_token'), options.get('pagination_token'))), 'X_SEARCH_CURSOR_INVALID')
+            result = self.api.search(self._access(self._load(),cid), query, user_post_read=True, **options)
+            page = post_page_read(result, options.get('next_token') or options.get('pagination_token'), search=True)
             # No persistent high-water mark is advanced by a partial page.
             return {'connection_id': cid, 'source': 'X_API', 'discovery_type': discovery_type,
-                    'request': {'query': query} | options, 'result': result,
-                    'page_state': 'MORE' if cursor else 'COMPLETE', 'next_token': cursor,
-                    'high_water_committed': False}
+                    'request': {'query': query} | options, 'high_water_committed': False} | page
 
     def user(self, cid, username):
         self._connection(cid)
@@ -471,15 +464,8 @@ class XPlatform:
         self._connection(cid)
         with locked(self.root / 'connection.lock'):
             self._connection(cid)
-            result = self.api.context(self._access(self._load(),cid), post_id)
-            post = post_data(result, post_id)
-            refs = references(post)
-            included = result.get('includes', {}).get('posts', [])
-            require(type(included) is list)
-            available = {row.get('id') for row in included if type(row) is dict}
-            return {'connection_id': cid, 'source': 'X_API', 'result': result,
-                    'references': refs, 'missing_context_ids': [r['id'] for r in refs if r['id'] not in available],
-                    'content_is_untrusted': True}
+            result = self.api.context(self._access(self._load(),cid), post_id, user_post_read=True)
+            return {'connection_id': cid, 'source': 'X_API'} | single_post_read(result, post_id)
 
     def _receipt(self, cid, kind, attempt_id):
         path = self._attempt_path(cid, kind, attempt_id)

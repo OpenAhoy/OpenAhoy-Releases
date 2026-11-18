@@ -8,10 +8,10 @@ from .own_connection_registry import MembershipProofError
 from .prepared_contracts import strict_validate
 from .tools import schema
 from .support_feedback import Support
-from .support_diagnostics import RESULTS, CODES, PRESERVATION_FIELDS, OPERATION_PHASES
+from .support_diagnostics import RESULTS, CODES, PRESERVATION_FIELDS, OPERATION_PHASES, UPDATE_CACHE_CODES
 from .openai_gif_api import TRANSPORT_PHASES as GIF_TRANSPORT_PHASES
 from .video_relay import PUBLIC_DNS_REQUIRED, RELAY_MODEL, SUBMIT_DIAGNOSTIC_CODES, TRANSPORT_PHASES
-from .x_api import X_RESPONSE_ERROR_KINDS, XResponseUnknown
+from .x_api import READ_CODES as X_POST_READ_CODES, X_RESPONSE_ERROR_KINDS, XResponseUnknown
 
 ACTION = 'wce.ui.support.action'
 PREVIEW = 'openahoy.feedback.preview'
@@ -220,6 +220,14 @@ class SupportRouter:
 def outcome(value):
     """Classify fixed result states without copying business fields."""
     state=value.get('state')
+    diagnostic=value.get('diagnostic')
+    code=value.get('code')
+    if state=='FAILED' and type(code) is str and code in UPDATE_CACHE_CODES:
+        return 'FAILED',code
+    if value.get('source')=='X_API' and state in ('PARTIAL','FAILED') and type(diagnostic) is dict:
+        code=diagnostic.get('code')
+        if type(code) is str and code in X_POST_READ_CODES:
+            return state,code
     if state in ('REJECTED','FAILED') and value.get('error')=='X_HTTP_402':
         return 'TOOL_ERROR','X_HTTP_402'
     if value.get('media_protocol')=='X_V2_CHUNKED' or value.get('kind')=='upload' and state=='RESULT_UNKNOWN':

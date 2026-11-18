@@ -31,6 +31,57 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 X_RESPONSE_ERROR_KINDS = frozenset({'TIMEOUT', 'TRANSPORT_ERROR', 'RESPONSE_DECODE_ERROR'})
+READ_PROBLEMS = {
+    'not-authorized-for-resource': 'X_READ_PERMISSION_DENIED',
+    'client-forbidden': 'X_READ_PERMISSION_DENIED',
+    'usage-capped': 'X_READ_QUOTA_EXCEEDED',
+    'rate-limit-exceeded': 'X_READ_RATE_LIMITED',
+    'resource-not-found': 'X_READ_RESOURCE_UNAVAILABLE',
+    'invalid-request': 'X_READ_REQUEST_INVALID',
+}
+READ_HTTP_CODES = {
+    400: 'X_READ_REQUEST_INVALID', 401: 'X_READ_PERMISSION_DENIED',
+    402: 'X_READ_QUOTA_EXCEEDED', 403: 'X_READ_PERMISSION_DENIED',
+    404: 'X_READ_RESOURCE_UNAVAILABLE', 410: 'X_READ_RESOURCE_UNAVAILABLE',
+    429: 'X_READ_RATE_LIMITED',
+}
+READ_UNKNOWN = 'X_READ_UPSTREAM_UNKNOWN'
+READ_CODES = frozenset(READ_PROBLEMS.values()) | {READ_UNKNOWN,
+    'X_READ_AUTHOR_INCOMPLETE', 'X_READ_CONTEXT_INCOMPLETE', 'X_READ_MEDIA_INCOMPLETE',
+    'X_READ_PAGE_INCOMPLETE', 'X_SEARCH_CURSOR_INVALID'}
+
+
+def read_problem(row):
+    if type(row) is not dict:
+        return READ_UNKNOWN
+    kind = row.get('type')
+    if type(kind) is str:
+        match = re.fullmatch(r'https://api\.(?:x|twitter)\.com/2/problems/([a-z-]+)', kind)
+        if match and match[1] in READ_PROBLEMS:
+            return READ_PROBLEMS[match[1]]
+    status = row.get('status')
+    return READ_HTTP_CODES.get(status, READ_UNKNOWN) if type(status) is int else READ_UNKNOWN
+
+
+def read_problem_codes(errors):
+    if type(errors) is not list:
+        return {READ_UNKNOWN}
+    return {read_problem(row) for row in errors}
+
+
+def read_http_error(error):
+    # Only structured problem types are read. Free-form details never leave
+    # this function, including when an HTTP 429 represents a usage cap.
+    try:
+        raw = error.read(32769)
+        value = json.loads(raw) if len(raw) <= 32768 else {}
+    except (ValueError, OSError, HTTPException, RecursionError):
+        value = {}
+    codes = read_problem_codes(value.get('errors', [value])) if type(value) is dict else set()
+    known = codes - {READ_UNKNOWN}
+    if len(known) == 1:
+        return known.pop()
+    return READ_HTTP_CODES.get(error.code, READ_UNKNOWN)
 
 
 class XResponseUnknown(WCEError):
@@ -45,8 +96,12 @@ class XHTTP:
     def __init__(self):
         self.opener = build_opener(NoRedirect())
 
-    def request(self, method, path, *, token=None, body=None, query=None, form=False, multipart=None):
+    def request(self, method, path, *, token=None, body=None, query=None, form=False, multipart=None,
+                user_post_read=False):
         article_write = method == 'POST' and re.fullmatch(r'/2/articles/(draft|[0-9]{1,19}/publish)', path)
+        if user_post_read and (method != 'GET' or re.fullmatch(
+                r'/2/(?:tweets/(?:[0-9]{1,19}|search/recent)|users/[0-9]{1,19}/tweets)', path) is None):
+            raise WCEError('X_ENDPOINT_UNSUPPORTED')
         if not article_write and (method, path) != ('GET', '/2/usage/credits') and (method not in {'GET', 'POST'} or re.fullmatch(
                 r'/2/(oauth2/token|users/me|users/by/username/[A-Za-z0-9_]{1,15}|users/[0-9]{1,19}/tweets|tweets/search/recent|tweets(?:/[0-9]{1,19})?|media/upload(?:/initialize|/[0-9]{1,19}/(?:append|finalize))?)', path) is None):
             raise WCEError('X_ENDPOINT_UNSUPPORTED')
@@ -75,14 +130,16 @@ class XHTTP:
             with self.opener.open(Request(url, raw, headers, method=method), timeout=30) as response:
                 response_raw=response.read()
                 value = {} if not response_raw and path.endswith('/append') else json.loads(response_raw)
-            if type(value) is not dict or (value.get('errors') and not article_write):
+            if type(value) is not dict or (value.get('errors') and not (article_write or user_post_read)):
                 raise WCEError('X_RESPONSE_INCOMPLETE')
             return value
         except HTTPError as error:
             # Never surface the response body, request, token or callback code.
-            status = error.code
-            error.close()
-            raise WCEError('X_HTTP_' + str(status)) from None
+            try:
+                code = read_http_error(error) if user_post_read else 'X_HTTP_' + str(error.code)
+            finally:
+                error.close()
+            raise WCEError(code) from None
         except WCEError:
             raise
         except URLError as error:
@@ -148,18 +205,22 @@ class XHTTP:
         return {'post.fields': 'id,text,attachments,created_at,entities',
                 'expansions': 'author_id,attachments.media_keys', 'media.fields': 'media_key,type,url'}
 
-    def posts(self, token, user_id, *, cursor=None, start_time=None):
+    def posts(self, token, user_id, *, cursor=None, start_time=None, user_post_read=False):
         query = self.post_query() | {'max_results': 5}
         if cursor:
             query['pagination_token'] = cursor
         if start_time:
             query['start_time'] = start_time
-        return self.request('GET', '/2/users/' + identifier(user_id) + '/tweets', token=token, query=query)
+        return self.request('GET', '/2/users/' + identifier(user_id) + '/tweets', token=token, query=query,
+                            user_post_read=user_post_read)
 
-    def post(self, token, post_id):
+    def post(self, token, post_id, *, user_post_read=False):
         query = self.post_query()
         query['expansions'] += ',referenced_posts'
-        return self.request('GET', '/2/tweets/' + identifier(post_id), token=token, query=query)
+        if user_post_read:
+            query['post.fields'] += ',note_post'
+        return self.request('GET', '/2/tweets/' + identifier(post_id), token=token, query=query,
+                            user_post_read=user_post_read)
 
     def article_draft(self, token, content):
         return self.request('POST', '/2/articles/draft', token=token, body=content)
@@ -187,12 +248,19 @@ class XHTTP:
         return self.request('GET', '/2/users/by/username/' + username, token=token,
                             query={'user.fields': 'id,name,username,verified,verified_type'})
 
-    def search(self, token, query, **options):
+    def search(self, token, query, *, user_post_read=False, **options):
         return self.request('GET', '/2/tweets/search/recent', token=token,
-                            query=self.context_query() | {'query': query} | options)
+                            query=self.context_query() | {'query': query} | options,
+                            user_post_read=user_post_read)
 
-    def context(self, token, post_id):
-        return self.request('GET', '/2/tweets/' + identifier(post_id), token=token, query=self.context_query())
+    def context(self, token, post_id, *, user_post_read=False):
+        query = self.context_query()
+        if user_post_read:
+            query['post.fields'] += ',attachments'
+            query['expansions'] += ',attachments.media_keys'
+            query['media.fields'] = self.post_query()['media.fields']
+        return self.request('GET', '/2/tweets/' + identifier(post_id), token=token, query=query,
+                            user_post_read=user_post_read)
 
     def reply_posts(self, token, user_id, *, cursor=None, start_time=None):
         query = self.context_query() | {'max_results': 100}

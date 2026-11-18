@@ -21,6 +21,8 @@ from .contracts import WCEError
 from .own_bootstrap_security import path_check
 from .own_connection_policy import atomic_write, locked, read_optional, read_registry, registry_path, resolve
 from .own_connection_registry import mkdir
+from .own_update_package import (declared_manifest, prepare_previous, retain_previous_cache,
+                                 verify_runtime, verify_package)
 from .own_updates import (MAX_ASSET, OID, PLUGIN, PUBLIC_MARKET, REMOTE, REPOSITORY, SHA, VERSION,
                           UpdateCheckUnavailable, _version, check, release_metadata)
 
@@ -88,7 +90,7 @@ def release(version, revision, folder, progress):
         manifest_path = prefix + 'package-manifest.json'
         manifest = source.read(manifest_path)
         require(sha256(manifest).hexdigest() == metadata['package_manifest_sha256'], 'UPDATE_MANIFEST_MISMATCH')
-        files = json.loads(manifest)['files']
+        files = declared_manifest(manifest)
         require(len(entries) == len(files) + 1 and metadata.get('payload_count') == len(files)
                 and {entry.filename for entry in entries} == {manifest_path, *(prefix + n for n in files)},
                 'UPDATE_ARCHIVE_INVALID')
@@ -110,23 +112,6 @@ def release(version, revision, folder, progress):
     verify_package(target, version, metadata['package_manifest_sha256'])
     verify_launch_modes(target)
     return target, metadata['package_manifest_sha256']
-
-
-def verify_package(root, version, manifest_sha=None):
-    require(root.resolve() == root and root.is_dir(), 'UPDATE_PACKAGE_INVALID')
-    metadata = root / 'package-manifest.json'
-    require(metadata.is_file() and not metadata.is_symlink(), 'UPDATE_PACKAGE_INVALID')
-    raw = metadata.read_bytes()
-    require(manifest_sha is None or sha256(raw).hexdigest() == manifest_sha, 'UPDATE_MANIFEST_MISMATCH')
-    files = json.loads(raw)['files']
-    paths = list(root.rglob('*'))
-    require(not any(path.is_symlink() for path in paths)
-            and {path.relative_to(root).as_posix() for path in paths if path.is_file()}
-            == files.keys() | {'package-manifest.json'}, 'UPDATE_PACKAGE_INVALID')
-    require(all(sha256((root / name).read_bytes()).hexdigest() == digest for name, digest in files.items()),
-            'UPDATE_PAYLOAD_MISMATCH')
-    identity = json.loads((root / 'plugin.json').read_bytes())
-    require(identity.get('name') == PLUGIN and identity.get('version') == version, 'UPDATE_PACKAGE_IDENTITY')
 
 
 def verify_launch_modes(root):
@@ -334,7 +319,7 @@ def verify_installation(version, selector, manifest_sha, rows):
             'UPDATE_INSTALL_READBACK_FAILED')
     codex_home = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex')))
     target = codex_home / 'plugins/cache' / match[1] / PLUGIN / version
-    verify_package(target, version, manifest_sha)
+    verify_runtime(target, version, manifest_sha)
     verify_launch_modes(target)
 
 
@@ -410,12 +395,9 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
                 and matches[0]['source'].get('source') in ('local', 'git-subdir'),
                 'UPDATE_MARKETPLACE_UNSUPPORTED')
     old = codex_home / 'plugins/cache' / market_name / PLUGIN / previous
-    verify_package(old, previous)
     rollback = folder / 'previous'
-    if not rollback.exists():
-        shutil.copytree(old, rollback)
-    verify_package(rollback, previous)
-    rollback_manifest = sha256((rollback / 'package-manifest.json').read_bytes()).hexdigest()
+    previous_package = prepare_previous(old, previous, rollback, verify_launch_modes)
+    rollback_manifest = previous_package.manifest
     if git_market:
         rollback_ref = _stable_rollback_ref(previous, old_ref, rollback_manifest)
     progress('WAITING_FOR_IDLE')
@@ -436,6 +418,7 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
             shutil.copytree(target, staged_target)
             verify_package(staged_target, version, manifest_sha)
             target = staged_target
+        retain_previous_cache(old, previous, previous_package, rollback)
         progress('INSTALLING', plugin_id=selector, manifest_sha256=manifest_sha)
         if git_market:
             def restore_git_market(remove_target=False):

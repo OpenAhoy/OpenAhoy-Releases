@@ -196,9 +196,18 @@ window.OASoftwareUpdates={mount(rpc,installed){
   const code=typeof value.code==='string'&&/^(UPDATE|CONNECTION)_[A-Z0-9_]{1,65}$/.test(value.code)
     ? value.code : null;
   detail(jobDetail,code);
+  const cacheFailures={
+   UPDATE_OLD_CACHE_INVALID:'旧版缓存完整性校验未通过。',
+   UPDATE_OLD_CACHE_UNVERIFIED:'无法从固定发行版本核对旧版缓存。',
+   UPDATE_ROLLBACK_PACKAGE_INVALID:'无法准备干净的旧版回退包。',
+   UPDATE_OLD_CACHE_RETENTION_FAILED:'无法保全旧版缓存，尚未切换版本。'
+  };
+  const cacheFailure=job==='FAILED'&&Object.hasOwn(cacheFailures,code);
   jobHelp=job==='INSTALL_UNKNOWN'||(job==='FAILED'&&
-    ['CONNECTION_NOT_COMMITTED','UPDATE_ACTIVITY_UNVERIFIED','UPDATE_ROLLBACK_REF_UNAVAILABLE','UPDATE_MARKETPLACE_UNSUPPORTED'].includes(code));
-  if(job==='FAILED'&&code==='CONNECTION_NOT_COMMITTED'){
+    (cacheFailure||['CONNECTION_NOT_COMMITTED','UPDATE_ACTIVITY_UNVERIFIED','UPDATE_ROLLBACK_REF_UNAVAILABLE','UPDATE_MARKETPLACE_UNSUPPORTED'].includes(code)));
+  if(cacheFailure){
+   sayJob(cacheFailures[code],job);
+  }else if(job==='FAILED'&&code==='CONNECTION_NOT_COMMITTED'){
    sayJob('公众号绑定校验未通过。可从原 Codex 市场升级。',job);
   }else if(job==='FAILED'&&code==='UPDATE_ACTIVITY_UNVERIFIED'){
    sayJob('暂时无法确认后台是否空闲。',job);
