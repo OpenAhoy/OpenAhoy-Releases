@@ -736,7 +736,7 @@ class XPlatform:
         return content['media_keys'] if 'media_keys' in content else [content['media_key']]
 
     @staticmethod
-    def _matches(post, c, receipt):
+    def _matches(post, c, receipt, *, known_post=False):
         if type(post) is not dict or post.get('author_id') != c['profile']['id']:
             return False
         content = receipt['input']
@@ -744,17 +744,42 @@ class XPlatform:
         attachments = post.get('attachments', {})
         if type(attachments) is not dict:
             return False
+        if known_post and set(attachments) - {'media_keys'}:
+            return False
         if keys:
             if attachments.get('media_keys') != keys:
                 return False
         elif (set(attachments) - {'media_keys'} or attachments.get('media_keys', []) != []
                 or post.get('referenced_posts', []) != []):
             return False
-        normalized = XPlatform._text(post) if keys else XPlatform._plain_text_with_expanded_urls(post)
-        representations = [post.get('text'), normalized]
+        body = post
+        if known_post:
+            if type(post.get('text')) is not str:
+                return False
+            if 'note_post' in post:
+                note = post['note_post']
+                if (type(note) is not dict or type(note.get('text')) is not str
+                        or not note['text'].strip() or type(note.get('entities', {})) is not dict):
+                    return False
+                # The preview uses its own text and URL offsets. A Note has
+                # a separate authoritative body and entity coordinate space.
+                body = {'id': post.get('id'), 'text': note['text'], 'entities': note.get('entities', {})}
+        normalized = XPlatform._text(body) if keys else XPlatform._plain_text_with_expanded_urls(body)
+        representations = [body.get('text'), normalized]
         if keys:
             representations += [html.unescape(text) for text in representations if type(text) is str]
         return content['text'] in representations
+
+    @staticmethod
+    def _matches_media_expansion(result, keys, *, exact=False):
+        includes = result.get('includes', {})
+        media = includes.get('media', []) if type(includes) is dict else None
+        expanded_keys = [row.get('media_key') for row in media if type(row) is dict] if type(media) is list else []
+        if exact and (type(media) is not list or len(media) != len(keys) or len(expanded_keys) != len(keys)):
+            return False
+        # Attachment order lives in data.attachments. The expansion supplies
+        # a distinct record for every attachment, independent of its order.
+        return all(expanded_keys.count(key) == 1 for key in keys)
 
     def status(self, cid, kind, attempt_id, *, readback=False, poll_media=False):
         if cid not in self._load()['connections']:
@@ -770,7 +795,9 @@ class XPlatform:
                 return poll(self,cid,path,receipt)
             if kind != 'post' or not readback or receipt['state'] == 'REJECTED':
                 return receipt
-            text_only = not self._media_keys(receipt)
+            keys = self._media_keys(receipt)
+            text_only = not keys
+            known_post = receipt['state'] == 'SUCCEEDED'
             if receipt['state'] == 'RESULT_UNKNOWN' and text_only:
                 # An identical timeline post can belong to another client or attempt.
                 return receipt | {'readback_state': 'NO_UNIQUE_MATCH'}
@@ -794,16 +821,14 @@ class XPlatform:
                 if len(matches) != 1:
                     return receipt | {'readback_state': 'NO_UNIQUE_MATCH'}
                 receipt['result'] = {'post_id': matches[0]}
-            result = self.api.post(token, receipt['result']['post_id'])
+            post_id = receipt['result']['post_id']
+            result = self.api.post(token, post_id, include_note=True) if known_post else self.api.post(token, post_id)
             post = result.get('data') if type(result) is dict else None
-            includes = result.get('includes') if type(result) is dict else None
-            media = includes.get('media') if type(includes) is dict else None
-            media_keys = [row.get('media_key') for row in media if type(row) is dict] if type(media) is list else []
-            if (type(result) is not dict or result.get('errors') or not self._matches(post, c, receipt)
-                    or post.get('id') != receipt['result']['post_id']
-                    or (text_only and ((includes is not None and type(includes) is not dict)
-                                       or (type(includes) is dict and 'media' in includes and media != [])))
-                    or any(media_keys.count(key) != 1 for key in self._media_keys(receipt))):
+            if (type(result) is not dict or result.get('errors')
+                    or (known_post and result.get('errors', []) != [])
+                    or not self._matches(post, c, receipt, known_post=known_post)
+                    or post.get('id') != post_id
+                    or not self._matches_media_expansion(result, keys, exact=known_post)):
                 return receipt | {'readback_state': 'MISMATCH', 'actual': result}
             receipt['state'], receipt['readback_state'] = 'SUCCEEDED', 'MATCHED'
             receipt['text_comparison'] = ('EXACT_RAW_OR_EVIDENCED_X_URL_REPRESENTATION' if text_only else

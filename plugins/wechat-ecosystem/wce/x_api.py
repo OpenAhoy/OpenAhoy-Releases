@@ -214,10 +214,10 @@ class XHTTP:
         return self.request('GET', '/2/users/' + identifier(user_id) + '/tweets', token=token, query=query,
                             user_post_read=user_post_read)
 
-    def post(self, token, post_id, *, user_post_read=False):
+    def post(self, token, post_id, *, user_post_read=False, include_note=False):
         query = self.post_query()
         query['expansions'] += ',referenced_posts'
-        if user_post_read:
+        if user_post_read or include_note:
             query['post.fields'] += ',note_post'
         return self.request('GET', '/2/tweets/' + identifier(post_id), token=token, query=query,
                             user_post_read=user_post_read)

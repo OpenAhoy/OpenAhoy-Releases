@@ -56,7 +56,7 @@
    `UPLOADING` 是已确认进度后的可续传状态：相同账号、attempt及原路径再次调用 upload 继续原 session；不会重新 INIT。`PROCESSING` 或 `phase=FINALIZE_UNKNOWN` 时用原 `x.attempt.status` 加 `poll_media=true`，按 next_check_at/check_after_secs 继续官方 GET，直到 SUCCEEDED/明确失败；默认 status 仍只读本地。不要把待处理标成失败或重新上传。INIT/APPEND 结果 UNKNOWN 不盲重放，FINALIZE UNKNOWN 只查询原 media_id，过期不替换媒体或换 key。原媒体字节及进度保存在该账号既有私有任务目录，不修改原件、不另启后台。
    仅 SUCCEEDED 且未过期的本账号媒体可用于新发帖；每帖最多四张照片，或单个动画 GIF 或视频，不混用其他账号/公众号素材。处理失败、平台拒绝和未知阶段如实报告，未知原发帖只沿原 readback，不重复 POST。
 2. 成功后 `x.posts.create` 使用同号、原创建attempt_id、实际 text 和按展示顺序填写的 `upload_attempt_ids`（一到四项）。每个附件各用原上传回执，全部就绪后一次提交。单附件也可沿用 `upload_attempt_id`，两参数二选一。不加审稿/QA许可。公开发表属于真实写入，须已有用户委托。
-3. `x.posts.readback` 用原创建attempt_id独立GET核对真实账号、文字、媒体数量与顺序，按 media_key 关联各附件；只有MATCHED才能报告实际链接。SUCCEEDED创建ACK与独立读回MATCHED分别表述。
+3. `x.posts.readback` 用原创建 attempt_id 独立 GET 核对真实账号、原帖子 ID、正文、媒体顺序和扩展附件。已有成功回执时一并请求 `note_post`。有全文时按 `note_post.text` 和全文自己的 URL 实证比较，预览不能覆盖全文的差异。字段缺失时仍须用返回文本证明原始完整正文。只有 MATCHED 才能报告实际链接。SUCCEEDED 创建 ACK 与独立读回 MATCHED 分别表述。
 
 上传或创建RESULT_UNKNOWN时，先 `x.attempt.status` 查询原请求；带媒体帖还可用 `x.posts.readback` 通过原账号时间线核对原媒体。纯文字帖缺少原响应的帖子 ID 时保持 UNKNOWN，时间线里的同文不能证明归属。无唯一匹配保持UNKNOWN，不换key重发，不以“没看到”推定失败。已有成功在重启后沿原attempt续接。读回MISMATCH保留原发布，报告实际差异，不重复发帖或删帖。
 
