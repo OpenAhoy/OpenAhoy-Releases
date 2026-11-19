@@ -229,13 +229,13 @@ class GifJobs:
     def filename(row):
         return f'OpenAhoy-{row["generation_attempt_id"]}-{row["asset"]["sha256"][:12]}.gif'
 
-    def project_row(self, row, *, active=False):
+    def project_row(self, row, *, active=False, project=None):
         result = {k: row[k] for k in ('generation_attempt_id', 'project_id', 'state', 'model', 'created_at',
                                       'provider_request_id', 'diagnostic', 'asset') if k in row}
         if row['state'] in ('SUBMIT_UNKNOWN', 'RESULT_RECEIVED', 'SAVE_PENDING') and active:
             result['state'] = 'PROCESSING'
         if row['state'] == 'ASSET_READY':
-            project = self.project(row['project_id'])
+            project = project or self.project(row['project_id'])
             name = self.filename(row)
             relative = Path(*PROJECT_GIFS, name)
             try:
@@ -253,29 +253,48 @@ class GifJobs:
         return result
 
     def status(self, attempt, project_id):
+        row, active = self._status_receipt(attempt, lambda path: self.read(path, project_id))
+        return self.project_row(row, active=active) if row else {'state': 'NOT_FOUND'}
+
+    def _status_receipt(self, attempt, read):
         receipt, artifact, lock = self.paths(attempt)
         if not os.path.lexists(lock):
-            return {'state': 'NOT_FOUND'}
+            return None, False
         try:
             with locked(lock, existing=True, readonly=True, shared=True, nonblocking=True):
-                row = self.read(receipt, project_id)
-                if row is None:
-                    return {'state': 'NOT_FOUND'}
-                if row['state'] == 'RESULT_RECEIVED' and os.path.lexists(artifact):
+                row = read(receipt)
+                if row and row.get('state') == 'RESULT_RECEIVED' and os.path.lexists(artifact):
                     row['state'] = 'SAVE_PENDING'
         except WCEError as error:
             if error.code != 'CONNECTION_BUSY':
                 raise
-            row = self.read(receipt.with_suffix('.claim'), project_id)
-            return self.project_row(row, active=True) if row else {'state': 'NOT_FOUND'}
-        return self.project_row(row)
+            return read(receipt.with_suffix('.claim')), True
+        return row, False
 
-    def read(self, receipt, project_id):
+    def _read_receipt(self, receipt):
         if not os.path.lexists(self.root):
             return None
         path_check(self.root, True)
-        row = read_optional(receipt)
+        return read_optional(receipt)
+
+    def read(self, receipt, project_id):
+        row = self._read_receipt(receipt)
         return row if row is not None and row['project_id'] == project_id else None
+
+    def monitor_receipts(self, registered):
+        if not os.path.lexists(self.root):
+            return
+        path_check(self.root, True)
+
+        def read_registered(path):
+            row = self._read_receipt(path)
+            return row if row and row.get('project_id') in registered else None
+
+        for receipt in self.root.glob('*.json'):
+            if ATTEMPT.fullmatch(receipt.stem):
+                row, active = self._status_receipt(receipt.stem, read_registered)
+                if row:
+                    yield row, active
 
     def history(self, project_id):
         if not os.path.lexists(self.root):

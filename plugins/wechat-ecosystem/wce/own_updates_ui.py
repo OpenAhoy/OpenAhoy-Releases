@@ -68,7 +68,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
  const requestPattern=/^[0-9a-f]{32}$/;
  const recheckAfter=30*60*1000;
  let ready=false,closed=false,checking=false,starting=false,reading=false,latest=null,job='STATUS_UNAVAILABLE',pollTimer;
- let pendingRequest=null,canOpenLinks=false,blurred=false,lastCheckAt=null,lastStable=null;
+ let pendingRequest=null,canOpenLinks=false,blurred=false,lastCheckAt=null,lastStable=null,automatic=false;
  let jobHelp=false;
  try{
   const stored=sessionStorage.getItem(pendingKey);
@@ -313,7 +313,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
   finally{starting=false;if(!closed)buttons();}
  }
  function resume(){
-  if(!ready||closed||!visible())return;
+  if(!ready||closed||!visible()||!automatic)return;
   if(lastCheckAt===null||Date.now()-lastCheckAt>=recheckAfter)void check();
   if(pendingRequest||active.has(job))schedule(0);
  }
@@ -337,6 +337,10 @@ window.OASoftwareUpdates={mount(rpc,installed){
    canOpenLinks=Boolean(capabilities?.openLinks);
    ready=true;
    for(const [target,event,listener] of listeners)target.addEventListener(event,listener);
+   buttons();
+  },startAutomatic(){
+   if(closed||!ready||automatic)return;
+   automatic=true;
    void statusPoll();resume();
   },dispose(){
    closed=true;ready=false;clearTimeout(pollTimer);
@@ -359,6 +363,7 @@ def decorate(value, installed_version, uri):
             "const $=id=>document.getElementById(id),bridge=window.parent,pending=new Map();\n const softwareUpdates=OASoftwareUpdates.mount(rpc," + json.dumps(installed_version).replace('<', '\\u003c') + ');',
         'function dispose(){': 'function dispose(){softwareUpdates.dispose();',
         'buttons();await refresh();': 'softwareUpdates.ready(hostCapabilities);buttons();await refresh();',
+        'startupReady=true;syncIntro();': 'startupReady=true;softwareUpdates.startAutomatic();syncIntro();',
     }
     for before, after in seams.items():
         if text.count(before) != 1:

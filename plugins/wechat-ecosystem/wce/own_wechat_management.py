@@ -48,7 +48,7 @@ const OAPlatformSettings = {
        document.getElementById({rules:'productionRules',templates:'creativeTemplates',routes:'officialRoutes',technical:'technicalPanel'}[key]).hidden=name!==key;
      }};
      for(const name of tabs)document.getElementById('settings-'+name).addEventListener('click',()=>{onNavigation();rules.closeCreator();setTab(name);if(name==='templates')templates.show();});
-     return {...rules,setReady(value){templates?.setReady(value);return rules.setReady(value);},targetChanged(){templates?.targetChanged();},panelId:'wechatSettings',showRules(){rules.closeCreator();setTab('rules');},
+     return {...rules,setReady(value,options){templates?.setReady(value);return rules.setReady(value,options);},targetChanged(){templates?.targetChanged();},panelId:'wechatSettings',showRules(){rules.closeCreator();setTab('rules');},
        showCreator(){setTab('rules');},
        openBackend(){return host.openLink('https://mp.weixin.qq.com/');}};
    }

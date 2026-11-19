@@ -94,10 +94,10 @@ JS = r'''
     const ui=globalThis.OAUI||globalThis.OAPlainUI;
     let workspace=null, starter=null;const fieldRows={}, choiceEditors={};
     const choiceGroups={audience_topics:['主题','读者','内容形式','目标'],voice:['表达'],image_preferences:['配图'],visual_layout:['版式']};
-    const loaded=new Map(),verifications=new Map();let accountNames=new Map(),configAccounts=new Set(),importRequest=null,selectionEpoch=0,cardAccount='';
+    const loaded=new Map(),verifications=new Map();let accountNames=new Map(),accountBindings=new Map(),configAccounts=new Set(),importRequest=null,selectionEpoch=0,cardAccount='';
     const creations=new Map(),creatorEditors={},creatorChoices=[];let creator=null,creatorEpoch=0,fillRequest=null,lastRead=null;
     let pendingRestore=null,readTask=null;
-    let ready=false, selected='', generation=0, busy=false, meta=null, before=null, pendingSave=null, historyEnded=false;
+    let ready=false, selected='', selectedBinding, generation=0, busy=false, meta=null, before=null, pendingSave=null, historyEnded=false;
     // A saved override masks its fallback in the effective read. Show that
     // fallback only after a save and readback when inheritance is newly enabled.
     const awaitingInheritance=field=>!!meta&&inherited[field].checked&&lastRead?.effective.fields[field]?.source==='account';
@@ -113,7 +113,9 @@ JS = r'''
     const status=(text,...values)=>ui.set($('rulesStatus'),text,...values);
     const base=()=>({connection_id:selected,scope:selected?'account':'global'});
     const inputs=()=>Object.fromEntries(fields.map(field=>[field,{text:editors[field].value,inherit:inherited[field].checked}]));
-    const remember=()=>{if(meta)buffers.set(selected,inputs());};
+    const scopeKey=(cid=selected)=>cid?JSON.stringify([cid,cid===selected?selectedBinding:accountBindings.get(cid)]):'';
+    const scopeCurrent=()=>!selected||selectedBinding===accountBindings.get(selected);
+    const remember=()=>{if(meta)buffers.set(scopeKey(),inputs());};
     for(let i=0;i<fields.length;i++) {
       const field=fields[i], row=document.createElement('label'), title=document.createElement('span');ui.set(title,labels[i]);row.append(title);
       const source=document.createElement('span');source.className='rule-source';sources[field]=source;row.append(source);
@@ -146,7 +148,7 @@ JS = r'''
         read:field=>({text:editors[field].value,inherit:inherited[field].checked}),
         write:(field,value)=>{editors[field].value=value.text;inherited[field].checked=value.inherit;},
         empty:(field,value)=>!value.text.trim()&&(!value.inherit||!lastRead?.combined[field]?.trim())&&
-          (!loaded.get(selected)?.[field]?.text.trim()),
+          (!loaded.get(scopeKey())?.[field]?.text.trim()),
         onChange:()=>{remember();buttons();workspace?.refresh();}
       });
     }
@@ -163,10 +165,10 @@ JS = r'''
       $('rulesHistory').disabled=locked;
       $('rulesAccountScope').disabled=locked||!cardAccount||!accountNames.has(cardAccount);$('rulesDefaultScope').disabled=locked;
       $('rulesAccountScope').setAttribute('aria-pressed',String(!!selected));$('rulesDefaultScope').setAttribute('aria-pressed',String(!selected));
-      for(const field of fields){inherited[field].disabled=locked;editors[field].disabled=locked||inherited[field].checked;}
+      for(const field of fields){inherited[field].disabled=locked;editors[field].disabled=locked||!meta||inherited[field].checked;}
       $('rulesCreate').disabled=!ready||busy||!selected||!configAccounts.has(selected)||!!pendingSave||!!pendingRestore;
       for(const choice of Object.values(choiceEditors))choice.refresh();
-      starter?.update(meta?selected:'',locked||!meta);
+      starter?.update(meta?scopeKey():'',locked||!meta);
       creatorButtons();
     }
     async function tool(name,args) {
@@ -177,49 +179,65 @@ JS = r'''
       }
       return result.structuredContent;
     }
-    async function content(manifest, target, epoch) {
-      const values={};
+    async function content(manifest, target, epoch, chunks=new Map()) {
+      const values={},current=()=>epoch===generation&&scopeCurrent();
       for(const [field,item] of Object.entries(manifest.fields)) {
         let text='';
         for(let index=0;index<item.chunks;index++) {
-          if(epoch!==generation)return null;
-          const part=await tool('own.production.rules.read',{...target,view:'chunk',version_id:item.version_id,field,index});
-          if(part.version_id!==item.version_id||part.field!==field||part.index!==index||await hash(part.text)!==part.sha256)throw new Error('RULES_CHUNK_CHANGED');
-          text+=part.text;
+          if(!current())return null;
+          const key=JSON.stringify([item.version_id,field,index]);
+          if(!chunks.has(key)){
+            const part=await tool('own.production.rules.read',{...target,view:'chunk',version_id:item.version_id,field,index});
+            if(!current())return null;
+            if(part.version_id!==item.version_id||part.field!==field||part.index!==index||await hash(part.text)!==part.sha256)throw new Error('RULES_CHUNK_CHANGED');
+            chunks.set(key,part.text);
+          }
+          text+=chunks.get(key);
         }
         if(await hash(text)!==item.sha256 || Array.from(text).length!==item.unicode_length || encoder.encode(text).length!==item.utf8_bytes)throw new Error('RULES_INCOMPLETE');
         values[field]=text;
       }
       return values;
     }
-    function load(keepEdits=true) {
-      if(readTask)return readTask;
+    function load(keepEdits=true,{navigation=false}={}) {
+      if(readTask)return readTask.promise;
       if(!ready||busy)return;
-      readTask=readRules(keepEdits).finally(()=>{readTask=null;});
-      return readTask;
+      if(!scopeCurrent()&&!pendingSave&&!pendingRestore&&
+          (!accountBindings.has(selected)||!changeScope(selected,false)))return;
+      const task={navigation:navigation&&scopeCurrent()&&!pendingSave&&!pendingRestore};
+      readTask=task;
+      task.promise=readRules(keepEdits).finally(()=>{if(readTask===task)readTask=null;});
+      return task.promise;
     }
     async function readRules(keepEdits) {
-      if(!keepEdits)starter?.forget(selected);
-      const epoch=++generation, target=base();busy=true;buttons();status('正在读取当前规则与有效预览。');
+      const identity=scopeKey();
+      if(!keepEdits)starter?.forget(identity);
+      const epoch=++generation, target=base();busy=true;buttons();
+      status(scopeCurrent()?'正在读取当前规则与有效预览。':'账号绑定已变化。正在核对原操作。');
+      const currentRead=()=>epoch===generation&&scopeCurrent();
       try {
         const pending=pendingSave||pendingRestore;
         if(pending){
           const original=await tool('own.production.rules.read',{...(pending.target||target),view:'operation',operation_id:pending.id});
           if(original.state!=='COMMITTED'){status('原操作结果尚未确认；编辑与操作号已保留，请继续原保存或恢复。');return;}
-          if(pending.configuration)verifications.set(selected,pending.configuration);
-          pendingSave=null;pendingRestore=null;settleBuffer(pending.configuration,target.connection_id);keepEdits=!!pending.configuration?.editorBuffer;
+          if(pending.configuration)verifications.set(identity,pending.configuration);
+          pendingSave=null;pendingRestore=null;settleBuffer(pending.configuration,identity);keepEdits=!!pending.configuration?.editorBuffer;
         }
+        if(!currentRead())return;
         const current=await tool('own.production.rules.read',{...target,view:'summary'});
+        if(!currentRead())return;
         const effective=await tool('own.production.rules.read',{...target,view:'effective'});
-        const own=await content(current,target,epoch), combined=await content(effective,target,epoch);
-        if(epoch!==generation||!own||!combined)return;
+        if(!currentRead())return;
         if(current.store_revision!==effective.store_revision)throw new Error('RULES_VERSION_CONFLICT');
+        const chunks=new Map();
+        const own=await content(current,target,epoch,chunks), combined=await content(effective,target,epoch,chunks);
+        if(!currentRead()||!own||!combined)return;
         lastRead={connection_id:target.connection_id,current,effective,own,combined};
         meta=current;
         // Textarea normalizes line endings; compare visible drafts against the
         // same normalization, while imported storage retains the file's text.
-        loaded.set(selected,Object.fromEntries(fields.map(field=>[field,{text:(own[field]??combined[field]??'').replace(/\r\n?/g,'\n'),inherit:!!selected&&!Object.hasOwn(own,field)}])));
-        const saved=keepEdits?buffers.get(selected):null;
+        loaded.set(identity,Object.fromEntries(fields.map(field=>[field,{text:(own[field]??combined[field]??'').replace(/\r\n?/g,'\n'),inherit:!!selected&&!Object.hasOwn(own,field)}])));
+        const saved=keepEdits?buffers.get(identity):null;
         for(const field of fields) {
           editors[field].value=saved?saved[field].text:(own[field]??combined[field]??'');
           editors[field].setAttribute('data-source',effective.fields[field].source);
@@ -234,31 +252,34 @@ JS = r'''
           ? ui.message('正在编辑本号「{0}」；未覆盖项继承现有偏好或公众号默认规则。',accountNames.get(target.connection_id)||ui.message('所选公众号'))
           : ui.message('正在编辑公众号默认规则；本号单独保存的内容不会显示在此范围。');
         status(saved?'{0} 已读取版本 {1}；默认版本 {2}。未保存编辑已保留。':'{0} 已读取版本 {1}；默认版本 {2}。',scopeMessage,current.scope_revision,effective.global_revision);
-        const verification=verifications.get(selected);
+        const verification=verifications.get(identity);
         if(verification){
           const complete=fields.every(field=>combined[field]===verification.fields[field]&&(verification.inherited?.[field]?!Object.hasOwn(own,field):own[field]===verification.fields[field]));
           status(complete?'已为「{0}」加载配置，八项有效规则已完整读回。':'原配置保存已提交，但八项有效规则读回不匹配；请查看原账号版本，不要重复导入。',verification.name);
           if(complete){
-            verifications.delete(selected);const draft=creations.get(selected);
+            verifications.delete(identity);const draft=creations.get(identity);
             if(draft&&verification.creatorDraft===draft){draft.saved=JSON.stringify(verification.fields);draft.revision={store_revision:current.store_revision,scope_revision:current.scope_revision};}
           }
         }
         return lastRead;
-      } catch(error){if(epoch===generation)status('规则未能确认读取：'+error.message+'；已有编辑不会被覆盖。');}
+      } catch(error){
+        if(currentRead())status('规则未能确认读取：'+error.message+'；已有编辑不会被覆盖。');
+        else if(epoch===generation&&(pendingSave||pendingRestore))status('账号绑定已变化。原编辑与操作已保留。');
+      }
       finally{if(epoch===generation){busy=false;buttons();}}
     }
     async function save(configuration=null) {
-      if(!ready||busy||!meta)return;
+      if(!ready||busy||!meta||!scopeCurrent())return;
       if(configuration?.kind!=='configuration')configuration=null;
-      const epoch=generation,target=base(),values=configuration?Object.fromEntries(fields.map(field=>[field,{text:configuration.fields[field],inherit:configuration.inherited?.[field]??false}])):inputs();busy=true;buttons();$('rulesSave').setAttribute('aria-busy','true');
+      const epoch=generation,target=base(),identity=scopeKey(),values=configuration?Object.fromEntries(fields.map(field=>[field,{text:configuration.fields[field],inherit:configuration.inherited?.[field]??false}])):inputs();busy=true;buttons();$('rulesSave').setAttribute('aria-busy','true');
       let op=pendingSave,begun=false,keepEdits=!!configuration?.editorBuffer,confirmed=false,failure='';const resuming=!!op,outcome={confirmed:false,verified:false,pending:false,failure:''};
-      const checkImport=()=>{const context=op?.configuration||configuration;if(context&&!context.valid())throw new Error('RULES_CONFIG_TARGET_CHANGED');};
-      const committed=()=>{confirmed=true;if(op.configuration)verifications.set(target.connection_id,op.configuration);else verifications.delete(target.connection_id);};
+      const checkImport=()=>{if(!scopeCurrent())throw new Error('RULES_BINDING_CHANGED');const context=op?.configuration||configuration;if(context&&!context.valid())throw new Error('RULES_CONFIG_TARGET_CHANGED');};
+      const committed=()=>{confirmed=true;if(op.configuration)verifications.set(identity,op.configuration);else verifications.delete(identity);};
       try {
         // Any uncertain commit is only queried, never sent again.
         if(op?.commitAttempted){
           const original=await tool('own.production.rules.read',{...op.target,view:'operation',operation_id:op.id});
-          if(original.state==='COMMITTED'){committed();pendingSave=null;settleBuffer(op.configuration,target.connection_id);}
+          if(original.state==='COMMITTED'){committed();pendingSave=null;settleBuffer(op.configuration,identity);}
           else status('原配置提交结果尚未确认；只查询原操作，不会再次提交。');
           return outcome;
         }
@@ -285,7 +306,7 @@ JS = r'''
         const result=await tool('wce.settings.production.save',{...target,action:'commit',operation_id:op.id});
         if(result.state!=='COMMITTED')throw new Error('RULES_SAVE_RESULT_UNKNOWN');
         committed();
-        if(epoch===generation){pendingSave=null;settleBuffer(op.configuration,target.connection_id);status('保存已提交，正在独立读回。');}
+        if(epoch===generation){pendingSave=null;settleBuffer(op.configuration,identity);status('保存已提交，正在独立读回。');}
       } catch(error) {
         failure=error.message;
         if(epoch===generation) {
@@ -294,7 +315,7 @@ JS = r'''
           }else if(op) {
             try {
               const original=await tool('own.production.rules.read',{...target,view:'operation',operation_id:op.id});
-              if(original.state==='COMMITTED'){committed();pendingSave=null;settleBuffer(op.configuration,target.connection_id);status('原保存已确认提交，正在读回。');}
+              if(original.state==='COMMITTED'){committed();pendingSave=null;settleBuffer(op.configuration,identity);status('原保存已确认提交，正在读回。');}
               else if(error.message==='RULES_VERSION_CONFLICT'&&original.state==='STAGED'){
                 pendingSave=null;remember();keepEdits=true;status('版本已变化，原保存未提交；正在读取新版本并保留编辑。');
               }
@@ -308,56 +329,69 @@ JS = r'''
       } finally {
         $('rulesSave').removeAttribute('aria-busy');
         if(epoch===generation){busy=false;buttons();if(!pendingSave){
-          const context=op?.configuration||configuration,read=await load(keepEdits||!!context?.editorBuffer);
+          const context=op?.configuration||configuration;
+          const read=scopeCurrent()?await load(keepEdits||!!context?.editorBuffer):null;
+          if(!scopeCurrent())void loadAccountScope(target.connection_id);
           outcome.verified=!!(confirmed&&context&&read&&fields.every(field=>read.combined[field]===context.fields[field]&&(context.inherited?.[field]?!Object.hasOwn(read.own,field):read.own[field]===context.fields[field])));
         }}
         Object.assign(outcome,{confirmed,pending:!!pendingSave,failure});
       }
-      if(failure==='RULES_CONFIG_TARGET_CHANGED'&&!confirmed&&!pendingSave)status(configMessage(failure));
+      if(failure==='RULES_CONFIG_TARGET_CHANGED'&&!confirmed&&!pendingSave&&scopeCurrent()&&scopeKey()===identity)status(configMessage(failure));
       return outcome;
     }
     async function history() {
       if(!ready||busy||!meta||historyEnded)return;const epoch=generation,target=base();busy=true;buttons();
       try {
         const result=await tool('own.production.rules.read',{...target,view:'history',...(before===null?{}:{before})});
-        if(epoch!==generation)return;
+        if(epoch!==generation||!scopeCurrent())return;
         for(const row of result.items){const option=document.createElement('option');option.value=row.id;ui.set(option,row.restore_from?'版本 {0}（恢复）':'版本 {0}',row.scope_revision);$('rulesHistory').append(option);}
         before=result.next_before;historyEnded=before===null;status(before===null?'已读到该范围最早版本。':'已读取一页历史，可继续读取。');
-      }catch(error){status('历史读取失败：'+error.message);}finally{busy=false;buttons();}
+      }catch(error){if(scopeCurrent())status('历史读取失败：'+error.message);}finally{busy=false;buttons();if(!scopeCurrent())void loadAccountScope(target.connection_id);}
     }
     async function restore() {
       if(!ready||busy||!meta||!$('rulesHistory').value)return;const epoch=generation,target=base();busy=true;buttons();
       const resuming=!!pendingRestore;
-      const attempt=pendingRestore||{id:operation(),version:$('rulesHistory').value,store:meta.store_revision,scope:meta.scope_revision};
-      pendingRestore=attempt;let confirmed=false,conflict=false;
+      const identity=scopeKey();
+      const attempt=pendingRestore||{id:operation(),target,version:$('rulesHistory').value,store:meta.store_revision,scope:meta.scope_revision};
+      pendingRestore=attempt;let confirmed=false,conflict=false,attempted=resuming;
       try {
         const candidate=await tool('own.production.rules.read',{...target,view:'version',version_id:attempt.version});
         const preview=await content(candidate,target,epoch);
         if(epoch!==generation||!preview)throw new Error('RULES_TARGET_CHANGED');
         $('rulesPreview').textContent='正在恢复历史版本 '+candidate.scope_revision+'（旧版本保留）\n'+fields.map((f,i)=>labels[i]+'\n'+(preview[f]||'')).join('\n\n');
+        if(!scopeCurrent())throw new Error('RULES_BINDING_CHANGED');
+        attempted=true;
         const result=await tool('wce.settings.production.restore',{...target,operation_id:attempt.id,version_id:attempt.version,
           expected_store_revision:attempt.store,expected_scope_revision:attempt.scope});
         confirmed=result.state==='COMMITTED';if(!confirmed)throw new Error('RULES_SAVE_RESULT_UNKNOWN');
       }catch(error){
-        try{const original=await tool('own.production.rules.read',{...target,view:'operation',operation_id:attempt.id});confirmed=original.state==='COMMITTED';}catch(_){}
-        if(!confirmed&&error.message==='RULES_VERSION_CONFLICT'&&!resuming){pendingRestore=null;conflict=true;remember();}
+        if(attempted)try{const original=await tool('own.production.rules.read',{...target,view:'operation',operation_id:attempt.id});confirmed=original.state==='COMMITTED';}catch(_){}
+        if(!confirmed&&(!attempted||(error.message==='RULES_VERSION_CONFLICT'&&!resuming))){pendingRestore=null;conflict=true;remember();}
         if(!confirmed)status('恢复结果待确认，保留原操作；再次恢复只查询或接续该操作。'+error.message);
       }finally{
         busy=false;buttons();
-        if(epoch===generation&&confirmed){pendingRestore=null;buffers.delete(selected);await load(false);status('恢复为新版本并独立读回完成，旧版本保留。');}
-        else if(epoch===generation&&conflict){await load(true);status('版本冲突，未执行本次恢复；已读取新版本并保留编辑。');}
+        if(epoch===generation&&confirmed){
+          pendingRestore=null;buffers.delete(identity);
+          if(scopeCurrent()){
+            await load(false);
+            if(scopeCurrent())status('恢复为新版本并独立读回完成，旧版本保留。');
+          }
+        }else if(epoch===generation&&conflict&&scopeCurrent()){
+          await load(true);if(scopeCurrent())status('版本冲突，未执行本次恢复；已读取新版本并保留编辑。');
+        }
+        if(!scopeCurrent()&&!pendingRestore)void loadAccountScope(target.connection_id);
       }
     }
-    const dirty=cid=>{const value=cid===selected&&meta?inputs():buffers.get(cid);return !!value&&loaded.has(cid)&&JSON.stringify(value)!==JSON.stringify(loaded.get(cid));};
+    const dirty=cid=>{const identity=scopeKey(cid),value=cid===selected&&meta?inputs():buffers.get(identity);return !!value&&loaded.has(identity)&&JSON.stringify(value)!==JSON.stringify(loaded.get(identity));};
     const configMessage=code=>({RULES_CONFIG_ACCOUNT_MISMATCH:'配置名称与所选账号不一致，请选择该账号自己的配置文件。',RULES_CONFIG_ACCOUNT_UNAVAILABLE:'账号名称当前无法唯一确认，请先核对账号显示资料。',RULES_SECRET_NOT_ALLOWED:'配置包含疑似秘密；只能填写非秘密生产偏好。',RULES_CONFIG_INVALID:'配置格式、版本、平台或字段不正确。',RULES_CONFIG_JSON:'文件不是有效 JSON，请修正语法后重试。',RULES_CONFIG_DUPLICATE:'JSON 含重复字段，请移除重复项后重试。',RULES_CONFIG_KEYS:'配置根字段不正确；只能包含 format、schema_version、platform、account_name 和 fields。',RULES_CONFIG_FORMAT:'文件不是 OpenAhoy 生产偏好配置。',RULES_CONFIG_VERSION:'配置版本不兼容，当前仅支持 schema_version 1。',RULES_CONFIG_PLATFORM:'配置不属于公众号平台。',RULES_CONFIG_FIELDS:'fields 必须包含标准的八个字段，并且每项都是字符串。',RULES_CONFIG_TEXT:'配置含无效 Unicode 或不支持的控制字符。',RULES_CONFIG_ENCODING:'文件无法读取或不是有效 UTF-8 编码。',RULES_CONFIG_TARGET_CHANGED:'选择或填写已变化，原规则与草稿已保留，请重新选择文件。',RULES_CONFIG_DIRTY:'本号有未保存编辑，请先保存后再加载；全部编辑已保留。',RULES_VERSION_CONFLICT:'规则版本已变化，当前填写已保留；可用最新规则重新填写。'}[code]||'配置未能完成，原规则与填写已保留。');
     const copied=value=>JSON.parse(JSON.stringify(value));
-    function settleBuffer(context,cid){starter?.forget(cid);if(context?.editorBuffer)buffers.set(cid,copied(context.editorBuffer));else buffers.delete(cid);}
+    function settleBuffer(context,identity){starter?.forget(identity);if(context?.editorBuffer)buffers.set(identity,copied(context.editorBuffer));else buffers.delete(identity);}
     async function readConfigurationFile(file){
       try{return new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer()).replace(/^\uFEFF/,'');}
       catch(_){throw new Error('RULES_CONFIG_ENCODING');}
     }
     const creatorNote=(text,...values)=>ui.set($('creatorStatus'),text,...values);
-    function creatorCurrent(d=creator){return !!d&&creator===d&&ready&&configAccounts.has(d.cid)&&accountNames.get(d.cid)===d.name&&selected===d.cid&&d.isCurrent();}
+    function creatorCurrent(d=creator){return !!d&&creator===d&&ready&&configAccounts.has(d.cid)&&accountNames.get(d.cid)===d.name&&selected===d.cid&&scopeCurrent()&&d.identity===scopeKey()&&d.isCurrent();}
     function creatorButtons(){
       const valid=creatorCurrent(),locked=!valid||busy||!!pendingSave||!!pendingRestore;
       for(const area of Object.values(creatorEditors))area.disabled=locked;
@@ -406,10 +440,10 @@ JS = r'''
     }
     function closeCreator(){creatorEpoch++;fillRequest=null;creator=null;$('creatorConfigFile').value='';$('rulesCreator').hidden=true;$('rulesEditing').hidden=false;}
     async function openCreator(cid,name,isCurrent=()=>true){
-      if(!ready||busy||pendingRestore){status('请先在原范围接续保存或恢复，已有填写已保留。');return false;}
+      if(!ready||busy||pendingRestore||!scopeCurrent()){status('请先在原范围接续保存或恢复，已有填写已保留。');return false;}
       if(!cid||!configAccounts.has(cid)||accountNames.get(cid)!==name){status(configMessage('RULES_CONFIG_ACCOUNT_UNAVAILABLE'));return false;}
       if(pendingSave){
-        const draft=creations.get(cid);
+        const draft=creations.get(scopeKey(cid));
         if(!draft||pendingSave.configuration?.creatorDraft!==draft||pendingSave.target.connection_id!==cid||selected!==cid||!isCurrent()){
           status('请先在原账号接续保存，原填写和操作已保留。');return false;
         }
@@ -427,11 +461,11 @@ JS = r'''
       }
       const epoch=++creatorEpoch;remember();
       const changed=cid!==selected;
-      if(!await selectScope(cid,{keepCreator:true})||!isCurrent()||epoch!==creatorEpoch||!meta)return false;
+      if(!await selectScope(cid,{keepCreator:true,isCurrent:()=>isCurrent()&&epoch===creatorEpoch})||!isCurrent()||epoch!==creatorEpoch||!meta)return false;
       const read=changed&&lastRead?.connection_id===cid?lastRead:await load(true);
       if(!read||!isCurrent()||epoch!==creatorEpoch||selected!==cid||!configAccounts.has(cid)||accountNames.get(cid)!==name)return false;
-      let draft=creations.get(cid);
-      if(!draft){draft={cid,name,fields:copied(read.combined),revision:{store_revision:read.current.store_revision,scope_revision:read.current.scope_revision},editRevision:0,saved:null};creations.set(cid,draft);}
+      let draft=creations.get(scopeKey(cid));
+      if(!draft){draft={cid,name,identity:scopeKey(),fields:copied(read.combined),revision:{store_revision:read.current.store_revision,scope_revision:read.current.scope_revision},editRevision:0,saved:null};creations.set(draft.identity,draft);}
       const renamed=draft.name!==name;draft.name=name;
       draft.isCurrent=isCurrent;creator=draft;renderCreator();
       creatorNote((renamed?'账号显示名称已更新，原填写已保留。':'')+(draft.revision.store_revision!==meta.store_revision||draft.revision.scope_revision!==meta.scope_revision?'规则已更新，原填写已保留；保存不会覆盖新版本，可用最新规则重新填写。':'已读取本号完整有效规则。当前填写尚未保存；原规则页未保存编辑会保留。'));
@@ -447,8 +481,8 @@ JS = r'''
       if(pendingSave&&pendingSave.configuration?.creatorDraft!==d){creatorNote('请先在原规则范围处理原保存，当前创建草稿已保留。');return;}
       fillRequest=null;$('creatorConfigFile').value='';
       try{
-        if(verifications.has(d.cid)&&!pendingSave){
-          const expected=verifications.get(d.cid);
+        if(verifications.has(d.identity)&&!pendingSave){
+          const expected=verifications.get(d.identity);
           if(expected.creatorDraft!==d){creatorNote('另一份配置已提交且正在等待读回，请先在规则设置读取原结果；当前创建草稿已保留。');return;}
           const read=await load(true);
           if(creator===d&&epoch===creatorEpoch){
@@ -467,7 +501,7 @@ JS = r'''
         if(result?.verified){d.saved=JSON.stringify(snapshot.fields);d.revision={store_revision:meta.store_revision,scope_revision:meta.scope_revision};creatorNote('已保存到「'+d.name+'」，八项有效规则已完整读回。'+(editorBuffer?'原规则页未保存编辑已保留。':''));}
         else if(result?.confirmed)creatorNote('保存已提交，八项完整读回尚未确认；再次点击只读取原结果。');
         else if(result?.pending)creatorNote('原保存结果待确认，填写与原操作已保留；请接续原保存，不会另建提交。');
-        else{if(!editorBuffer){buffers.delete(d.cid);await load(false);}creatorNote(configMessage(result?.failure));}
+        else{if(!editorBuffer){buffers.delete(d.identity);await load(false);}creatorNote(configMessage(result?.failure));}
       }catch(error){if(creator===d&&creatorEpoch===epoch)creatorNote(configMessage(error.message));}
       finally{creatorButtons();}
     }
@@ -497,7 +531,7 @@ JS = r'''
       const d=creator,epoch=creatorEpoch;if(!creatorCurrent(d)||busy||pendingSave||pendingRestore)return;
       fillRequest=null;$('creatorConfigFile').value='';
       const read=await load(true);if(!read||creator!==d||creatorEpoch!==epoch||!creatorCurrent(d))return;
-      d.fields=copied(read.combined);d.revision={store_revision:read.current.store_revision,scope_revision:read.current.scope_revision};d.editRevision++;d.saved=null;verifications.delete(d.cid);renderCreator();creatorNote('已用最新有效规则替换当前填写，尚未保存。');
+      d.fields=copied(read.combined);d.revision={store_revision:read.current.store_revision,scope_revision:read.current.scope_revision};d.editRevision++;d.saved=null;verifications.delete(d.identity);renderCreator();creatorNote('已用最新有效规则替换当前填写，尚未保存。');
     });
     $('creatorFill').addEventListener('click',()=>{
       if(!creatorCurrent()||busy||pendingSave||pendingRestore)return;
@@ -515,23 +549,70 @@ JS = r'''
       finally{if(fillRequest===req){fillRequest=null;$('creatorConfigFile').value='';}}
     });
     $('rulesCreate').addEventListener('click',()=>openCreator(selected,accountNames.get(selected)));
-    async function selectScope(cid,{keepCreator=false}={}){
-      // A read already in progress can finish before switching scopes.
-      // Saves and restores still hold the original scope and operation ID.
-      while(readTask)await readTask;
-      if(busy)return false;if(cid===selected){if(cid)cardAccount=cid;buttons();return true;}
+    function clearScopeDisplay(){
+      meta=null;lastRead=null;before=null;historyEnded=false;
+      $('rulesPreview').textContent='';$('rulesHistory').replaceChildren();
+      for(const field of fields){
+        editors[field].value='';editors[field].setAttribute('data-source','');
+        inherited[field].hidden=!selected;inherited[field].nextSibling.hidden=!selected;
+        inherited[field].checked=!!selected;ui.set(sources[field],'');summarize(field);
+      }
+      buttons();
+    }
+    function changeScope(cid,keepCreator){
+      if(busy)return false;
+      if(cid===selected&&scopeCurrent()){if(cid)cardAccount=cid;buttons();return true;}
       if(pendingSave||pendingRestore){status('原操作结果待确认，请先在原范围接续。');return false;}
       if(cid)cardAccount=cid;
       if(!keepCreator)closeCreator();
-      remember();selectionEpoch++;selected=cid;meta=null;$('rulesScope').value=cid;await load();return true;
+      remember();selectionEpoch++;generation++;selected=cid;selectedBinding=accountBindings.get(cid);$('rulesScope').value=cid;
+      clearScopeDisplay();
+      return true;
+    }
+    async function selectScope(cid,{keepCreator=false,isCurrent=()=>true}={}){
+      // An explicit action can wait for a read, but cannot retarget the
+      // editor after a different account was selected in the meantime.
+      const intent=selectionEpoch,binding=accountBindings.get(cid);
+      const valid=()=>ready&&intent===selectionEpoch&&binding===accountBindings.get(cid)&&isCurrent();
+      while(readTask&&valid())await readTask.promise;
+      if(!valid()||!changeScope(cid,keepCreator))return false;
+      const accepted=selectionEpoch;
+      if(!meta)await load();
+      return ready&&accepted===selectionEpoch&&binding===accountBindings.get(cid)&&isCurrent();
+    }
+    function cancelNavigationRead(){
+      if(!readTask?.navigation)return;
+      generation++;readTask=null;busy=false;
+    }
+    async function stageAccountScope(cid,isCurrent){
+      // Only a passive navigation read can be superseded. Originals from
+      // save/restore and explicit editor reads retain their original scope.
+      while(readTask&&!readTask.navigation)await readTask.promise;
+      if(!isCurrent())return null;
+      if(cid!==selected||!scopeCurrent())cancelNavigationRead();
+      if(cid===selected&&readTask?.navigation)return true;
+      return changeScope(cid,false);
+    }
+    async function loadAccountScope(cid){
+      if(selected!==cid||meta)return;
+      const binding=accountBindings.get(cid), changed=!scopeCurrent();
+      if(changed&&readTask)await readTask.promise;
+      const valid=()=>ready&&selected===cid&&!meta&&binding===accountBindings.get(cid)&&
+        (!cid||accountBindings.has(cid));
+      if(!valid())return;
+      const result=await load(true,{navigation:true});
+      if(changed&&valid()&&!scopeCurrent()&&!pendingSave&&!pendingRestore)
+        return load(true,{navigation:true});
+      return result;
     }
     function chooseConfiguration(cid,name,isCurrent=()=>true){
       if(!ready||busy||pendingSave||pendingRestore){status('请先接续原规则操作，当前编辑已保留。');return false;}
       if(!configAccounts.has(cid)){status(configMessage('RULES_CONFIG_ACCOUNT_UNAVAILABLE'));return false;}
       if(!cid||accountNames.get(cid)!==name||!isCurrent()){status(configMessage('RULES_CONFIG_TARGET_CHANGED'));return false;}
+      if(cid===selected&&!scopeCurrent()&&!changeScope(cid,false))return false;
       if(dirty(cid)){status(configMessage('RULES_CONFIG_DIRTY'));return false;}
       remember();
-      const req={cid,name,isCurrent,epoch:generation,scope:selected};
+      const req={cid,name,isCurrent,epoch:generation,scope:selected,binding:accountBindings.get(cid)};
       // Start the readonly snapshot, but open the picker synchronously while
       // this actual button click still owns browser user activation.
       req.snapshot=tool('own.production.rules.read',{connection_id:cid,scope:'account',view:'summary'}).then(value=>({value}),()=>({error:true}));
@@ -552,34 +633,37 @@ JS = r'''
         if(!before())throw new Error('RULES_CONFIG_TARGET_CHANGED');
         if(snapshot.error||snapshot.value.connection_id!==req.cid)throw new Error('RULES_CONFIG_READ_FAILED');
         if(dirty(req.cid))throw new Error('RULES_CONFIG_DIRTY');
-        if(!await selectScope(req.cid)||!meta)throw new Error('RULES_CONFIG_READ_FAILED');
+        if(!await selectScope(req.cid,{isCurrent:current})||!meta)throw new Error('RULES_CONFIG_READ_FAILED');
         if(!current()||selected!==req.cid)throw new Error('RULES_CONFIG_TARGET_CHANGED');
         if(meta.store_revision!==snapshot.value.store_revision||meta.scope_revision!==snapshot.value.scope_revision)throw new Error('RULES_VERSION_CONFLICT');
         if(dirty(req.cid))throw new Error('RULES_CONFIG_DIRTY');
         writeEpoch=selectionEpoch;
+        const identity=scopeKey();
         for(const field of fields){editors[field].value=values[field];inherited[field].checked=false;summarize(field);}
         remember();
         const result=await save({kind:'configuration',name:req.name,fields:values,
           valid:()=>req.isCurrent()&&configAccounts.has(req.cid)&&accountNames.get(req.cid)===req.name&&selected===req.cid&&selectionEpoch===writeEpoch});
-        if(result&&!result.confirmed&&!result.pending){
+        if(result&&!result.confirmed&&!result.pending&&current()&&
+            selected===req.cid&&selectionEpoch===writeEpoch&&scopeKey()===identity){
           // A known noncommit keeps the old visible edit buffer; STAGED rows
           // may exist, but no effective head has been replaced.
-          if(selected===req.cid){buffers.delete(selected);await load(false);}
-          status(configMessage(result.failure));
+          buffers.delete(identity);await load(false);
+          if(current()&&selectionEpoch===writeEpoch&&scopeKey()===identity)status(configMessage(result.failure));
         }
-      }catch(error){status(configMessage(error.message));}
+      }catch(error){if(req.binding===accountBindings.get(req.cid))status(configMessage(error.message));}
       finally{if(importRequest===req){importRequest=null;$('rulesConfigFile').value='';}}
     });
     $('rulesScope').addEventListener('change',async()=>{if(busy||pendingSave||pendingRestore){$('rulesScope').value=selected;status('原操作尚在处理或结果待确认，请先在原范围接续。');return;}await selectScope($('rulesScope').value);});
     $('rulesAccountScope').addEventListener('click',()=>cardAccount&&selectScope(cardAccount));
     $('rulesDefaultScope').addEventListener('click',()=>selectScope(''));
-    $('rulesSave').addEventListener('click',save);$('rulesReload').addEventListener('click',()=>{remember();load();});
+    $('rulesSave').addEventListener('click',save);
+    $('rulesReload').addEventListener('click',()=>{remember();if(scopeCurrent())void load();else void loadAccountScope(selected);});
     $('rulesMore').addEventListener('click',history);$('rulesRestore').addEventListener('click',restore);
     async function applyTemplate(material,{connection_id:cid,name,isCurrent}){
       if(!ready||busy||pendingSave||pendingRestore)throw new Error('RULES_OPERATION_PENDING');
       if(!cid||!configAccounts.has(cid)||accountNames.get(cid)!==name||!isCurrent())throw new Error('RULES_CONFIG_TARGET_CHANGED');
       if(dirty(cid))throw new Error('RULES_CONFIG_DIRTY');
-      if(!await selectScope(cid)||!meta||!lastRead)throw new Error('RULES_CONFIG_READ_FAILED');
+      if(!await selectScope(cid,{isCurrent})||!meta||!lastRead)throw new Error('RULES_CONFIG_READ_FAILED');
       if(!isCurrent()||selected!==cid||dirty(cid))throw new Error('RULES_CONFIG_TARGET_CHANGED');
       const values={...lastRead.combined},inherit=Object.fromEntries(fields.map(field=>[field,!Object.hasOwn(lastRead.own,field)]));
       const marker='[OpenAhoy template:'+material.id+'@'+material.version+'#'+material.manifest_sha256+']';
@@ -597,8 +681,16 @@ JS = r'''
         revision:{store_revision:meta.store_revision,scope_revision:meta.scope_revision},
         valid:()=>isCurrent()&&selected===cid&&selectionEpoch===targetEpoch&&configAccounts.has(cid)&&accountNames.get(cid)===name});
     }
-    return {setReady(value){ready=value;if(!value)selectionEpoch++;buttons();if(ready)return load();},
-      accounts(rows,choices){const current=selected;const box=$('rulesScope');box.replaceChildren();const global=document.createElement('option');global.value='';ui.set(global,'全局默认');box.append(global);
+    return {setReady(value,{deferRead=false}={}){ready=value;if(!value)selectionEpoch++;buttons();if(ready&&!deferRead)return load();},
+      accounts(rows,choices){
+        const bindings=new Map(rows.map(row=>[row.connection_id,JSON.stringify([row.account_id,row.binding_revision])]));
+        const changed=selected&&accountBindings.get(selected)!==bindings.get(selected);
+        if(changed){
+          remember();selectionEpoch++;cancelNavigationRead();closeCreator();clearScopeDisplay();
+          status('账号绑定已变化。原编辑与操作已保留。');
+        }
+        accountBindings=bindings;
+        const current=selected;const box=$('rulesScope');box.replaceChildren();const global=document.createElement('option');global.value='';ui.set(global,'全局默认');box.append(global);
         accountNames=new Map(choices);configAccounts=new Set();
         for(const row of rows){
           const name=choices.get(row.connection_id),p=row.presentation;
@@ -607,7 +699,7 @@ JS = r'''
           const item=document.createElement('option');item.value=row.connection_id;item.textContent=name||'公众号';box.append(item);
         }
         if(current&&!rows.some(row=>row.connection_id===current)){const missing=document.createElement('option');missing.value=current;ui.set(missing,'原选择当前不可用');missing.disabled=true;box.append(missing);}box.value=current;buttons();},
-      scope(){return selected;},selectScope,chooseConfiguration,openCreator,closeCreator,load,save,history,restore,applyTemplate};
+      scope(){return selected;},selectScope,stageAccountScope,loadAccountScope,chooseConfiguration,openCreator,closeCreator,load,save,history,restore,applyTemplate};
   }
   globalThis.WCEProductionRules={mount,split,parseConfiguration};
 })();

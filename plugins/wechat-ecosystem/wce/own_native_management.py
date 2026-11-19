@@ -430,11 +430,15 @@ SCRIPT = r'''
  async function selectAccount(id){
    const requested=rows.find(row=>key(row)===id),token=++selectEpoch;
    let target=requested;
-   const editor=requested&&editors.get(requested.platform_id);
-   if(ready&&requested&&initializedEditors.has(requested.platform_id)){
-     const ok=await editor.selectScope(requested.connection_id);
-     if(closed||token!==selectEpoch)return false;
-     if(ok===false){target=rows.find(row=>row.platform_id===requested.platform_id&&row.connection_id===editor.scope?.());notice('原规则正在处理或结果待确认；已保留原规则目标，请先接续原操作。',true);}
+   const editor=editors.get(requested?.platform_id||activePlatform);
+   const staged=ready&&initializedEditors.has(requested?.platform_id||activePlatform)&&editor;
+   const isCurrent=()=>!closed&&token===selectEpoch&&(!requested||rows.some(row=>key(row)===id&&
+     row.account_id===requested.account_id&&row.binding_revision===requested.binding_revision));
+   let accepted=true;
+   if(staged){
+     accepted=await editor.stageAccountScope(requested?.connection_id||'',isCurrent);
+     if(accepted===null||!isCurrent())return false;
+     if(!accepted){target=rows.find(row=>row.platform_id===activePlatform&&row.connection_id===editor.scope?.());notice('原规则正在处理或结果待确认；已保留原规则目标，请先接续原操作。',true);}
    }
    if(target)target=rows.find(row=>key(row)===key(target)&&row.platform_id===activePlatform);
    id=target?key(target):'';
@@ -444,6 +448,7 @@ SCRIPT = r'''
    paintSelection();
    const row=current();
    projectContext?.target(activePlatform,row?.connection_id||'',rows);for(const editor of editors.values())editor.targetChanged?.();
+   if(staged&&accepted)void editor.loadAccountScope(row?.connection_id||'');
    xManagement?.setupTargetChanged();
    if(activePlatform==='x')xManagement?.updateBilling();
    updateXDeveloper();
@@ -476,7 +481,10 @@ SCRIPT = r'''
      paintSelection();buttons();return;
    }
    if(preserveSelection&&visible.some(row=>key(row)===selected)){
-     paintSelection();updateXDeveloper();buttons();return;
+     paintSelection();
+     const row=current();
+     if(initializedEditors.has(activePlatform))void editors.get(activePlatform)?.loadAccountScope(row.connection_id);
+     updateXDeveloper();buttons();return;
    }
    const prior=selectedByPlatform.get(activePlatform);
    if(preserveSelection&&prior&&!visible.some(row=>key(row)===prior)){
@@ -519,17 +527,11 @@ SCRIPT = r'''
    refreshTask=readAccounts().finally(()=>{refreshTask=null;refreshing=false;if(!closed)buttons();});
    return refreshTask;
  }
- async function prepareEditors(){
+ function prepareEditors(){
    for(const [id,editor]of editors){
-     if(closed)return;
      if(!platform(id)?.settings_supported||initializedEditors.has(id))continue;
+     editor.setReady(true,{deferRead:true});
      initializedEditors.add(id);
-     try{
-       await editor.setReady(true);
-       const row=current();
-       if(!closed&&view==='platform'&&row?.platform_id===id&&pendingSelection?.platform!==id)
-         await editor.selectScope(row.connection_id);
-     }catch(_){initializedEditors.delete(id);}
    }
  }
  async function readAccounts(){
@@ -554,8 +556,8 @@ SCRIPT = r'''
        const own=rows.filter(row=>row.platform_id===id);
        editor.accounts(own,new Map(own.map(row=>[row.connection_id,name(row)])));
      }
+     prepareEditors();
      if(view==='platform')void renderAccounts({preserveSelection:true});
-     void prepareEditors();
      OAUI.set($('homeStatus'),'');
      if(sameView()){
        const visible=visibleRows(rows),attention=visible.filter(row=>row.state==='ACTION_REQUIRED').length;
@@ -698,7 +700,7 @@ SCRIPT = r'''
     });
  const intro=$('homeIntroPlayer'),introToggle=$('homeIntroToggle');
  const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
- let introPreference=null;
+ let introPreference=null,startupReady=false;
  const homeIntro=intro?OAFramePlayer(intro,async start=>{
    OAUI.set($('homeIntroStatus'),'');
    return content(await tool('wce.ui.video.workspace',{action:'intro_frames',start}));
@@ -709,7 +711,7 @@ SCRIPT = r'''
  }}):null;
  function syncIntro(){
    if(!homeIntro)return;
-   const visible=ready&&!closed&&view==='home'&&!document.hidden;
+   const visible=ready&&startupReady&&!closed&&view==='home'&&!document.hidden;
    if(visible&&(introPreference??!reduceMotion.matches))homeIntro.play();
    else if(homeIntro.isPlaying())homeIntro.pause();
    introToggle.disabled=!visible;
@@ -759,8 +761,10 @@ SCRIPT = r'''
  $('accountCreate').addEventListener('click',async()=>{
    const row=current(),original=selected,editor=row&&editors.get(row.platform_id);if(!editor||!platform(row.platform_id)?.settings_supported)return;
    const epoch=++navigationEpoch;
-   const ok=await editor.openCreator(row.connection_id,name(row),()=>!closed&&selected===original&&activePlatform===row.platform_id&&navigationEpoch===epoch);
-   if(ok&&!closed&&selected===original&&navigationEpoch===epoch){editor.showCreator();$('settingsPanel').scrollIntoView({block:'start'});}
+   const isCurrent=()=>!closed&&selected===original&&activePlatform===row.platform_id&&navigationEpoch===epoch&&
+     current()?.binding_revision===row.binding_revision&&current()?.account_id===row.account_id;
+   const ok=await editor.openCreator(row.connection_id,name(row),isCurrent);
+   if(ok&&isCurrent()){editor.showCreator();$('settingsPanel').scrollIntoView({block:'start'});}
  });
  $('accountBackend').addEventListener('click',async()=>{
    const row=current(),editor=row&&editors.get(row.platform_id);if(!ready||backendOpening||!editor?.openBackend)return;
@@ -773,12 +777,15 @@ SCRIPT = r'''
    const row=current(),original=selected,epoch=navigationEpoch,editor=row&&editors.get(row.platform_id);
    if(!editor||!platform(row.platform_id)?.settings_supported)return;
    editor.showRules();$('settingsPanel').scrollIntoView({block:'start'});
-   editor.chooseConfiguration(row.connection_id,name(row),()=>!closed&&selected===original&&activePlatform===row.platform_id&&navigationEpoch===epoch);
+   editor.chooseConfiguration(row.connection_id,name(row),()=>!closed&&selected===original&&activePlatform===row.platform_id&&
+     navigationEpoch===epoch&&current()?.binding_revision===row.binding_revision&&current()?.account_id===row.account_id);
  });
  $('accountRules').addEventListener('click',async()=>{
    const row=current(),original=selected,editor=row&&editors.get(row.platform_id);if(!editor||!platform(row.platform_id)?.settings_supported)return;
    const intent=++navigationEpoch;
-   const ok=await editor.selectScope(row.connection_id);if(closed||selected!==original||navigationEpoch!==intent)return;
+   const isCurrent=()=>!closed&&selected===original&&navigationEpoch===intent&&
+     current()?.binding_revision===row.binding_revision&&current()?.account_id===row.account_id;
+   const ok=await editor.selectScope(row.connection_id,{isCurrent});if(!isCurrent())return;
    if(ok===false){notice('规则正在处理或结果待确认，请在原规则范围接续。',true);return;}
    if(activePlatform===row.platform_id&&showSettings(row.platform_id)){editor.showRules();$('settingsPanel').scrollIntoView({block:'start'});}
  });
@@ -789,6 +796,11 @@ SCRIPT = r'''
    $('homeMediaStudio').disabled=false;
    const startup=initialView||routeFromURL();if(startup)void openView(startup);else renderView();
    buttons();await refresh();
+   // Give the account and navigation paint a frame before optional startup work.
+   requestAnimationFrame(()=>requestAnimationFrame(()=>{
+     if(closed||!ready)return;
+     startupReady=true;syncIntro();
+   }));
  }).catch(()=>{ready=false;buttons();notice('当前宿主管理工具桥不可用，未进行任何账号操作。',true);OAUI.set($('homeStatus'),'当前宿主管理工具桥不可用，未进行任何账号操作。');});
 })();
 

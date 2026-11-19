@@ -74,12 +74,14 @@ def platform_sidebar(logo, navigation, *, localized=False):
 <div>'''+('<nav class="oa-nav"><button id="openMediaStudio" type="button" aria-controls="mediaStudio">'+icon('video')+'<span>媒体工坊</span></button></nav>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
 
 
-def minimax_cards():
-    from .own_branding import video_model_mark
+def minimax_mark():
+    return '<span class="oa-minimax-mark" aria-hidden="true"></span>'
 
+
+def minimax_cards():
     return ''.join(
         f'''<section id="videoMiniMax{suffix}Card" class="panel" aria-labelledby="videoMiniMax{suffix}Title">
-        <div class="oa-video-relay-heading"><img src="{video_model_mark()}" alt="" width="86" height="32">
+        <div class="oa-video-relay-heading">{minimax_mark()}
         <h2 id="videoMiniMax{suffix}Title">{title}</h2></div>
         <p id="videoMiniMax{suffix}State" role="status"></p><div data-catalog="{site}"></div>
         <div class="oa-provider-actions">
@@ -105,8 +107,7 @@ def native_page_body(logo, platform_settings):
     from .media_monitor_ui import HTML as monitor_html
     from .openai_gif_ui import SETTINGS_HTML as gif_settings
     from .audio_workspace_ui import HTML as audio_html
-    from .own_branding import video_model_mark
-    from .own_branding import icons
+    from .own_branding import icons, video_model_mark
     from .video_jobs import PROMO_DIR
     from base64 import b64encode
     cover = PROMO_DIR / 'openahoy-intro-cover.jpg'
@@ -131,13 +132,14 @@ def native_page_body(logo, platform_settings):
 </section>
 <p id="homeStatus" class="help" role="status">正在连接管理工具…</p>
 </section>'''
-    credential = '''<div class="oa-provider-grid"><section id="videoArkCard" class="panel"><h2>火山方舟</h2><p class="help">中国站 · 北京</p><p id="videoArkState" role="status"></p><div data-catalog="ark"></div><div class="oa-provider-actions"><button type="button" data-provider-control="ark" data-action="official">打开官方控制台</button><button type="button" data-provider-control="ark" data-action="model">模型文档</button><button type="button" data-provider-control="ark" data-action="assist">让 Codex 帮我开通</button></div><details class="oa-provider-cost"><summary>额度与账单</summary><p class="help">任务用量、套餐额度和已结算账单分别以官方为准。</p><button type="button" data-provider-control="ark" data-action="billing">打开官方账单</button></details><div id="videoArkCredentialForm">
+    mark_style = '<style>.oa-video-relay-heading .oa-minimax-mark{width:70px;aspect-ratio:30/11;border-radius:4px;background:#fff center/contain no-repeat url("' + video_model_mark() + '")}</style>'
+    credential = mark_style + '''<div class="oa-provider-grid"><section id="videoArkCard" class="panel"><h2>火山方舟</h2><p class="help">中国站 · 北京</p><p id="videoArkState" role="status"></p><div data-catalog="ark"></div><div class="oa-provider-actions"><button type="button" data-provider-control="ark" data-action="official">打开官方控制台</button><button type="button" data-provider-control="ark" data-action="model">模型文档</button><button type="button" data-provider-control="ark" data-action="assist">让 Codex 帮我开通</button></div><details class="oa-provider-cost"><summary>额度与账单</summary><p class="help">任务用量、套餐额度和已结算账单分别以官方为准。</p><button type="button" data-provider-control="ark" data-action="billing">打开官方账单</button></details><div id="videoArkCredentialForm">
 <label id="videoArkCredentialLabel" for="videoArkCredential">API Key</label>
 <input id="videoArkCredential" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" required disabled>
 <button id="videoArkCredentialSave" type="button" class="primary" disabled>保存 API Key</button>
 </div></section>'''+minimax_cards()+'''
 <section id="videoRelayCard" class="panel" aria-labelledby="videoRelayTitle">
-<div class="oa-video-relay-heading"><img src="'''+video_model_mark()+'''" alt="" width="86" height="32"><h2 id="videoRelayTitle">AutoDL · MiniMax H3</h2></div>
+<div class="oa-video-relay-heading">'''+minimax_mark()+'''<h2 id="videoRelayTitle">AutoDL · MiniMax H3</h2></div>
 <div id="videoRelayForm">
 <label for="videoRelayOrigin">中转站 Base URL</label>
 <input id="videoRelayOrigin" type="url" maxlength="512" autocomplete="off" spellcheck="false" placeholder="https://" data-default-origin="https://autodl.art" aria-describedby="videoRelayOriginHint" disabled>

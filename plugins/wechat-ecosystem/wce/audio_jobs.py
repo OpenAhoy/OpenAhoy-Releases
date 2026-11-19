@@ -87,8 +87,9 @@ class AudioJobs:
                     return row
         raise WCEError('VIDEO_PROJECT_NOT_REGISTERED')
 
-    def library_projects(self):
-        projects = self.videos.projects.view()['projects']
+    def library_projects(self, projects=None):
+        if projects is None:
+            projects = self.videos.projects.view()['projects']
         default = self.media.project()
         return projects + ([default] if default is not None else [])
 
@@ -114,12 +115,7 @@ class AudioJobs:
                                  for row in self.videos.projects.view()['projects']]}
         else:
             projects = {project_id: self.project(project_id)['name']}
-        if not self.root.exists():
-            return {'assets':[]}
-        path_check(self.root,True)
-        with locked(self.root/'audio.lock', shared=True):
-            rows = [read_optional(p) for p in sorted(self.root.glob('*.json'),reverse=True)]
-        assets = [row for row in rows if row and row['project_id'] in projects]
+        assets = [row for row in self.receipts() if row and row['project_id'] in projects]
         if unified:
             fields = ('attempt_id', 'project_id', 'kind', 'title', 'created_at', 'bytes', 'sha256',
                       'mime', 'seconds', 'video_attempt_id', 'video_project_id', 'video_sha256', 'provider')
@@ -127,6 +123,13 @@ class AudioJobs:
                       | {'project_label': row.get('project_label') or projects[row['project_id']],
                          'account_label': row.get('account_label')} for row in assets]
         return {'assets': sorted(assets, key=lambda row: row.get('created_at', 0), reverse=True)}
+
+    def receipts(self):
+        if not self.root.exists():
+            return []
+        path_check(self.root,True)
+        with locked(self.root/'audio.lock', shared=True):
+            return [read_optional(p) for p in sorted(self.root.glob('*.json'),reverse=True)]
 
     def record_asset(self, row, staged, project, facts, extension):
         pin = path_check(staged)
@@ -203,13 +206,13 @@ class AudioJobs:
         if any(previous.get(k)!=v for k,v in row.items()):
             raise WCEError('AUDIO_ATTEMPT_CONFLICT')
 
-    def file(self, row):
-        source=FileSource(self.project(row['project_id'])['root'])
+    def file(self, row, *, project=None):
+        source=FileSource((project or self.project(row['project_id']))['root'])
         return source, source.root / row['file']
 
-    def source_present(self, row):
+    def source_present(self, row, *, project=None):
         try:
-            source, path = self.file(row)
+            source, path = self.file(row, project=project)
             return (path.is_relative_to(source.root) and '..' not in path.parts
                     and path_check(path)[2] == row['bytes'])
         except (WCEError, OSError):

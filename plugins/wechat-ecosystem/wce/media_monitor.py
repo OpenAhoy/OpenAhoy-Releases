@@ -22,8 +22,8 @@ def _row(family, project, receipt, title, asset, **fields):
             'asset': _asset(asset), **fields}
 
 
-def _video_rows(videos, audio, project):
-    result = videos.history(project['id'], monitor=True)
+def _video_rows(videos, audio, project, receipts):
+    result = videos.project_history(project, receipts, monitor=True)
     library = {row['generation_attempt_id']: row for row in result.get('library', [])}
     for receipt in result['versions']:
         attempt = receipt['generation_attempt_id']
@@ -43,8 +43,9 @@ def _video_rows(videos, audio, project):
         yield row, parent, None, {}
 
 
-def _gif_rows(gifs, audio, project):
-    for receipt in gifs.history(project['id']):
+def _gif_rows(gifs, audio, project, receipts):
+    for raw, active in receipts:
+        receipt = gifs.project_row(raw, active=active, project=project)
         attempt = receipt['generation_attempt_id']
         attribution = audio.media.account('gif', attempt, project['id'])
         row = _row('gif', project, receipt, attribution.get('title') or attempt, receipt.get('asset', {}),
@@ -55,14 +56,14 @@ def _gif_rows(gifs, audio, project):
         yield row, None, None, {}
 
 
-def _audio_rows(audio, project):
-    for receipt in audio.history(project['id'])['assets']:
+def _audio_rows(audio, project, receipts):
+    for receipt in sorted(receipts, key=lambda row: row.get('created_at', 0), reverse=True):
         attempt = receipt['attempt_id']
         asset = _asset(receipt)
         row = _row('audio', project, {**receipt, 'generation_attempt_id': attempt}, receipt['title'], asset,
                    provider=receipt.get('provider'), account_label=receipt.get('account_label'))
         row['project_label'] = receipt.get('project_label') or row['project_label']
-        if row['state'] == 'ASSET_READY' and not audio.source_present(receipt):
+        if row['state'] == 'ASSET_READY' and not audio.source_present(receipt, project=project):
             row.update(state='UNAVAILABLE', asset={})
         if receipt['kind'] != 'song':
             row.update(kind='video', composition=receipt['kind'])
@@ -98,19 +99,41 @@ def _interval(settings, parent, track):
     return {}
 
 
+def _project_receipts(projects, rows, project_id):
+    groups = {project['id']: [] for project in projects}
+    for row in rows:
+        if row is not None:
+            group = groups.get(project_id(row))
+            if group is not None:
+                group.append(row)
+    return groups
+
+
 def collect(videos, gifs, audio):
     projects = videos.projects.view()['projects']
     receipts = []
     unavailable = []
-    for family, directory, load in (
-        ('video', projects, lambda project: _video_rows(videos, audio, project)),
-        ('gif', projects, lambda project: _gif_rows(gifs, audio, project)),
-        ('audio', audio.library_projects(), lambda project: _audio_rows(audio, project)),
+    registered = {project['id'] for project in projects}
+    for family, read, scope, load in (
+        ('video', videos.receipts, lambda row: row['request']['project_id'],
+         lambda project, rows: _video_rows(videos, audio, project, rows)),
+        ('gif', lambda: gifs.monitor_receipts(registered), lambda row: row[0]['project_id'],
+         lambda project, rows: _gif_rows(gifs, audio, project, rows)),
+        ('audio', audio.receipts, lambda row: row['project_id'],
+         lambda project, rows: _audio_rows(audio, project, rows)),
     ):
+        directory = projects
+        try:
+            if family == 'audio':
+                directory = audio.library_projects(projects)
+            groups = _project_receipts(directory, read(), scope) if directory else {}
+        except (WCEError, OSError, KeyError, TypeError):
+            unavailable.extend({'family': family, 'project_label': row['name']} for row in directory)
+            continue
         for project in directory:
             try:
-                receipts.extend(list(load(project)))
-            except (WCEError, OSError):
+                receipts.extend(list(load(project, groups[project['id']])))
+            except (WCEError, OSError, KeyError, TypeError):
                 unavailable.append({'family': family, 'project_label': project['name']})
 
     index = {(*_key(row), row['asset']['sha256']): row for row, *_ in receipts

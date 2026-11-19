@@ -1439,5 +1439,7 @@
   "正在读取本号统计…": "Loading this account’s analytics…",
   "刷新失败，保留本号上次的统计。": "Refresh failed. Showing this account’s last recorded data.",
   "暂时无法读取本号统计。": "Could not read this account’s analytics.",
+  "账号绑定已变化。原编辑与操作已保留。": "The account binding changed. Previous edits and operations are retained.",
+  "账号绑定已变化。正在核对原操作。": "The account binding changed. Checking the original operation.",
   "已报告日期净增": "Net followers on reported days"
 }

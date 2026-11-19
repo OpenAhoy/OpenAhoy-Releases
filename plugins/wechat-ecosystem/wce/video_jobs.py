@@ -141,15 +141,25 @@ class Jobs:
             return {'projects': directory, 'versions': []}
         if not os.path.lexists(self.root):
             return {'projects': directory, 'versions': []}
+        return self.project_history(project, self.receipts(), directory=directory, monitor=monitor)
+
+    def receipts(self):
+        if not os.path.lexists(self.root):
+            return
         path_check(self.root, True)
+        for receipt in self.root.glob('*.json'):
+            if ATTEMPT.fullmatch(receipt.stem):
+                row = read_optional(receipt, RECEIPT_MAX)
+                if row is not None:
+                    yield row
+
+    def project_history(self, project, receipts, *, directory=(), monitor=False):
+        project_id = project['id']
         selection = read_optional(self.root / ('selection-' + project_id + '.state')) or {}
         versions = []
         library = []
-        for receipt in self.root.glob('*.json'):
-            if not ATTEMPT.fullmatch(receipt.stem):
-                continue
-            row = read_optional(receipt, RECEIPT_MAX)
-            if row is None or row['request']['project_id'] != project_id:
+        for row in receipts:
+            if row['request']['project_id'] != project_id:
                 continue
             version = self.workspace_row(row, recipe=not monitor)
             if monitor:
