@@ -1674,5 +1674,14 @@
   "正在取件": "Retrieving result",
   "可播放": "Playable",
   "原素材不可读": "Original asset unavailable",
-  "提交结果未知": "Submission result unknown"
+  "提交结果未知": "Submission result unknown",
+  "适配画布": "Fit canvas",
+  "视频引擎": "Video engine",
+  "镜头视频候选": "Shot video candidates",
+  "候选 {0} · {1}": "Take {0} · {1}",
+  "采用此视频": "Use this take",
+  "已采用此视频。": "Video take selected.",
+  "画面预览": "Visual preview",
+  "无法读取原文件。": "The original file could not be read.",
+  "当前环境无法播放原文件。": "This environment could not play the original file."
 }

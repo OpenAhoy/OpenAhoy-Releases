@@ -72,6 +72,10 @@ def canvas_state(work):
     })
 
 
+def engine_node_id(work, shot_id):
+    return digest(['engine_node', work['id'], shot_id])[:32]
+
+
 def canvas_edit(work, args, verify_node):
     canvas = canvas_state(work)
     require(canvas['version'] == args['expected_canvas_version'], 'DIRECTOR_CANVAS_CHANGED')
@@ -95,8 +99,14 @@ def canvas_edit(work, args, verify_node):
         node.update(title=display_name(args['title']), text=project_text(args['text']))
         receipt = {'node_id': node_id}
     elif operation == 'canvas_move':
+        from .video_director_delivery import movable_video
+
         node_id = args['node_id']
-        require(node_id in shots or node_id in canvas['nodes'], 'DIRECTOR_CANVAS_NODE_NOT_FOUND')
+        engine_nodes = {engine_node_id(work, shot['id']) for scene in work['scenes'].values()
+                        for shot in scene['shots'].values()
+                        if shot['revisions'][shot['head_revision']].get('configuration')}
+        require(node_id in shots or node_id in canvas['nodes'] or node_id in engine_nodes or movable_video(work, node_id),
+                'DIRECTOR_CANVAS_NODE_NOT_FOUND')
         canvas['positions'][node_id] = args['position']
         receipt = {'node_id': node_id}
     else:
@@ -126,6 +136,7 @@ def work_view(work):
                              ('id', 'number', 'title', 'notes', 'start_ms', 'end_ms', 'origin')}
                             for rev in sorted(shot['revisions'].values(), key=lambda row: row['number'])],
               'engine': engine_view(shot['revisions'][shot['head_revision']].get('configuration')),
+              'engine_node_id': engine_node_id(work, shot['id']),
               'cover_revision': (shot['adopted_revision'] or shot['head_revision'])
               if shot['revisions'][shot['adopted_revision'] or shot['head_revision']]['images'] else None}
              for shot in in_order(scene['shots'])
@@ -270,6 +281,9 @@ class Director:
         if action == 'register_work_video':
             from .video_director_delivery import register_work_video
             return register_work_video(root, work, args)
+        if action == 'adopt_video':
+            from .video_director_delivery import adopt_video
+            return adopt_video(jobs, state['project_id'], work, args)
         if action == 'select_work':
             state['selected_work'] = work_id
             return {'work_id': work_id}

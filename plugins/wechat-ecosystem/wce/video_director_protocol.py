@@ -63,7 +63,7 @@ POSITION = schema({
     'x': {'type': 'integer', 'minimum': -1000000, 'maximum': 1000000},
     'y': {'type': 'integer', 'minimum': -1000000, 'maximum': 1000000},
 })
-VIEWPORT = schema(POSITION['properties'] | {'scale': {'type': 'integer', 'minimum': 25, 'maximum': 250}})
+VIEWPORT = schema(POSITION['properties'] | {'scale': {'type': 'integer', 'minimum': 10, 'maximum': 250}})
 CANVAS_WRITE = WORK_ARG | WRITE | {'expected_canvas_version': ORDINAL}
 FAMILY = {'type': 'string', 'enum': ['video', 'gif', 'audio']}
 CANVAS_NODE = {'oneOf': [
@@ -93,6 +93,8 @@ SPECS = {
         action('poll_delivery', WORK_ARG | {'attempt_id': ATTEMPT}),
         action('track_generation', TARGET | WRITE | {'attempt_id': ATTEMPT}),
         action('register_work_video', WORK_ARG | WRITE | {'file': FILE, 'title': TITLE}),
+        action('adopt_video', SHOT_ARG | WRITE | {'candidate_id': PROJECT, 'sha256': HANDLE},
+               {'expected_candidate_id': PROJECT}),
         action('canvas_view', CANVAS_WRITE | {'viewport': VIEWPORT}),
         action('canvas_add', CANVAS_WRITE | {'node': CANVAS_NODE, 'position': POSITION}),
         action('canvas_note_edit', CANVAS_WRITE | {'node_id': PROJECT, 'title': TITLE, 'text': TEXT}),
@@ -108,6 +110,8 @@ SPECS = {
     ]},
     MEDIA: {'oneOf': [
         action('work_video_chunk', WORK_ARG | {'delivery_id': PROJECT, 'offset': MS}),
+        action('canvas_video_chunk', WORK_ARG | {'delivery_id': PROJECT, 'sha256': HANDLE, 'offset': MS}),
+        action('canvas_video_frames', WORK_ARG | {'delivery_id': PROJECT, 'sha256': HANDLE, 'start': FRAME_INDEX}),
         action('import_image_chunk', WORK_ARG | {
             'sha256': HANDLE, 'offset': {'type': 'integer', 'minimum': 0, 'maximum': FRAME_LIMIT-1},
             'total': {'type': 'integer', 'minimum': 1, 'maximum': FRAME_LIMIT-1},
@@ -123,7 +127,7 @@ SPECS = {
 }
 DESCRIPTIONS = {
     READ: 'Read project storyboards, one exact shot revision, shared model/channel options, original-work delivery status, local preflight, or built-in video-director cards. Refresh Token Hex only when explicitly requested. Preflight only validates local input and encoding; no generation.',
-    EDIT: 'Create or revise a storyboard in a registered local project. Manage project canvas notes, layout, exact shot generation bindings and work-level local MP4 delivery. Poll_delivery may contact the original provider to query a tracked attempt and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Existing revisions remain. Use project-relative files with project_id and SHA-256.',
+    EDIT: 'Create or revise a storyboard in a registered local project. Manage canvas layout, exact shot generation bindings and work-level local MP4 delivery. Adopt_video selects an exact verified take for one shot without changing its storyboard revision. Read deliveries for candidate IDs and the current adoption. Poll_delivery may query the original provider and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Use project-relative files with project_id and SHA-256.',
     MEDIA: 'App-only local image import and verified storyboard image, whitebox or completed clip previews.',
 }
 
@@ -191,14 +195,16 @@ class DirectorRouter:
                 return import_image_chunk(self.director, args)
             except OSError:
                 raise WCEError('DIRECTOR_IMAGE_IMPORT_UNAVAILABLE') from None
-        if command in ('deliveries', 'poll_delivery', 'work_video_chunk'):
+        if command in ('deliveries', 'poll_delivery', 'work_video_chunk', 'canvas_video_chunk', 'canvas_video_frames'):
             project = args['project_id']
             root, pin = self.director.project(project)
             state = self.director.load(project, self.director.storage(root, pin))
             work = lookup(state['works'], args['work_id'], 'DIRECTOR_WORK_NOT_FOUND')
             if command == 'work_video_chunk':
                 return delivery.chunk(root, work, args)
-            return {'project_id': project, 'work_id': work['id'],
+            if command in ('canvas_video_chunk', 'canvas_video_frames'):
+                return delivery.playback(self.jobs, root, work, args)
+            return {'project_id': project, 'work_id': work['id'], 'version': state['version'],
                     'cards': delivery.collect(self.jobs, root, project, work, poll_attempt=args.get('attempt_id'))}
         if command == 'canvas_image':
             root, pin = self.director.project(args['project_id'])

@@ -266,6 +266,25 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno, canvas
  async function play(row,slot,run=false){
    if(!playable(row)){slot.append(label('p',stageName[row.state]||'记录状态待核实'));return;}
    const epoch=playerEpoch,current=()=>active&&epoch===playerEpoch;
+   if(row.family==='video'){
+     const preview=OAVideoPreview(slot,row.asset,{
+       chunk:offset=>invoke('playback',{...scope(row),offset}),
+       frames:start=>invoke('preview_frames',{...scope(row),start}),
+       run,poster:thumbnails.get(fingerprint(row))||'',
+       onVideo:video=>video.addEventListener('loadeddata',()=>{
+         if(!current()||thumbnails.has(fingerprint(row)))return;
+         if(!run&&video.paused&&video.currentTime===0&&video.duration>.1){
+           video.addEventListener('seeked',()=>{if(current())capture(row,video,video.videoWidth,video.videoHeight,480);},{once:true});
+           video.currentTime=.08;return;
+         }
+         if(!video.requestVideoFrameCallback)return;
+         const token=video.requestVideoFrameCallback(()=>{if(current())capture(row,video,video.videoWidth,video.videoHeight,480);});
+         releases.push(()=>video.cancelVideoFrameCallback(token));
+       },{once:true}),
+     });
+     releases.push(()=>preview.close());
+     return;
+   }
    slot.replaceChildren(label('p','正在读取原文件…'));
    try{
      const blob=await mediaBytes(row,current);if(!blob||!current())return;

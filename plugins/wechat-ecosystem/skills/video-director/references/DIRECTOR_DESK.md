@@ -15,3 +15,4 @@
 
 - 有实际生成委托时先对准确镜头修订执行 `preflight`，为这个已授权任务确定原 attempt。用 `video.director.edit action=track_generation` 绑定该 attempt 和同一 project/work/scene/shot/revision 后，沿原渠道提交并查询原单。画布根据原回执显示可取得的阶段，保留聊天里的原播放交付。没有既有镜头关系的历史视频，可在镜头版本中用「关联已有成片」明确选定原视频。
 - 已有项目本地剪辑 MP4 用 `video.director.edit action=register_work_video` 登记作品成片，提供准确 project/work 与同项目相对路径、原文件 SHA-256。用 `video.director.read action=deliveries` 读回作品节点。继续使用回执中的 `chat_path` 展示同一份本地成片。作品成片与镜头原片各自保留。
+- `deliveries` 返回镜头的已关联候选和采用状态。同一镜头的候选可在画布节点播放、暂停和拖进度，切换预览仅改变当前观看内容。「采用此视频」保存该镜头的精确候选。Codex 代用户采用时，使用 `adopt_video`，提供同一 project/work/scene/shot、`candidate_id`、`sha256`，以及读到的 `expected_candidate_id`（已有采用时）。采用视频不修改剧本修订或历史。

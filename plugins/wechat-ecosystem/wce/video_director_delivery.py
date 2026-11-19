@@ -122,7 +122,16 @@ def verify_local_video(root, relative, pin, checksum):
     require(facts.get('playable') is True and type(seconds) in (int, float) and
             isfinite(seconds) and seconds > 0 and file_state(path.lstat()) == pin,
             'DIRECTOR_WORK_VIDEO_INVALID')
-    return {'sha256': checksum, 'bytes': length, 'seconds': seconds}
+    return {'sha256': checksum, 'bytes': length, 'seconds': seconds,
+            'audio_tracks': facts.get('audio_tracks', 0)}
+
+
+def shot_video_node(work, shot_id):
+    return digest(['shot_video_node', work['id'], shot_id])[:32]
+
+
+def candidate_id(work, key):
+    return digest(['shot_video', work['id'], *key])[:32]
 
 
 def delivery_rows(work):
@@ -130,16 +139,68 @@ def delivery_rows(work):
     rows = {(spec['shot_id'], spec['attempt_id']): spec for spec in tracked.values()}
     for scene in work['scenes'].values():
         for shot in scene['shots'].values():
-            for revision_id in dict.fromkeys(r for r in (shot['head_revision'], shot['adopted_revision']) if r):
-                revision = shot['revisions'][revision_id]
+            for revision in sorted(shot['revisions'].values(), key=lambda value: value['number'], reverse=True):
                 if result := revision.get('result'):
                     key = (shot['id'], result['attempt_id'])
                     row = {'attempt_id': result['attempt_id'], 'shot_id': shot['id'], 'scene_id': scene['id'],
-                           'revision_id': revision_id, 'title': revision['title']}
+                           'revision_id': revision['id'], 'title': revision['title'],
+                           'project_id': result['project_id']}
                     # An explicit result association is already protected by its original digest.
                     if key not in rows or 'sha256' not in rows[key]:
                         rows[key] = rows.get(key, row) | {'sha256': result['sha256']}
+            for node in work.get('canvas', {}).get('nodes', {}).values():
+                asset = node.get('asset', {})
+                if node.get('shot_id') == shot['id'] and asset.get('family') == 'video':
+                    key = (shot['id'], asset['attempt_id'])
+                    rows.setdefault(key, {'attempt_id': asset['attempt_id'], 'shot_id': shot['id'],
+                                          'scene_id': scene['id'], 'revision_id': None, 'title': node['title'],
+                                          'sha256': asset['sha256'], 'project_id': asset['project_id']})
     return rows
+
+
+def movable_video(work, node_id):
+    return node_id in work.get('films', {}) or any(
+        shot_video_node(work, shot_id) == node_id for shot_id, _ in delivery_rows(work))
+
+
+def adopted_candidate(work, shot):
+    if pinned := shot.get('adopted_video'):
+        return pinned
+    original = shot['revisions'].get(shot['adopted_revision'], {}).get('result')
+    if original is None:
+        return None
+    return {'candidate_id': candidate_id(work, (shot['id'], original['attempt_id'])),
+            'sha256': original['sha256']}
+
+
+def candidate_spec(work, identifier):
+    return next((spec for key, spec in delivery_rows(work).items() if candidate_id(work, key) == identifier), None)
+
+
+def verified_candidate(jobs, project, spec, checksum):
+    require(spec, 'DIRECTOR_RESULT_UNAVAILABLE')
+    require(spec.get('project_id', project) == project, 'DIRECTOR_ASSET_WRONG_PROJECT')
+    row = read_receipt(jobs, spec['attempt_id'], project)
+    require(row, 'DIRECTOR_RESULT_UNAVAILABLE')
+    if 'provider' in spec:
+        generation_scope(row, spec)
+    _, asset, _ = jobs._playable(spec['attempt_id'], project)
+    require(asset['sha256'] == checksum == spec.get('sha256', checksum), 'DIRECTOR_ASSET_CHANGED')
+    return asset
+
+
+def adopt_video(jobs, project, work, args):
+    scene = lookup(work['scenes'], args['scene_id'], 'DIRECTOR_SCENE_NOT_FOUND')
+    shot = lookup(scene['shots'], args['shot_id'], 'DIRECTOR_SHOT_NOT_FOUND')
+    prior = adopted_candidate(work, shot)
+    require(args.get('expected_candidate_id') == (prior and prior['candidate_id']), 'DIRECTOR_STALE_REVISION')
+    spec = candidate_spec(work, args['candidate_id'])
+    require(spec and spec['scene_id'] == scene['id'] and spec['shot_id'] == shot['id'],
+            'DIRECTOR_RESULT_UNAVAILABLE')
+    verified_candidate(jobs, project, spec, args['sha256'])
+    shot['adopted_video'] = {key: args[key] for key in ('candidate_id', 'sha256')}
+    return {'work_id': work['id'], 'scene_id': scene['id'], 'shot_id': shot['id'],
+            'adopted_video': shot['adopted_video']}
 
 
 def track(jobs, state, work, args):
@@ -183,15 +244,15 @@ def collect(jobs, root, project, work, *, poll_attempt=None):
     cards = []
     for key, spec in delivery_rows(work).items():
         attempt = spec['attempt_id']
-        # A deliberate legacy canvas placement already displays this original.
-        if any(node.get('shot_id') == spec['shot_id'] and node.get('asset', {}).get('family') == 'video'
-               and node['asset']['attempt_id'] == attempt and node['asset']['project_id'] == project
-               for node in work.get('canvas', {}).get('nodes', {}).values()):
-            continue
-        card = {'id': digest(['shot_video', work['id'], *key])[:32], 'kind': 'shot_video',
+        scene = work['scenes'][spec['scene_id']]
+        shot = scene['shots'][spec['shot_id']]
+        adopted = adopted_candidate(work, shot)
+        identifier = candidate_id(work, key)
+        card = {'id': identifier, 'node_id': shot_video_node(work, shot['id']), 'kind': 'shot_video',
                 **{k: spec[k] for k in ('shot_id', 'scene_id', 'revision_id', 'title')}, 'attempt_id': attempt,
-                'state': 'AWAITING_RECEIPT'}
+                'state': 'AWAITING_RECEIPT', 'adopted_candidate_id': adopted and adopted['candidate_id']}
         try:
+            require(spec.get('project_id', project) == project, 'DIRECTOR_ASSET_WRONG_PROJECT')
             row = read_receipt(jobs, attempt, project)
             if row:
                 if 'provider' in spec:
@@ -216,7 +277,9 @@ def collect(jobs, root, project, work, *, poll_attempt=None):
                     require(original.is_file() and not original.is_symlink() and original.stat().st_size == asset['bytes'],
                             'DIRECTOR_ASSET_CHANGED')
                     card['asset'] = {'family': 'video', 'project_id': project, 'attempt_id': attempt,
-                                     'sha256': asset['sha256']}
+                                     **{k: asset[k] for k in ('sha256', 'bytes', 'seconds')},
+                                     'audio_tracks': asset.get('audio_tracks', 0)}
+                    card['adopted'] = adopted == {'candidate_id': identifier, 'sha256': asset['sha256']}
         except (OSError, WCEError, KeyError, TypeError):
             card['state'] = 'UNAVAILABLE'
         cards.append(card)
@@ -225,22 +288,51 @@ def collect(jobs, root, project, work, *, poll_attempt=None):
         try:
             _, pin = local_video_source(root, film['file'])
             asset = verify_local_video(root, film['file']['path'], pin, film['file']['sha256'])
-            card.update(state='ASSET_READY', sha256=asset['sha256'])
+            card.update(state='ASSET_READY', **asset)
         except (OSError, WCEError, TypeError, KeyError):
             pass
         cards.append(card)
     return cards
 
 
-def chunk(root, work, args):
+def work_video(root, work, args):
     film = lookup(work.get('films', {}), args['delivery_id'], 'DIRECTOR_WORK_VIDEO_UNAVAILABLE')
     file = film['file']
     require(file['project_id'] == args['project_id'], 'DIRECTOR_ASSET_WRONG_PROJECT')
     _, pin = local_video_source(root, file)
     asset = verify_local_video(root, file['path'], pin, file['sha256'])
+    return file, pin, asset
+
+
+def chunk(root, work, args):
+    file, pin, asset = work_video(root, work, args)
     offset = args['offset']
     require(0 <= offset < asset['bytes'], 'VIDEO_ASSET_OFFSET_INVALID')
     data = b''.join(FileSource(root).iter_html(file['path'], expected_state=pin, offset=offset,
                                               length=min(PLAYBACK_CHUNK, asset['bytes']-offset)))
     return {'offset': offset, 'total': asset['bytes'], 'sha256': asset['sha256'],
             'bytes': b64encode(data).decode('ascii')}
+
+
+def playback(jobs, root, work, args):
+    project, identifier = args['project_id'], args['delivery_id']
+    if identifier in work.get('films', {}):
+        file, pin, asset = work_video(root, work, args)
+        require(asset['sha256'] == args['sha256'], 'DIRECTOR_ASSET_CHANGED')
+        if 'offset' in args:
+            return chunk(root, work, args)
+        start = args['start']
+        require(start < asset['seconds'] * 8, 'VIDEO_ASSET_OFFSET_INVALID')
+        frames = probe('frames', str(root / file['path']), str(start), error='VIDEO_PREVIEW_UNAVAILABLE')
+        _, current = local_video_source(root, file)
+        require(current == pin, 'DIRECTOR_ASSET_CHANGED')
+        return {'start': start, **frames}
+    spec = candidate_spec(work, identifier)
+    verified_candidate(jobs, project, spec, args['sha256'])
+    if 'offset' in args:
+        part = jobs.playback(spec['attempt_id'], project, args['offset'])
+        require(part['sha256'] == args['sha256'], 'DIRECTOR_ASSET_CHANGED')
+        return part
+    frames = jobs.preview_frames(args['start'], spec['attempt_id'], project)
+    verified_candidate(jobs, project, spec, args['sha256'])
+    return frames

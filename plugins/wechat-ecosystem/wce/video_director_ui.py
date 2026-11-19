@@ -1028,7 +1028,7 @@ function OADirector(tool, send, canSend, navigation){
    $('directorCardPage').hidden=mode!=='cards';
    $('directorWorkbar').hidden=mode!=='desk';
    if(mode==='cards'){
-     canvas.flush();board.hidden=true;$('directorEmpty').hidden=true;clearPreview();stopWatch();
+     canvas.suspend();board.hidden=true;$('directorEmpty').hidden=true;clearPreview();stopWatch();
      void loadCards().catch(error);
    }else{
      render();
@@ -1052,7 +1052,7 @@ function OADirector(tool, send, canSend, navigation){
    }catch(problem){if(mode)error(problem);}
  }
  function close(){
-   canvas.flush();
+   canvas.suspend();
    clearInterval(workspaceTimer);workspaceTimer=null;polled.clear();engineDraft=null;engineDirty=false;
    mode='';root.hidden=true;reading++;visual++;clearPreview();stopWatch();say('');
    if($('directorCanvasPreview').open)$('directorCanvasPreview').close();
@@ -1153,9 +1153,33 @@ function OADirector(tool, send, canSend, navigation){
        await media('canvas_image',{...workScope(),node_id:row.id,thumbnail:true});
    const slot=node('div');attachImage(slot,response,true);return slot.firstChild;
  }
+ function playCanvasVideo(slot,row){
+   const args={...workScope(),delivery_id:row.id,sha256:(row.asset||row).sha256};
+   return OAVideoPreview(slot,row.asset||row,{
+     lazy:true,
+     chunk:offset=>media('canvas_video_chunk',{...args,offset}),
+     frames:start=>media('canvas_video_frames',{...args,start}),
+   });
+ }
+ async function adoptCanvasVideo(row){
+   const scope=workScope(),key=scope.project_id+':'+scope.work_id;
+   const args={...scope,scene_id:row.scene_id,shot_id:row.shot_id,candidate_id:row.id,sha256:row.asset.sha256};
+   if(row.adopted_candidate_id)args.expected_candidate_id=row.adopted_candidate_id;
+   return write('adopt_video',args,async result=>{
+     if(result.adopted_video?.candidate_id!==row.id||result.adopted_video.sha256!==row.asset.sha256)
+       throw Error('DIRECTOR_SAVE_NOT_VERIFIED');
+     const payload=await read('deliveries',scope);
+     if(payload.project_id!==scope.project_id||payload.work_id!==scope.work_id||
+          !payload.cards.some(item=>item.id===row.id&&item.adopted))throw Error('DIRECTOR_SAVE_NOT_VERIFIED');
+     canvas.setDeliveries(key,payload.cards,payload.version);
+   },'已采用此视频。');
+ }
+ async function selectCanvasNode(row){
+   await selectShot(row.scene,row.shot_id||row.id,row.revision);
+   if(row.kind==='engine'&&context?.shot_id===row.shot_id){tab='generation';renderInspector();}
+ }
  async function showCanvasNode(row){
-   if(row.kind==='shot_video'&&!row.asset||row.kind==='work_video'&&row.state!=='ASSET_READY')return;
-   if(row.kind==='asset'||row.kind==='shot_video'){
+   if(row.kind==='asset'){
      const asset=row.asset;
      navigation.asset({family:asset.family,project:asset.project_id,attempt:asset.attempt_id,sha256:asset.sha256});
      return;
@@ -1167,34 +1191,6 @@ function OADirector(tool, send, canSend, navigation){
    editNote.onclick=()=>{preview.close();noteDialog(row);};
    body.replaceChildren(row.kind==='note'?raw('p',row.text):label('p','正在读取图片…'));
    preview.showModal();
-   if(row.kind==='work_video'){
-     const scope=workScope(),ticket={};
-     preview.dataset.loadingFilm=row.id;
-     const live=()=>preview.open&&preview.dataset.loadingFilm===row.id&&pid()===scope.project_id&&present()?.id===scope.work_id;
-     OAUI.set(body,'正在读取作品成片…');
-     preview.addEventListener('close',()=>{
-       delete preview.dataset.loadingFilm;if(ticket.url)URL.revokeObjectURL(ticket.url);
-     },{once:true});
-     try{
-       let offset=0,total;
-       const parts=[];
-       do{
-         const part=await media('work_video_chunk',{...scope,delivery_id:row.id,offset});
-         if(!live())return;
-         if(part.offset!==offset||part.sha256!==row.sha256||!Number.isSafeInteger(part.total)||total!==undefined&&part.total!==total)
-           throw Error('DIRECTOR_ASSET_CHANGED');
-         total=part.total;
-         const bytes=Uint8Array.from(atob(part.bytes),c=>c.charCodeAt(0));
-         if(!bytes.length||offset+bytes.length>total)throw Error('DIRECTOR_ASSET_CHANGED');
-         parts.push(bytes);offset+=bytes.length;
-       }while(offset<total);
-       const video=node('video');video.controls=true;video.playsInline=true;
-       ticket.url=URL.createObjectURL(new Blob(parts,{type:'video/mp4'}));video.src=ticket.url;
-       body.replaceChildren(video);
-     }catch(problem){
-       if(live()){OAUI.set(body,'作品成片暂时无法播放。');error(problem);}
-     }
-   }
    if(row.kind==='image'){
      try{
        const rendered=await media('canvas_image',{...workScope(),node_id:row.id});
@@ -1210,7 +1206,7 @@ function OADirector(tool, send, canSend, navigation){
    try{
      const payload=await read('deliveries',scope);
      if(!current()||payload.project_id!==scope.project_id||payload.work_id!==scope.work_id)return;
-     canvas.setDeliveries(key,payload.cards);
+     canvas.setDeliveries(key,payload.cards,payload.version);
      if(shot&&!writing&&!watch&&context?.head_revision===shot.revision_id){
        const observed=await read('context',shot);
        if(current()&&scopeKey()===JSON.stringify(shot)&&observed.head_revision!==shot.revision_id){
@@ -1224,12 +1220,14 @@ function OADirector(tool, send, canSend, navigation){
      if(next){
        polled.set(key+next.attempt_id,Date.now());
        const updated=await tool('video.director.edit',{action:'poll_delivery',...scope,attempt_id:next.attempt_id});
-       if(current()&&updated.project_id===scope.project_id&&updated.work_id===scope.work_id)canvas.setDeliveries(key,updated.cards);
+       if(current()&&updated.project_id===scope.project_id&&updated.work_id===scope.work_id)
+         canvas.setDeliveries(key,updated.cards,updated.version);
      }
    }catch(_){/* Keep the last verified visible cards across a temporary read failure. */}
    finally{workspaceBusy=false;}
  }
- const canvas=OADirectorCanvas(canvasCommit,row=>selectShot(row.scene,row.id,row.revision),showCanvasNode,canvasPicture,engineName);
+ const canvas=OADirectorCanvas(canvasCommit,selectCanvasNode,showCanvasNode,canvasPicture,engineName,
+   playCanvasVideo,adoptCanvasVideo);
  return {open,close,canAttach,attach};
 }
 '''

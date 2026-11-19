@@ -279,6 +279,44 @@ class DirectorTests(unittest.TestCase):
         other = self.edit('create_work',{'fields':{'title':'不同作品'}})['work_id']
         self.assertEqual(self.desk.call(READ,query|{'work_id':other})['cards'],[])
 
+        # Preserve an explicit older revision after the head links a different original.
+        alternate_receipt, alternate_media = self.jobs._paths('alternate-attempt')
+        alternate_media.write_bytes(movie)
+        alternate_media.chmod(0o600)
+        atomic_write(alternate_receipt, json.loads(receipt.read_text()) | {'generation_attempt_id':'alternate-attempt'})
+        current = self.revised(linked, {'result': {'project_id':self.p,'attempt_id':'alternate-attempt',
+                                                  'sha256':checksum}})
+        candidate, alternate, whole = self.desk.call(READ, query)['cards']
+        self.assertEqual(candidate['id'], cards[0]['id'])
+        self.assertEqual(candidate['node_id'], alternate['node_id'])
+        self.assertEqual(whole['id'], film['delivery_id'])
+        for version, node_id in enumerate((candidate['node_id'], whole['id'])):
+            self.edit('canvas_move', self.base | {'node_id': node_id,
+                      'expected_canvas_version': version, 'position': {'x': 330, 'y': 42 + version}})
+        saved = self.read('overview', self.base)['work']['canvas']
+        self.assertEqual(saved['positions'][candidate['node_id']], {'x': 330, 'y': 42})
+        self.assertEqual(saved['positions'][whole['id']], {'x': 330, 'y': 43})
+        self.assertEqual(self.read('overview', self.base)['work']['scenes'][0]['shots'][0]['head_revision'],
+                         current['revision_id'])
+        for card in (candidate, whole):
+            scope = self.base | {'delivery_id': card['id'], 'sha256': checksum}
+            frames = self.desk.call(MEDIA, scope | {'action':'canvas_video_frames','start':4})
+            self.assertEqual(len(frames['frames']), 4)
+            with self.assertRaisesRegex(WCEError, 'DIRECTOR_(RESULT_UNAVAILABLE|ASSET_CHANGED)'):
+                self.desk.call(MEDIA, scope | {'action':'canvas_video_chunk','offset':0,'sha256':'0'*64})
+            with self.assertRaisesRegex(WCEError, 'DIRECTOR_RESULT_UNAVAILABLE'):
+                self.desk.call(MEDIA, scope | {'action':'canvas_video_chunk','offset':0,'work_id':other})
+        pick = self.base | {'scene_id': self.one, 'shot_id': self.a['shot_id'],
+                            'candidate_id': candidate['id'], 'sha256': checksum}
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_RESULT_UNAVAILABLE'):
+            self.edit('adopt_video', pick | {'shot_id': self.b['shot_id']})
+        before = self.read('context', current)
+        self.assertEqual(self.edit('adopt_video', pick)['adopted_video']['candidate_id'], candidate['id'])
+        self.assertEqual(self.read('context', current), before)
+        self.assertTrue(self.desk.call(READ, query)['cards'][0]['adopted'])
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_STALE_REVISION'):
+            self.edit('adopt_video', pick)
+
     def test_provider_preflight_does_not_use_credentials_or_submit(self):
         config = {'provider':'ark','model':MODEL,'mode':'frames','duration':5,'resolution':'720p','ratio':'16:9'}
         target = self.revised(self.a,{'prompt':'穿过门廊，停在窗边。','configuration':config,
