@@ -187,7 +187,8 @@ window.OASoftwareUpdates={mount(rpc,installed){
    CONNECTION_START_PENDING:'{0} 的一次升级曾停在业务占用检查。',
    UPDATE_ACTIVITY_UNVERIFIED:'{0} 的一次升级曾因无法确认后台状态而停止。',
    UPDATE_PREVIOUS_INSTALL_RECEIPT:'已保留 {0} 的原安装回执。',
-   UPDATE_INSTALL_READBACK_FAILED:'已保留 {0} 当时未核实的安装结果。'
+   UPDATE_INSTALL_READBACK_FAILED:'已保留 {0} 当时未核实的安装结果。',
+   UPDATE_OLD_CACHE_RETENTION_FAILED:'已保留 {0} 当时的缓存保全失败记录。'
   };
   history.hidden=!['LOADED','INSTALLED_RELOAD_REQUIRED'].includes(job)||
    !Object.hasOwn(historyText,old?.code)||!versionPattern.test(old?.version);
@@ -200,12 +201,19 @@ window.OASoftwareUpdates={mount(rpc,installed){
    UPDATE_OLD_CACHE_INVALID:'旧版缓存完整性校验未通过。',
    UPDATE_OLD_CACHE_UNVERIFIED:'无法从固定发行版本核对旧版缓存。',
    UPDATE_ROLLBACK_PACKAGE_INVALID:'无法准备干净的旧版回退包。',
-   UPDATE_OLD_CACHE_RETENTION_FAILED:'无法保全旧版缓存，尚未切换版本。'
+   UPDATE_OLD_CACHE_RETENTION_FAILED:'无法保全旧版缓存，尚未切换版本。',
+   UPDATE_CACHE_ARCHIVE_DIRECTORY:'无法使用旧版归档目录，尚未切换版本。',
+   UPDATE_CACHE_STAGE_PREVIOUS:'无法准备可启动的旧版副本，尚未切换版本。',
+   UPDATE_CACHE_RECHECK_CHANGED:'旧版文件在保全期间发生变化，尚未切换版本。',
+   UPDATE_CACHE_ARCHIVE_SWAP:'无法交换旧版归档目录，尚未切换版本。',
+   UPDATE_CACHE_ARCHIVE_VERIFY:'无法确认旧版原目录已归档，尚未切换版本。'
   };
   const cacheFailure=job==='FAILED'&&Object.hasOwn(cacheFailures,code);
   jobHelp=job==='INSTALL_UNKNOWN'||(job==='FAILED'&&
     (cacheFailure||['CONNECTION_NOT_COMMITTED','UPDATE_ACTIVITY_UNVERIFIED','UPDATE_ROLLBACK_REF_UNAVAILABLE','UPDATE_MARKETPLACE_UNSUPPORTED'].includes(code)));
-  if(cacheFailure){
+  if(job==='INSTALL_UNKNOWN'&&code==='UPDATE_CACHE_OLD_LAUNCH_RESTORE'){
+   sayJob('旧会话入口尚未核实。请查看原升级状态。',job);
+  }else if(cacheFailure){
    sayJob(cacheFailures[code],job);
   }else if(job==='FAILED'&&code==='CONNECTION_NOT_COMMITTED'){
    sayJob('公众号绑定校验未通过。可从原 Codex 市场升级。',job);

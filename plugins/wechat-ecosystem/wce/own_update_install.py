@@ -21,18 +21,25 @@ from .contracts import WCEError
 from .own_bootstrap_security import path_check
 from .own_connection_policy import atomic_write, locked, read_optional, read_registry, registry_path, resolve
 from .own_connection_registry import mkdir
-from .own_update_package import (declared_manifest, prepare_previous, retain_previous_cache,
-                                 verify_runtime, verify_package)
+from .own_update_package import (declared_manifest, prepare_previous, restore_previous_launch,
+                                 retain_previous_cache, verify_runtime, verify_package)
 from .own_updates import (MAX_ASSET, OID, PLUGIN, PUBLIC_MARKET, REMOTE, REPOSITORY, SHA, VERSION,
                           UpdateCheckUnavailable, _version, check, release_metadata)
 
+COMPATIBILITY_REPOSITORY = 'OpenAhoy/OpenAhoy-Distribution'
+GIT_MARKET_SOURCES = frozenset({
+    REMOTE, REMOTE.removesuffix('.git'), REPOSITORY, COMPATIBILITY_REPOSITORY,
+    'https://github.com/' + COMPATIBILITY_REPOSITORY,
+    'https://github.com/' + COMPATIBILITY_REPOSITORY + '.git',
+})
 BUNDLED_CLI = Path('/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex')
 ACTIVE = {'CHECKING', 'DOWNLOADING', 'VERIFYING', 'STAGED', 'WAITING_FOR_IDLE', 'INSTALLING'}
 REQUEST_ID = re.compile(r'[0-9a-f]{32}')
 SELECTOR = re.compile(r'wechat-ecosystem@([A-Za-z0-9_-]+)')
 BUSY_CODES = {'CONNECTION_BUSY', 'CONNECTION_START_PENDING', 'UPDATE_BUSINESS_BUSY'}
 UPDATE_HISTORY = {('BUSY', code) for code in BUSY_CODES} | {
-    ('FAILED', 'CONNECTION_NOT_COMMITTED'), ('FAILED', 'UPDATE_ACTIVITY_UNVERIFIED')}
+    ('FAILED', 'CONNECTION_NOT_COMMITTED'), ('FAILED', 'UPDATE_ACTIVITY_UNVERIFIED'),
+    ('FAILED', 'UPDATE_OLD_CACHE_RETENTION_FAILED')}
 PREVIOUS_RECEIPT = 'UPDATE_PREVIOUS_INSTALL_RECEIPT'
 RECEIPT_RACE_CODES = {'BOOTSTRAP_PATH_CHANGED', 'LOCAL_FILE_CHANGED', 'INVALID_LOCAL_FILE'}
 
@@ -385,7 +392,7 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
         source = registration.get('source')
         require(registration.get('source_type') == 'git'
                 and source == market_source.get('source')
-                and market_source.get('source') in (REMOTE, REMOTE.removesuffix('.git'), REPOSITORY)
+                and source in GIT_MARKET_SOURCES
                 and len(data['plugins']) == 1, 'UPDATE_MARKETPLACE_UNSUPPORTED')
         require(matches[0]['source'] == {'source': 'local', 'path': './plugins/' + PLUGIN},
                 'UPDATE_MARKETPLACE_UNSUPPORTED')
@@ -418,58 +425,63 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
             shutil.copytree(target, staged_target)
             verify_package(staged_target, version, manifest_sha)
             target = staged_target
-        retain_previous_cache(old, previous, previous_package, rollback)
-        progress('INSTALLING', plugin_id=selector, manifest_sha256=manifest_sha)
-        if git_market:
-            def restore_git_market(remove_target=False):
-                if remove_target:
-                    # Only remove the Git registration we just selected.
-                    current = tomllib.loads(read_market(codex_home / 'config.toml')[0].decode())[
-                        'marketplaces'][market_name]
-                    require(current.get('source_type') == 'git' and current.get('source') == source
-                            and current.get('ref') == target_ref, 'UPDATE_MARKETPLACE_CHANGED')
-                    run('marketplace', 'remove', market_name)
-                run('marketplace', 'add', source, '--ref', rollback_ref)
-                _verify_git_market(run, codex_home, market_name, source, rollback_ref, previous, rollback_manifest)
-                if not installed(run('list')):
-                    run('add', selector)
-                verify_installation(previous, selector, rollback_manifest, run('list'))
-
-            target_ref = 'v' + version
-            run('marketplace', 'remove', market_name)
-            try:
-                run('marketplace', 'add', source, '--ref', target_ref)
-            except WCEError:
-                if not any(entry['name'] == market_name for entry in run('marketplace', 'list')['marketplaces']):
-                    restore_git_market()
-                    raise WCEError('UPDATE_INSTALL_REJECTED') from None
-                raise
-            try:
-                # Verify the bytes the host will actually install, before activating them.
-                _verify_git_market(run, codex_home, market_name, source, target_ref, version, manifest_sha)
-            except (WCEError, OSError, ValueError, KeyError, TypeError):
-                if not (old.parent / version).exists():
-                    restore_git_market(remove_target=True)
-                    raise WCEError('UPDATE_INSTALL_REJECTED') from None
-                raise
-        else:
-            matches[0]['source'] = {'source': 'local', 'path': './' + os.path.relpath(target, path.parents[2])}
-            updated = (json.dumps(data, ensure_ascii=False, indent=2) + '\n').encode()
-            replace_market(path, raw, updated)
-
+        retained = retain_previous_cache(old, previous, previous_package, rollback)
+        previous_launch = {'version': previous, 'manifest': rollback_manifest, 'retained': retained}
+        progress('INSTALLING', plugin_id=selector, manifest_sha256=manifest_sha,
+                 previous_launch=previous_launch)
         try:
-            run('add', selector)
-        except WCEError:
-            new = old.parent / version
-            current = installed(run('list'))
-            old_active = len(current) == 1 and current[0]['pluginId'] == selector and current[0]['version'] == previous
-            if not new.exists() and (old_active or (git_market and not current)):
-                if git_market:
-                    restore_git_market(remove_target=True)
-                else:
-                    replace_market(path, updated, raw)
-                raise WCEError('UPDATE_INSTALL_REJECTED') from None
-            raise
+            if git_market:
+                def restore_git_market(remove_target=False):
+                    if remove_target:
+                        # Only remove the Git registration we just selected.
+                        current = tomllib.loads(read_market(codex_home / 'config.toml')[0].decode())[
+                            'marketplaces'][market_name]
+                        require(current.get('source_type') == 'git' and current.get('source') == source
+                                and current.get('ref') == target_ref, 'UPDATE_MARKETPLACE_CHANGED')
+                        run('marketplace', 'remove', market_name)
+                    run('marketplace', 'add', source, '--ref', rollback_ref)
+                    _verify_git_market(run, codex_home, market_name, source, rollback_ref, previous, rollback_manifest)
+                    if not installed(run('list')):
+                        run('add', selector)
+                    verify_installation(previous, selector, rollback_manifest, run('list'))
+
+                target_ref = 'v' + version
+                run('marketplace', 'remove', market_name)
+                try:
+                    run('marketplace', 'add', source, '--ref', target_ref)
+                except WCEError:
+                    if not any(entry['name'] == market_name for entry in run('marketplace', 'list')['marketplaces']):
+                        restore_git_market()
+                        raise WCEError('UPDATE_INSTALL_REJECTED') from None
+                    raise
+                try:
+                    # Verify the bytes the host will actually install, before activating them.
+                    _verify_git_market(run, codex_home, market_name, source, target_ref, version, manifest_sha)
+                except (WCEError, OSError, ValueError, KeyError, TypeError):
+                    if not (old.parent / version).exists():
+                        restore_git_market(remove_target=True)
+                        raise WCEError('UPDATE_INSTALL_REJECTED') from None
+                    raise
+            else:
+                matches[0]['source'] = {'source': 'local', 'path': './' + os.path.relpath(target, path.parents[2])}
+                updated = (json.dumps(data, ensure_ascii=False, indent=2) + '\n').encode()
+                replace_market(path, raw, updated)
+
+            try:
+                run('add', selector)
+            except WCEError:
+                new = old.parent / version
+                current = installed(run('list'))
+                old_active = len(current) == 1 and current[0]['pluginId'] == selector and current[0]['version'] == previous
+                if not new.exists() and (old_active or (git_market and not current)):
+                    if git_market:
+                        restore_git_market(remove_target=True)
+                    else:
+                        replace_market(path, updated, raw)
+                    raise WCEError('UPDATE_INSTALL_REJECTED') from None
+                raise
+        finally:
+            restore_previous_launch(old, previous, rollback_manifest, retained, verify_launch_modes)
         verify_installation(version, selector, manifest_sha, run('list'))
     progress('INSTALLED_RELOAD_REQUIRED')
 
@@ -529,8 +541,21 @@ class UpdateInstaller:
                 require(len(candidates) == 1, 'UPDATE_INSTALL_READBACK_FAILED')
                 selector = candidates[0]['pluginId']
             self.readback(value['version'], selector, manifest, rows)
-        except (WCEError, OSError, ValueError, KeyError, IndexError, TypeError, subprocess.SubprocessError):
-            return dict(value, state='INSTALL_UNKNOWN', code=value.get('code', 'UPDATE_INSTALL_READBACK_FAILED'))
+            if 'previous_launch' in value:
+                old = value['previous_launch']
+                require(type(old) is dict and set(old) == {'version', 'manifest', 'retained'}
+                        and isinstance(old['version'], str) and VERSION.fullmatch(old['version'])
+                        and _version(old['version']) < _version(value['version']),
+                        'UPDATE_INSTALL_RECEIPT_INVALID')
+                market = SELECTOR.fullmatch(selector)[1]
+                home = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex')))
+                path = home / 'plugins/cache' / market / PLUGIN / old['version']
+                restore_previous_launch(path, old['version'], old['manifest'], old['retained'], verify_launch_modes)
+        except (WCEError, OSError, ValueError, KeyError, IndexError, TypeError, subprocess.SubprocessError) as error:
+            code = getattr(error, 'code', None)
+            if code != 'UPDATE_CACHE_OLD_LAUNCH_RESTORE':
+                code = value.get('code', 'UPDATE_INSTALL_READBACK_FAILED')
+            return dict(value, state='INSTALL_UNKNOWN', code=code)
         verified = dict(value, state='INSTALLED_RELOAD_REQUIRED')
         verified.pop('code', None)
         if value['state'] != 'INSTALLED_RELOAD_REQUIRED':

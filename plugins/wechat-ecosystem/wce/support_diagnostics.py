@@ -13,6 +13,7 @@ import stat
 import time
 import uuid
 from .own_connection_registry import PROOF_CHECKS
+from .own_update_package import RETENTION_CODES
 from .own_binding_failure import SAFE_ERRORS as BINDING_ERROR_CODES
 from .video_relay import SUBMIT_DIAGNOSTIC_CODES, TRANSPORT_PHASES, safe_submit_response
 from .openai_gif_api import DIAGNOSTICS as GIF_DIAGNOSTICS, TRANSPORT_PHASES as GIF_TRANSPORT_PHASES
@@ -38,7 +39,7 @@ CODES=CODES|{'PRESERVATION_MISMATCH','CURRENT_DRAFT_SOURCE_CHANGED','CURRENT_DRA
 CODES = CODES | SUBMIT_DIAGNOSTIC_CODES | GIF_DIAGNOSTICS | X_POST_READ_CODES | {
     'RELEASE_CHANNEL_UNAVAILABLE', 'RELEASE_CHANNEL_INVALID', 'RELEASE_CHANNEL_CHANGED'}
 UPDATE_CACHE_CODES = frozenset({'UPDATE_OLD_CACHE_INVALID', 'UPDATE_OLD_CACHE_UNVERIFIED',
-    'UPDATE_ROLLBACK_PACKAGE_INVALID', 'UPDATE_OLD_CACHE_RETENTION_FAILED'})
+    'UPDATE_ROLLBACK_PACKAGE_INVALID'}) | RETENTION_CODES
 CODES = CODES | UPDATE_CACHE_CODES
 PRESERVATION_FIELDS=frozenset({'article_count','article_type','title','author','digest','content','content_source_url','thumb_media_id','thumb_url','cover_info','need_open_comment','only_fans_can_comment','show_cover_pic','image_info','product_info','other'})
 OPERATION_PHASES=frozenset({'PREPARED','READ_SOURCE','ADD','VERIFY_NEW_GROUP','RETIRE_SOURCES','COMPLETED','INIT_UNKNOWN','APPENDING','APPEND_UNKNOWN','FINALIZE_UNKNOWN','PROCESSING','READY'}) | TRANSPORT_PHASES | GIF_TRANSPORT_PHASES

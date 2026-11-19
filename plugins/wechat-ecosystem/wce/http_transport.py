@@ -16,6 +16,8 @@ from .service import canonical, digest
 from .storage import Database
 from .token_provider import TokenKey
 
+DATACUBE_PATHS = {name: '/datacube/'+name for name in
+                  ('getusersummary', 'getusercumulate', 'getbizsummary', 'getarticletotaldetail')}
 MAX_BODY = 2 * 1024 * 1024
 STATES = {"SUBMITTED", "PROCESSING", "SUCCEEDED", "FAILED", "RESULT_UNKNOWN"}
 
@@ -122,7 +124,7 @@ class HTTPSender:
         if not self.enabled:
             raise WCEError("HTTP_DISABLED")
         parts = urlsplit(request.path)
-        if request.method not in {"GET", "POST"} or parts.scheme or parts.netloc or parts.fragment or not parts.path.startswith("/cgi-bin/") or "\\" in request.path or any(ord(c) < 32 for c in request.path):
+        if request.method not in {"GET", "POST"} or parts.scheme or parts.netloc or parts.fragment or (not parts.path.startswith("/cgi-bin/") and not (request.method == "POST" and parts.path in DATACUBE_PATHS.values())) or "\\" in request.path or any(ord(c) < 32 for c in request.path):
             raise WCEError("INVALID_HTTP_REQUEST")
         if not math.isfinite(timeout) or not 0 < timeout <= 30 or len(request.body) > MAX_BODY:
             raise WCEError("INVALID_HTTP_REQUEST")

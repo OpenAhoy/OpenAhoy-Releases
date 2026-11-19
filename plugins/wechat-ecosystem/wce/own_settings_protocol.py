@@ -402,7 +402,8 @@ class SettingsRouter:
         from .ui_readonly_entry import descriptors as ui_descriptors
         actual = self.original.list_tools() + descriptors() + production_descriptors() + article_descriptors() + ui_descriptors()
         from .own_inline_probe_contract import present
-        return present(actual)
+        from .own_connection_tools import analytics_descriptor
+        return present(actual) + ([analytics_descriptor()] if not getattr(self.original, 'base_only', False) else [])
 
     def evidence(self):
         return self.original.evidence()

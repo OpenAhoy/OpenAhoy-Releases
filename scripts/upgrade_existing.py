@@ -26,10 +26,13 @@ def upgrade(plugin_id, version, *, run=cli, checker=check, installer=UpdateInsta
     require(advertised.get('latest_version') == version, 'UPDATE_ADVERTISEMENT_CHANGED')
     manifest = advertised['package_manifest_sha256']
     verify_package(PACKAGE, version, manifest)
+    service = installer(previous, checker=checker, run=run)
     if previous == version:
         verify_installation(version, plugin_id, manifest, {'installed': active})
+        result = service.status()
+        if result['state'] in ACTIVE | {'INSTALL_UNKNOWN'}:
+            return result
         return {'state': 'INSTALLED', 'version': version}
-    service = installer(previous, checker=checker, run=run)
     request_id = token_hex(16)
     result = service.start(version, advertised['advertised_revision'], request_id)
     if result.get('request_id') != request_id:

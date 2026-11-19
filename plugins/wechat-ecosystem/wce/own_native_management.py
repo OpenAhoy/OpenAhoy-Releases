@@ -23,7 +23,7 @@ SCRIPT = r'''
    event.preventDefault();closeFloatingMenus();menu.querySelector(':scope > summary')?.focus();
  });
  mountOpenAhoyHints();
- const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.workspace','wce.ui.wechat.storage_recovery']);
+ const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.workspace','wce.ui.wechat.storage_recovery','wce.ui.wechat.analytics']);
 
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
  let view='home',initialView='',explicitNavigation=false;
@@ -453,7 +453,14 @@ SCRIPT = r'''
    return {CONNECTED:'已连接',BOUND:'已绑定',BOUND_IDLE:'已绑定 · 空闲',DISCONNECTED:'已断开',
            ACTION_REQUIRED:'需要处理',BUSY:'正在使用'}[row.state]||'状态待核对';
  }
+ function targetAnalytics(){
+   const row=current();
+   const valid=view==='platform'&&activePlatform==='wechat_official_account'&&
+     row?.platform_id===activePlatform&&['BOUND','BOUND_IDLE','CONNECTED','BUSY'].includes(row.state);
+   analytics?.target(valid?row:null,valid?name(row):'');
+ }
  function paintSelection(){
+   targetAnalytics();
    for(const el of $('accounts').children){const chosen=el.dataset.accountKey===selected;el.classList.toggle('is-selected',chosen);el.setAttribute('aria-selected',String(chosen));el.querySelector('button')?.setAttribute('aria-pressed',String(chosen));}
    const row=current();$('accountCurrent').replaceChildren();if(row){const text=document.createElement('span'),title=document.createElement('strong'),sub=document.createElement('small');if(name(row))OAUI.raw(title,name(row));else OAUI.set(title,'账号资料暂不可用');if(row.platform_id==='x'&&row.username)OAUI.raw(sub,'@'+row.username);else OAUI.set(sub,accountState(row));text.append(title,sub);$('accountCurrent').append(avatar(row),text);}else OAUI.set($('accountCurrent'),'平台默认规则 / 尚未选择账号');
    $('selectedAccount').replaceChildren();
@@ -652,6 +659,11 @@ SCRIPT = r'''
    xManagement.openAuthorization(existing,existing);await xManagement.activate();
  }
  async function secure(){if(!ready||!bindingPlatform()?.binding_supported)return;if(activePlatform==='xiaohongshu'){await xhsManagement.begin();return;}if(activePlatform==='x'){await openXAuthorization(false);return;}await binding.open();}
+ const analytics=OAWechatAnalytics(async args=>{
+   const result=await tool('wce.ui.wechat.analytics',args);
+   if(result?.isError)throw new Error('WECHAT_ANALYTICS_UNAVAILABLE');
+   return content(result);
+ },openXLink);
  const video = OAVideoCredential((name,args)=>tool(name,args).then(content),()=>ready&&!closed);
  const mediaTool=async(name,args)=>{
    const result=await tool(name,args);
@@ -719,6 +731,7 @@ SCRIPT = r'''
    else monitor.close();
  }
  function renderView(){
+   targetAnalytics();
    syncIntro();
    $('openAhoyHome').hidden=view!=='home';
    $('nativeWorkspace').hidden=view!=='platform'||!$('inlineBinding').hidden;
@@ -791,6 +804,7 @@ def resource():
     from .own_inline_binding_ui import SCRIPT as binding_script
     from .video_inline_ui import SCRIPT as video_script
     from .audio_workspace_ui import STYLE as audio_style, SCRIPT as audio_script
+    from .wechat_analytics_ui import STYLE as stats_style, SCRIPT as stats_script
     from .video_provider_ui import STYLE as provider_style, SCRIPT as provider_script
     from .openai_gif_ui import STYLE as gif_style
     from .video_workspace_ui import STYLE as video_style
@@ -806,9 +820,9 @@ def resource():
     html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>OpenAhoy · Platform management</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + gif_style + HOME_STYLE + frame_style + monitor_style + interaction_style + '</style>'
+        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + interaction_style + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
-        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + monitor_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + SCRIPT + '</script></body></html>')
+        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
         '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://cdn1.suno.ai',
                                                                  'https://cdn2.suno.ai', 'https://suno-data-uploads.s3.amazonaws.com', 'https://acemusic.ai'], 'frameDomains': []}},

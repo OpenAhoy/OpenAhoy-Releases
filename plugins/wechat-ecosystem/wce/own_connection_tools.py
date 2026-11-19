@@ -10,6 +10,7 @@ from .own_connection_input import stage
 from .own_connection_broker import call, ensure_started, stale_endpoint, SOCKET, RUNTIME
 from .prepared_contracts import ID, MIME, ROLE, strict_validate
 from .tools import schema
+from .wechat_analytics import TOOL as ANALYTICS
 
 SPECS = deepcopy(LEGACY | DOCUMENT_SPECS)
 from .normal_html_entry import ARGUMENTS as HTML_ARGUMENTS
@@ -35,6 +36,8 @@ SPECS.update({
         'expected_revision': {'type': 'integer', 'minimum': 0, 'maximum': MAX_REVISION - 1},
         'preferences': EDITOR_VALUES}),
     'own.connections.list': schema({}),
+    ANALYTICS: schema({'connection_id': ID, 'days': {'type': 'integer', 'enum': [7, 30]}},
+                      {'refresh': {'type': 'boolean'}}),
     'own.connections.status': schema({'connection_id': ID}),
     'own.connections.connect': schema({'connection_id': ID}),
     'own.connections.disconnect': schema({'connection_id': ID}),
@@ -46,6 +49,13 @@ SPECS.update({
 
 for _name in ('own.publications.current.prepare', 'own.publications.slots.discover'):
     SPECS.pop(_name)
+
+
+def analytics_descriptor():
+    return {'name': ANALYTICS, 'inputSchema': deepcopy(SPECS[ANALYTICS]),
+            'description': 'App-only read of statistics for the selected bound WeChat account.',
+            'annotations': {'readOnlyHint': True, 'openWorldHint': True},
+            '_meta': {'ui': {'visibility': ['app']}}}
 
 
 def validate(name, args):
@@ -110,7 +120,7 @@ class ConnectionRouter:
              if name == 'own.drafts.inventory' else
              'Select one human-enabled personal connection. Explicit user-requested images and drafts only; '
              'no public publication, credentials or enablement tool. Query original keys after uncertain results. '
-             'UNKNOWN blocks the original and related article intents; never resend with a new key.')} for name, spec in SPECS.items()]
+             'UNKNOWN blocks the original and related article intents; never resend with a new key.')} for name, spec in SPECS.items() if name != ANALYTICS]
 
     def call(self, name, arguments):
         validate(name, arguments)

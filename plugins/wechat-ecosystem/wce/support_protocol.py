@@ -32,7 +32,7 @@ CHAT_DESCRIPTIONS = {
 }
 # readOnlyHint does not exclude refresh-token rotation or metadata writes.
 LOCAL_ONLY_TOOLS=frozenset({PREVIEW,STATUS,'own.connections.list','x.connections.list','own.drafts.current.read','own.drafts.current.status','wce.ui.management.overview'})
-LOCAL_ONLY_TOOLS = LOCAL_ONLY_TOOLS | {'image.openai.gif.status', 'image.openai.gif.configuration.status', 'audio.project.history', 'audio.project.video.inspect', 'audio.music.provider.read'}
+LOCAL_ONLY_TOOLS = LOCAL_ONLY_TOOLS | {'image.openai.gif.status', 'image.openai.gif.configuration.status', 'audio.project.history', 'audio.project.video.inspect', 'audio.music.provider.read', 'wce.ui.wechat.analytics'}
 
 
 def descriptor():
@@ -222,8 +222,8 @@ def outcome(value):
     state=value.get('state')
     diagnostic=value.get('diagnostic')
     code=value.get('code')
-    if state=='FAILED' and type(code) is str and code in UPDATE_CACHE_CODES:
-        return 'FAILED',code
+    if state in ('FAILED', 'INSTALL_UNKNOWN') and type(code) is str and code in UPDATE_CACHE_CODES:
+        return ('UNKNOWN' if state == 'INSTALL_UNKNOWN' else 'FAILED'), code
     if value.get('source')=='X_API' and state in ('PARTIAL','FAILED') and type(diagnostic) is dict:
         code=diagnostic.get('code')
         if type(code) is str and code in X_POST_READ_CODES:

@@ -46,7 +46,8 @@ MAINTENANCE_METHOD = '_wce.maintenance.idle_drain.v1'
 _SOFTWARE_FIELD = '_broker_software_id'
 _BUSY_HANDSHAKE = 'CONNECTION_FD_DOMAIN_BUSY_V1'
 from .current_draft_management import NETWORK as DRAFT_MANAGEMENT_NETWORK
-NETWORK = {'own.uploads.execute', 'own.drafts.save', 'own.drafts.readback',
+from .wechat_analytics import Analytics, TOOL as ANALYTICS
+NETWORK = {ANALYTICS, 'own.uploads.execute', 'own.drafts.save', 'own.drafts.readback',
            'own.drafts.inventory', 'own.publications.current.prepare',
            'own.publications.current.dispatch', 'own.publications.current.poll',
            'own.publications.slots.discover'} | DRAFT_MANAGEMENT_NETWORK
@@ -328,6 +329,7 @@ class AccountService:
 
     def _init_mechanical(self, policy):
         self.policy, self.tokens = policy, TokenCache(policy)
+        self.analytics = Analytics(self.tokens)
         self.serial = threading.Lock()
 
     def _init_storage(self, policy, *, physical_resources=None):
@@ -453,6 +455,14 @@ class AccountService:
                 # after its call-local lifetime. Token acquisition remains in
                 # the route, under its original authority and deadline.
                 self.workflow.activate(self.profile(), deadline=deadline)
+            if name == ANALYTICS:
+                def guard():
+                    if cancel_guard is not None:
+                        cancel_guard()
+                    self.guard(deadline)
+                return self.analytics.read(arguments['connection_id'], arguments['days'],
+                                           arguments.get('refresh', False), guard,
+                                           min(deadline, time.monotonic()+48))
             if name == 'own.drafts.inventory':
                 from .current_draft_inventory import execute
                 return execute(self, arguments, deadline, cancel_guard)
@@ -966,7 +976,7 @@ class Broker:
                             # guard again and turn its own ACK into STOPPED.
                         else:
                             if (request['name'] in DRAFT_MANAGEMENT_NETWORK
-                                    or request['name'] in {'own.drafts.inventory','own.publications.slots.discover'}
+                                    or request['name'] in {'own.drafts.inventory','own.publications.slots.discover',ANALYTICS}
                                     or request['name'].startswith('own.publications.current.')):
                                 result = self.service.call(request['name'], request['arguments'], deadline,
                                     cancel_guard=_ClientCancellationGuard(client),

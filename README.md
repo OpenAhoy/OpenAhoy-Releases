@@ -1,4 +1,4 @@
-# OpenAhoy 0.6.86
+# OpenAhoy 0.6.87
 
 OpenAhoy 是 Codex 中的账号与内容工作台，提供内嵌管理页、项目规则/Skills、创作模板、反馈诊断及软件更新入口。
 
@@ -23,6 +23,8 @@ AutoDL · MiniMax H3 的模型配置沿用原入口，可查询原项目任务�
 
 「媒体工坊」统一浏览动图、视频和音频，支持预览、下载、版本对比和按版本查看配乐关联。音频页支持 Suno 与 ACE Music，并可保存本机默认音乐供应商。ACE Music 使用独立的官方 Codex MCP 连接和本人 OAuth。已授权后可查看计划、余额、费用、模型与曲库；免费计划可通过官方歌曲页试听，MCP 文件下载按官方计划权限。本机配乐合成需要 FFmpeg 和 ffprobe。
 
+公众号工作区选中已绑定账号后显示本号数据监控，可切换近 7 天与 30 天，查看关注、内容趋势和单篇累计统计。数据截至北京统计日，公众号接口权限与回包状态会直接显示。
+
 软件更新通过公开正式发行与 Git 标签核对最新稳定版。跨版本安装可保全旧版 Python 运行缓存，并准备干净的回退包。X 长文原帖读回使用完整正文核对已成功发表的原帖，并继续校验作者和附件。旧版本的恢复步骤见更新指引。
 
 ## 安装与升级
@@ -31,16 +33,16 @@ AutoDL · MiniMax H3 的模型配置沿用原入口，可查询原项目任务�
 
 复制下列文字到目标电脑 Codex：
 
-> 请先用官方 plugin list / marketplace list 查本机是否已有 OpenAhoy。已有安装先读取 https://github.com/OpenAhoy/OpenAhoy-Releases/blob/v0.6.86/UPDATE_PROMPT.md 的迁移分类，只更新原 OpenAhoy 并保留 namespace，不移除共享市场、不另启第二份；只有从未安装时才读取固定 v0.6.86/INSTALL_PROMPT.md。目标运行包始终为正式公开0.6.86，核对其 RELEASE.json、SHA256SUMS 和完整manifest，保留账号、系统钥匙串、项目规则和原稿。安装后检查工具与管理页；此次不生产、上传、发表或启用定时任务，不索取Secret。
+> 请先用官方 plugin list / marketplace list 查本机是否已有 OpenAhoy。已有安装先读取 https://github.com/OpenAhoy/OpenAhoy-Releases/blob/v0.6.87/UPDATE_PROMPT.md 的迁移分类，只更新原 OpenAhoy 并保留 namespace，不移除共享市场、不另启第二份；只有从未安装时才读取固定 v0.6.87/INSTALL_PROMPT.md。目标运行包始终为正式公开0.6.87，核对其 RELEASE.json、SHA256SUMS 和完整manifest，保留账号、系统钥匙串、项目规则和原稿。安装后检查工具与管理页；此次不生产、上传、发表或启用定时任务，不索取Secret。
 
 已安装用户按固定版 UPDATE_PROMPT.md 从 Codex 聊天同槽升级。公开安装源无需 GitHub 账号、token 或私库邀请。全新安装时先登记固定市场，登记成功后再安装：
 
 ```sh
-codex plugin marketplace add https://github.com/OpenAhoy/OpenAhoy-Releases.git --ref v0.6.86
+codex plugin marketplace add https://github.com/OpenAhoy/OpenAhoy-Releases.git --ref v0.6.87
 codex plugin add wechat-ecosystem@openahoy-distribution
 ```
 
-已有安装先读本仓库 UPDATE_PROMPT.md 的迁移分类：共享市场只更新 OpenAhoy 条目并保持原namespace，禁止remove整个共享市场；独占源才按实际登记切换。不要卸载插件、删除用户数据或手改缓存。`--ref v0.6.86` 固定本版，登记超时时先只读对账，完整步骤见 UPDATE_PROMPT.md。
+已有安装先读本仓库 UPDATE_PROMPT.md 的迁移分类：共享市场只更新 OpenAhoy 条目并保持原namespace，禁止remove整个共享市场；独占源才按实际登记切换。不要卸载插件、删除用户数据或手改缓存。`--ref v0.6.87` 固定本版，登记超时时先只读对账，完整步骤见 UPDATE_PROMPT.md。
 
 安装后的当前聊天是否立即加载由 Codex 宿主决定；只有确实需要且没有单插件刷新入口时再集中提示一次，不承诺所有宿主免重开。桌面插件卡片/入口以实际宿主显示为准。
 
@@ -51,7 +53,7 @@ codex plugin add wechat-ecosystem@openahoy-distribution
 从目标版本的发行源码检出运行构建器。ZIP 直接使用该检出中 Git 市场的运行文件和已检入的原生助手。同一份源码生成相同字节的 ZIP。
 
 ```sh
-python3 -B scripts/build_codex_plugin.py /absolute/path/openahoy-0.6.86-macos-arm64
+python3 -B scripts/build_codex_plugin.py /absolute/path/openahoy-0.6.87-macos-arm64
 ```
 
 修改发行源码后，先用 `python3 -B scripts/build_codex_plugin.py --refresh-manifest` 更新两份清单。该命令只更新本检出的清单。构建要求目标目录和 ZIP 均待创建。

@@ -1,7 +1,8 @@
 """Verify update payloads and preserve an installed cache across Codex eviction."""
 from contextlib import contextmanager
-from ctypes import CDLL, c_char_p, c_int, c_uint
+from ctypes import CDLL, c_char_p, c_int, c_uint, get_errno
 from dataclasses import dataclass
+import errno
 from hashlib import sha256
 import json
 import os
@@ -16,6 +17,17 @@ from .own_updates import PLUGIN, REMOTE, SHA, VERSION, UpdateCheckUnavailable, _
 MANIFEST = 'package-manifest.json'
 PYC = re.compile(r'(.+)\.cpython-[0-9]{2,4}t?(?:\.opt-[12])?\.pyc')
 RENAME_SWAP = 0x00000002  # macOS renamex_np(2)
+RENAME_EXCL = 0x00000004
+RETENTION_PARENT = 'openahoy-retained-cache'
+RETENTION_CODES = frozenset({
+    'UPDATE_OLD_CACHE_RETENTION_FAILED',
+    'UPDATE_CACHE_ARCHIVE_DIRECTORY',
+    'UPDATE_CACHE_STAGE_PREVIOUS',
+    'UPDATE_CACHE_RECHECK_CHANGED',
+    'UPDATE_CACHE_ARCHIVE_SWAP',
+    'UPDATE_CACHE_ARCHIVE_VERIFY',
+    'UPDATE_CACHE_OLD_LAUNCH_RESTORE',
+})
 
 
 @contextmanager
@@ -191,28 +203,92 @@ def prepare_previous(old, version, rollback, verify_modes):
     return previous
 
 
-def retain_previous_cache(old, version, package, rollback):
-    if not package.caches:
-        return
-    # Codex evicts old versions on activation. Keep the original inode outside
-    # its version store and leave a clean copy at the current registration.
+@contextmanager
+def retention_stage(code):
     try:
-        parent = old.parents[3] / 'openahoy-retained-cache'
+        yield
+    except (OSError, WCEError, AttributeError, ValueError, TypeError):
+        raise WCEError(code) from None
+
+
+def rename_directory(source, target, operation):
+    rename = CDLL(None, use_errno=True).renamex_np
+    rename.argtypes = [c_char_p, c_char_p, c_uint]
+    rename.restype = c_int
+    if rename(os.fsencode(source), os.fsencode(target), operation):
+        error = get_errno()
+        raise OSError(error, os.strerror(error))
+
+
+def private_retention_directory(path, device):
+    info = path.lstat()
+    check(path.resolve() == path and safe_type(info, directory=True)
+          and stat.S_IMODE(info.st_mode) == 0o700 and info.st_dev == device)
+
+
+def retain_previous_cache(old, version, package, rollback):
+    # The host retires version paths even if there is no Python cache.
+    # Archive the original directory atomically and prepare a clean launch copy.
+    with retention_stage('UPDATE_CACHE_ARCHIVE_DIRECTORY'):
+        parent = old.parents[3] / RETENTION_PARENT
         parent.mkdir(mode=0o700, exist_ok=True)
-        info = parent.lstat()
-        check(parent.resolve() == parent and safe_type(info, directory=True)
-              and stat.S_IMODE(info.st_mode) == 0o700 and info.st_dev == package.root_pin[0])
+        private_retention_directory(parent, package.root_pin[0])
         container = Path(tempfile.mkdtemp(prefix=old.parents[1].name + '-' + version + '-', dir=parent))
-        archived = container / 'original'
-        archived.mkdir(mode=0o700)
+    archived = container / 'original'
+    standby = container / 'standby'
+    with retention_stage('UPDATE_CACHE_STAGE_PREVIOUS'):
         clean = verify_package(rollback, version, package.manifest)
-        copy_declared(rollback, archived, clean)
-        verify_package(archived, version, package.manifest)
-        check(verify_runtime(old, version, package.manifest) == package)
-        swap = CDLL(None, use_errno=True).renamex_np
-        swap.argtypes = [c_char_p, c_char_p, c_uint]
-        swap.restype = c_int
-        check(swap(os.fsencode(old), os.fsencode(archived), RENAME_SWAP) == 0)
+        for path in (archived, standby):
+            path.mkdir(mode=0o700)
+            copy_declared(rollback, path, clean)
+            verify_package(path, version, package.manifest)
+    with retention_stage('UPDATE_CACHE_RECHECK_CHANGED'):
+        current = verify_runtime(old, version, package.manifest)
+        # Reading a file may change atime. Compare the same integrity
+        # fingerprints as read_declared(), including inode, mtime and ctime.
+        check(current.root_pin == package.root_pin and current.caches == package.caches
+              and current.declared.keys() == package.declared.keys()
+              and all(fingerprint(info) == fingerprint(current.declared[name])
+                      for name, info in package.declared.items()))
+    with retention_stage('UPDATE_CACHE_ARCHIVE_SWAP'):
+        rename_directory(old, archived, RENAME_SWAP)
+    with retention_stage('UPDATE_CACHE_ARCHIVE_VERIFY'):
         check(archived.lstat().st_ino == package.root_pin[1])
-    except (OSError, WCEError, AttributeError):
-        raise WCEError('UPDATE_OLD_CACHE_RETENTION_FAILED') from None
+    return container.name
+
+
+def restore_previous_launch(old, version, manifest, container_name, verify_modes):
+    with retention_stage('UPDATE_CACHE_OLD_LAUNCH_RESTORE'):
+        check(type(version) is str and VERSION.fullmatch(version)
+              and type(manifest) is str and SHA.fullmatch(manifest))
+        prefix = re.escape(old.parents[1].name + '-' + version + '-')
+        check(type(container_name) is str and re.fullmatch(prefix + r'[a-z0-9_]{8}', container_name))
+        parent = old.parent
+        info = parent.lstat()
+        check(parent.resolve() == parent and safe_type(info, directory=True))
+        retained = old.parents[3] / RETENTION_PARENT
+        container = retained / container_name
+        for path in (retained, container):
+            private_retention_directory(path, info.st_dev)
+        archived = container / 'original'
+        if not os.path.lexists(old):
+            standby = container / 'standby'
+            if not os.path.lexists(standby):
+                # Codex can prune the compatibility path again on a subsequent
+                # install of the same release. Rebuild from the retained original.
+                original = verify_runtime(archived, version, manifest)
+                with tempfile.TemporaryDirectory(prefix='launch-', dir=container) as scratch:
+                    rebuilt = Path(scratch) / 'standby'
+                    rebuilt.mkdir(mode=0o700)
+                    copy_declared(archived, rebuilt, original)
+                    rename_directory(rebuilt, standby, RENAME_EXCL)
+            verify_package(standby, version, manifest)
+            verify_modes(standby)
+            try:
+                rename_directory(standby, old, RENAME_EXCL)
+            except OSError as error:
+                if error.errno != errno.EEXIST:
+                    raise
+        verify_runtime(old, version, manifest)
+        verify_modes(old)
+        verify_runtime(archived, version, manifest)
