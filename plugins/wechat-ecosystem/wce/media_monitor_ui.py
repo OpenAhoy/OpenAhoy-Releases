@@ -23,8 +23,8 @@ HTML = '''
 </section>
 <section id="monitorProviders" hidden>
  <header class="mm-toolbar"><h1 id="monitorSettingsTitle" tabindex="-1">供应商设置</h1><button id="monitorSettingsBack" type="button">返回媒体工坊</button></header>
- <nav id="monitorProviderTabs" class="mm-toolbar"><button id="monitorVideoProvider" type="button">视频</button><button id="monitorGifProvider" type="button">动图</button></nav>
- <div id="monitorVideoSettings"></div><div id="monitorGifSettings" hidden></div>
+ <nav id="monitorProviderTabs" class="mm-toolbar"><button id="monitorVideoProvider" type="button">视频</button><button id="monitorGifProvider" type="button">动图</button><button id="monitorAudioProvider" type="button">音频</button></nav>
+ <div id="monitorVideoSettings"></div><div id="monitorGifSettings" hidden></div><div id="monitorAudioSettings" hidden></div>
 </section>
 '''
 
@@ -110,11 +110,12 @@ STYLE = '''
 '''
 
 SCRIPT = r'''
-function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
+function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno, canvas=null){
  const $=id=>document.getElementById(id);
  const root=$('mediaMonitor'),list=$('monitorList'),detail=$('monitorDetail'),body=$('monitorBody');
  const filters=$('monitorFilters'),states=$('monitorStates'),search=$('monitorSearch');
  const narrow=matchMedia('(max-width:690px)');
+ let routedTarget=null;
  const medium={video:'视频',audio:'音频',gif:'动图'};
  const stateName={complete:'已完成',failed:'失败',running:'进行中',pending:'待核实'};
  const stageName={ASSET_READY:'成片可用',UNAVAILABLE:'源文件不可用',SUBMITTED:'已提交',
@@ -421,7 +422,7 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
    const row=byKey(selected);
    const snapshot=JSON.stringify([row,compare,kind==='audio']);
    $('monitorRelationBack').hidden=!history.length;
-   const showSuno=row?.kind==='audio'||kind==='audio';
+   const showSuno=!canvas&&(row?.kind==='audio'||kind==='audio');
    $('monitorSuno').hidden=!showSuno;activateSuno(showSuno);
    if(!force&&loaded===snapshot)return;
    loaded=snapshot;clearPlayers();body.replaceChildren();
@@ -443,6 +444,7 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
        typeof (asset.frames??asset.frame_count)==='number'?message('{0} 帧',fmt(asset.frames??asset.frame_count)):null].filter(Boolean);
      meter.append(label('span','{0}',properties));
      const save=button('下载原文件',event=>void download(event,row,save));save.setAttribute('aria-live','polite');meter.append(save);
+     if(canvas?.canAttach(row))meter.append(button('加入画布',()=>canvas.attach(row)));
      if(row.kind==='video'){
        const score=button('生成配乐',async()=>{
          const instruction=OAMusicRequest('score',{project:row.project,attempt:row.attempt});
@@ -489,7 +491,19 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
      OAUI.set($('monitorRead'),readAt?'刷新失败 · 保留 {0} 的记录':'无法读取媒体记录。',readAt?stamp(readAt):'');
    }}
    finally{
-     if(active&&request===readSequence){loading=false;control.removeAttribute('aria-busy');control.disabled=false;renderFiltered();}
+     if(active&&request===readSequence){
+       loading=false;control.removeAttribute('aria-busy');control.disabled=false;renderFiltered();
+       if(routedTarget){
+         const target=routedTarget;routedTarget=null;
+         const row=byKey(key(target));
+         if(playable(row)&&row.asset.sha256===target.sha256)choose(row,true,true);
+         else{
+           selected='';clearPlayers();makeList();
+           body.replaceChildren(label('p','原素材不存在或已变更。'));
+           root.dataset.detail='true';
+         }
+       }
+     }
    }
  }
  for(const control of filters.querySelectorAll('button'))control.onclick=()=>{
@@ -511,12 +525,14 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
  $('monitorRefresh').onclick=()=>void refresh();
  $('monitorSettings').onclick=()=>{clearPlayers();loaded='';activateSuno(false);activateSettings(true);};
  $('monitorSettingsBack').onclick=()=>{activateSettings(false);renderDetail(true);$('monitorSettings').focus();};
- return {open(target){
-   if(target!=='media')kind=target;
-   if(active){renderFiltered();return;}
+ return {open(target,asset=null){
+   kind=canvas?'all':target==='media'?kind:target;
+   routedTarget=asset;
+   if(asset){state='';search.value='';}
+   if(active){renderFiltered();if(asset)void refresh();return;}
    active=true;loaded='';root.dataset.detail='false';activateSettings(false);void refresh();
  },close(){
-   active=false;loading=false;readSequence++;history=[];clearPlayers();loaded='';$('monitorRefresh').removeAttribute('aria-busy');activateSuno(false);activateSettings(false);
+   routedTarget=null;active=false;loading=false;readSequence++;history=[];clearPlayers();loaded='';$('monitorRefresh').removeAttribute('aria-busy');activateSuno(false);activateSettings(false);
  }};
 }
 '''.replace('__SUNO_BRAND__', BRAND)

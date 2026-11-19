@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 
 from .contracts import WCEError
-from .video_seedance import Ark, MAX_JSON, MAX_REQUEST, NoRedirect
+from .video_seedance import Ark, MAX_JSON, MAX_REQUEST, MAX_RESULT, NoRedirect
 
 RELAY_MODEL = 'MiniMax-H3-Relay'
 RESOLUTIONS = ('480p横', '480p竖', '768p横', '768p竖', '960p横', '960p竖')
@@ -39,6 +39,26 @@ SUBMIT_DIAGNOSTIC_CODES = frozenset(SUBMIT_REJECTIONS.values()) | {
     'VIDEO_RELAY_HTTP_UNCERTAIN', 'VIDEO_RELAY_RATE_LIMITED', 'VIDEO_RELAY_RESPONSE_UNRECOGNIZED',
     'VIDEO_RELAY_RESPONSE_INVALID', 'VIDEO_TASK_ID_UNKNOWN', 'NETWORK_TIMEOUT', 'NETWORK_DNS',
     'NETWORK_CONNECT', 'TLS_FAILED', 'VIDEO_RELAY_TRANSPORT_UNCERTAIN', PUBLIC_DNS_REQUIRED,
+}
+
+
+RESULT_RETRYABLE = frozenset({
+    'VIDEO_RELAY_DOWNLOAD_TIMEOUT',
+    'VIDEO_RELAY_DOWNLOAD_STREAM_LOST',
+    'VIDEO_RELAY_DOWNLOAD_LENGTH_MISMATCH',
+    'VIDEO_RELAY_DOWNLOAD_UPSTREAM_BUSY',
+    'VIDEO_RESULT_URL_UNAVAILABLE',
+})
+RESULT_DIAGNOSTIC_CODES = RESULT_RETRYABLE | {
+    'VIDEO_RELAY_DOWNLOAD_OPEN_FAILED', 'VIDEO_RELAY_DOWNLOAD_RESPONSE_INVALID',
+    'VIDEO_RELAY_DOWNLOAD_RATE_LIMITED', 'VIDEO_RELAY_RESULT_UNAVAILABLE',
+    'VIDEO_RELAY_RESULT_STATE_CHANGED', 'VIDEO_RELAY_CONNECTION_CHANGED',
+    'VIDEO_RESULT_SOURCE_INVALID', 'VIDEO_RESULT_TOO_LARGE', 'VIDEO_RESULT_INVALID',
+    'VIDEO_ASSET_SAVE_FAILED', 'VIDEO_ASSET_CONFLICT', 'VIDEO_TASK_ID_UNKNOWN',
+    'VIDEO_TASK_ID_MISMATCH', 'VIDEO_TASK_NOT_FOUND', 'VIDEO_TASK_STATUS_UNKNOWN',
+    'VIDEO_QUERY_AUTH_REQUIRED', 'VIDEO_QUERY_RATE_LIMITED', 'VIDEO_RELAY_NOT_CONFIGURED',
+    'VIDEO_RELAY_RESPONSE_UNRECOGNIZED', 'VIDEO_RELAY_UNAVAILABLE', 'VIDEO_RELAY_KEYCHAIN_ACCESS_REQUIRED',
+    PUBLIC_DNS_REQUIRED,
 }
 
 
@@ -73,6 +93,23 @@ class RelaySubmitError(WCEError):
         if response:
             self.diagnostic['relay_response'] = response
         super().__init__('VIDEO_SUBMIT_REJECTED' if self.rejected else code)
+
+
+class RelayDownloadError(WCEError):
+    def __init__(self, code, *, status=None, size=None):
+        self.diagnostic = safe_download_details({'http_status': status, 'received_bytes': size})
+        super().__init__(code)
+
+
+def safe_download_details(value):
+    if type(value) is not dict:
+        return {}
+    result = {}
+    if type(status := value.get('http_status')) is int and 100 <= status <= 599:
+        result['http_status'] = status
+    if type(size := value.get('received_bytes')) is int and 0 <= size <= MAX_RESULT:
+        result['received_bytes'] = size
+    return result
 
 
 def transport_code(error):
@@ -431,15 +468,77 @@ class Relay(Ark):
                 if all(type(url) is str for url in urls):
                     videos = urls if len(urls) == 1 else [
                         url for url in urls if url.partition('?')[0].lower().endswith('.mp4')]
-                else:
-                    videos = [item['url'] for item in urls if type(item) is dict and item.get('type') == 'video'
+                elif all(type(item) is dict for item in urls):
+                    videos = [item['url'] for item in urls if item.get('type') == 'video'
                               and item.get('file_type') == 'mp4' and item.get('output_type') == 'output'
                               and type(item.get('url')) is str]
+                else:
+                    videos = []
                 if len(videos) == 1:
                     result['content'] = {'video_url': videos[0]}
         return result
 
     def download(self, url, output):
+        if url is None:
+            raise WCEError('VIDEO_RELAY_RESULT_UNAVAILABLE')
         https_url(url, 'VIDEO_RESULT_SOURCE_INVALID')
-        # Ark's downloader sends only Accept, with this non-redirecting, proxy-free opener.
-        self._download(url, output)
+        request = Request(url, headers={'Accept': 'video/mp4'})
+        try:
+            response = self.opener.open(request, timeout=25)
+        except HTTPError as error:
+            status = error.code
+            error.close()
+            if status in (401, 403, 404, 410):
+                code = 'VIDEO_RESULT_URL_UNAVAILABLE'
+            elif status == 429:
+                code = 'VIDEO_RELAY_DOWNLOAD_RATE_LIMITED'
+            elif 500 <= status <= 599:
+                code = 'VIDEO_RELAY_DOWNLOAD_UPSTREAM_BUSY'
+            else:
+                code = 'VIDEO_RELAY_DOWNLOAD_RESPONSE_INVALID'
+            raise RelayDownloadError(code, status=status, size=0) from None
+        except (OSError, HTTPException, ValueError, EOFError) as error:
+            cause = transport_code(error)
+            code = {'NETWORK_TIMEOUT': 'VIDEO_RELAY_DOWNLOAD_TIMEOUT',
+                    PUBLIC_DNS_REQUIRED: PUBLIC_DNS_REQUIRED}.get(cause, 'VIDEO_RELAY_DOWNLOAD_OPEN_FAILED')
+            raise WCEError(code) from None
+
+        with response:
+            headers = response.headers
+            status = getattr(response, 'status', getattr(response, 'code', 200))
+            media = headers.get('Content-Type', '').partition(';')[0].strip().lower()
+            if status != 200 or media.startswith('text/') or media == 'application/json' or media.endswith('+json'):
+                raise RelayDownloadError('VIDEO_RELAY_DOWNLOAD_RESPONSE_INVALID', status=status, size=0)
+            length = headers.get('Content-Length')
+            if length is not None:
+                length = length.strip()
+                if not re.fullmatch(r'[0-9]{1,20}', length):
+                    raise RelayDownloadError('VIDEO_RELAY_DOWNLOAD_RESPONSE_INVALID', status=status, size=0)
+                length = int(length)
+                if length > MAX_RESULT:
+                    raise RelayDownloadError('VIDEO_RESULT_TOO_LARGE', status=status)
+            size = 0
+            deadline = monotonic() + 90
+            while True:
+                if monotonic() >= deadline:
+                    raise RelayDownloadError('VIDEO_RELAY_DOWNLOAD_TIMEOUT', status=status, size=size)
+                try:
+                    # A buffered full-size read can wait through many receives.
+                    chunk = response.read1(65536)
+                except TimeoutError:
+                    raise RelayDownloadError('VIDEO_RELAY_DOWNLOAD_TIMEOUT', status=status, size=size) from None
+                except (OSError, HTTPException, EOFError):
+                    raise RelayDownloadError('VIDEO_RELAY_DOWNLOAD_STREAM_LOST', status=status, size=size) from None
+                if monotonic() >= deadline:
+                    raise RelayDownloadError('VIDEO_RELAY_DOWNLOAD_TIMEOUT', status=status, size=size)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_RESULT:
+                    raise RelayDownloadError('VIDEO_RESULT_TOO_LARGE', status=status)
+                if length is not None and size > length:
+                    raise RelayDownloadError('VIDEO_RELAY_DOWNLOAD_LENGTH_MISMATCH', status=status, size=size)
+                # Local write failures remain local and never retry a transfer.
+                output.write(chunk)
+            if not size or (length is not None and size != length):
+                raise RelayDownloadError('VIDEO_RELAY_DOWNLOAD_LENGTH_MISMATCH', status=status, size=size)

@@ -76,9 +76,10 @@ def item_issue(item, synthetic):
 def validate_proof(workflow, db, profile, row, intent, result):
     """A recovered success retains verifiable origin after process restart."""
     try:
+        from .own_cover_authority import JPEG_ORIGIN
         name = result['reconciliation_proof']
         expected = 'reconciliation-' + row['id'] + '-'
-        if (result['completion_origin'] not in ('OFFICIAL_READ_MATCH', PIXEL_ORIGIN) or type(name) is not str
+        if (result['completion_origin'] not in ('OFFICIAL_READ_MATCH', PIXEL_ORIGIN, JPEG_ORIGIN) or type(name) is not str
                 or not name.startswith(expected) or '/' in name or '\\' in name or not name.endswith('.json')):
             raise ValueError()
         raw, _ = private_read(workflow.db.path.parent / name)
@@ -87,10 +88,12 @@ def validate_proof(workflow, db, profile, row, intent, result):
         proof = decode_json(raw, 8192)
         if encoded(proof).encode() + b'\n' != raw:
             raise ValueError()
-        if type(proof.get('schema')) is int and proof['schema'] == 3:
+        if type(proof.get('schema')) is int and proof['schema'] in (3, 4):
             from .own_connection_reconcile import validate_proof as validate_personal
             validate_personal(workflow, db, profile, row, intent, result, proof)
             return
+        if result['completion_origin'] == JPEG_ORIGIN:
+            raise ValueError()
         pixel = result['completion_origin'] == PIXEL_ORIGIN
         expected_provenance = ('SYNTHETIC_OWN_' if profile.source_kind == 'SYNTHETIC_SETUP' else 'OWN_OFFICIAL_') + ('PIXEL_READ_MATCH' if pixel else 'READ_MATCH')
         if (type(proof['schema']) is not int or proof['schema'] != (2 if pixel else 1) or proof['provenance'] != expected_provenance

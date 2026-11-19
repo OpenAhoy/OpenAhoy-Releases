@@ -15,7 +15,7 @@ import uuid
 from .own_connection_registry import PROOF_CHECKS
 from .own_update_package import RETENTION_CODES
 from .own_binding_failure import SAFE_ERRORS as BINDING_ERROR_CODES
-from .video_relay import SUBMIT_DIAGNOSTIC_CODES, TRANSPORT_PHASES, safe_submit_response
+from .video_relay import RESULT_DIAGNOSTIC_CODES, SUBMIT_DIAGNOSTIC_CODES, TRANSPORT_PHASES, safe_download_details, safe_submit_response
 from .openai_gif_api import DIAGNOSTICS as GIF_DIAGNOSTICS, TRANSPORT_PHASES as GIF_TRANSPORT_PHASES
 from .x_api import READ_CODES as X_POST_READ_CODES
 
@@ -36,8 +36,12 @@ CODES = CODES | {'CONNECTION_ENTRY_UNAVAILABLE','CONNECTION_VOLUME_WITNESS_UNVER
                  'CONNECTION_RECOVERY_WITNESS_UNAVAILABLE','UPDATE_ACTIVITY_UNVERIFIED',
                  'UPDATE_BUSINESS_BUSY'}
 CODES=CODES|{'PRESERVATION_MISMATCH','CURRENT_DRAFT_SOURCE_CHANGED','CURRENT_DRAFT_SOURCE_UNAVAILABLE','X_MEDIA_PROCESSING_FAILED','X_MEDIA_SOURCE_UNAVAILABLE','X_MEDIA_EXPIRED','X_MEDIA_RESPONSE_INCOMPLETE','X_MEDIA_IDENTITY_MISMATCH','X_MEDIA_SEGMENT_INVALID','X_RESPONSE_UNKNOWN','X_HTTP_400','X_HTTP_401','X_HTTP_402','X_HTTP_403','X_HTTP_408','X_HTTP_413','X_HTTP_415','X_HTTP_422','X_HTTP_429','X_HTTP_500','X_HTTP_502','X_HTTP_503','X_HTTP_504'}
-CODES = CODES | SUBMIT_DIAGNOSTIC_CODES | GIF_DIAGNOSTICS | X_POST_READ_CODES | {
-    'RELEASE_CHANNEL_UNAVAILABLE', 'RELEASE_CHANNEL_INVALID', 'RELEASE_CHANNEL_CHANGED'}
+CODES = CODES | SUBMIT_DIAGNOSTIC_CODES | RESULT_DIAGNOSTIC_CODES | GIF_DIAGNOSTICS | X_POST_READ_CODES | {
+    'RELEASE_CHANNEL_UNAVAILABLE', 'RELEASE_CHANNEL_INVALID', 'RELEASE_CHANNEL_CHANGED',
+    'X_STORED_CREDENTIAL_INVALID', 'X_CREDENTIAL_EXPIRY_INVALID', 'SUPPORT_STORAGE_UNAVAILABLE',
+    'X_CONNECTION_INVALID', 'X_RESPONSE_INCOMPLETE', 'COVER_READ_TARGET_UNSUPPORTED',
+    'COVER_READ_REVIEW_REQUIRED', 'OWN_RECONCILE_NO_UNIQUE_CANDIDATE', 'OWN_RECONCILE_NO_UNIQUE_MATCH',
+    'OWN_RECONCILE_MATERIAL_ALREADY_ASSOCIATED', 'OWN_RECONCILE_COMPETING_ORIGINAL'}
 UPDATE_CACHE_CODES = frozenset({'UPDATE_OLD_CACHE_INVALID', 'UPDATE_OLD_CACHE_UNVERIFIED',
     'UPDATE_ROLLBACK_PACKAGE_INVALID'}) | RETENTION_CODES
 CODES = CODES | UPDATE_CACHE_CODES
@@ -76,7 +80,7 @@ class Diagnostics:
 
     @staticmethod
     def event(module, stage, result, *, tool=None, code=None, elapsed_ms=None,
-              http_status=None, wechat_code=None, site=None, error_kind=None, possible_side_effect=None, operation_phase=None, different_fields=None, difference_count=None, candidate_created=None, source_container_count=None, source_retired_count=None, proof_check=None, relay_response=None):
+              http_status=None, wechat_code=None, site=None, error_kind=None, possible_side_effect=None, operation_phase=None, different_fields=None, difference_count=None, candidate_created=None, source_container_count=None, source_retired_count=None, proof_check=None, relay_response=None, received_bytes=None):
         if module not in MODULES or stage not in STAGES or result not in RESULTS:
             raise ValueError('SUPPORT_EVENT_INVALID')
         value = {'schema': 1, 'at': datetime.now(timezone.utc).isoformat(),
@@ -108,6 +112,8 @@ class Diagnostics:
         if tool in {'video.relay.generation.submit', 'video.ark.generation.status'} and code in SUBMIT_DIAGNOSTIC_CODES:
             if safe := safe_submit_response(relay_response):
                 value['relay_response'] = safe
+        if tool in {'video.ark.generation.status', 'wce.ui.video.workspace'} and code in RESULT_DIAGNOSTIC_CODES:
+            value.update(safe_download_details({'received_bytes': received_bytes}))
         if type(proof_check) is str and proof_check in PROOF_CHECKS:
             value['proof_check'] = proof_check
         return value
@@ -164,7 +170,7 @@ class Diagnostics:
                 for line in raw.splitlines():
                     try:
                         row = json.loads(line)
-                        allowed = {'schema','at','report_id','module','stage','result','tool','code','elapsed_ms','http_status','wechat_code','site','error_kind','possible_side_effect','operation_phase','different_fields','difference_count','candidate_created','source_container_count','source_retired_count','proof_check','relay_response'}
+                        allowed = {'schema','at','report_id','module','stage','result','tool','code','elapsed_ms','http_status','wechat_code','site','error_kind','possible_side_effect','operation_phase','different_fields','difference_count','candidate_created','source_container_count','source_retired_count','proof_check','relay_response','received_bytes'}
                         if type(row) is not dict or set(row)-allowed or row.get('schema') != 1:
                             continue
                         if not re.fullmatch('[a-f0-9]{32}', row['report_id']) or not re.fullmatch(r'[0-9T:.+Z-]{20,40}', row['at']):

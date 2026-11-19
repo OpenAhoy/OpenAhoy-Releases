@@ -10,7 +10,8 @@ from .tools import schema
 from .support_feedback import Support
 from .support_diagnostics import RESULTS, CODES, PRESERVATION_FIELDS, OPERATION_PHASES, UPDATE_CACHE_CODES
 from .openai_gif_api import TRANSPORT_PHASES as GIF_TRANSPORT_PHASES
-from .video_relay import PUBLIC_DNS_REQUIRED, RELAY_MODEL, SUBMIT_DIAGNOSTIC_CODES, TRANSPORT_PHASES
+from .video_relay import (RELAY_MODEL, RESULT_DIAGNOSTIC_CODES, SUBMIT_DIAGNOSTIC_CODES, TRANSPORT_PHASES,
+                          safe_download_details)
 from .x_api import READ_CODES as X_POST_READ_CODES, X_RESPONSE_ERROR_KINDS, XResponseUnknown
 
 ACTION = 'wce.ui.support.action'
@@ -32,7 +33,7 @@ CHAT_DESCRIPTIONS = {
 }
 # readOnlyHint does not exclude refresh-token rotation or metadata writes.
 LOCAL_ONLY_TOOLS=frozenset({PREVIEW,STATUS,'own.connections.list','x.connections.list','own.drafts.current.read','own.drafts.current.status','wce.ui.management.overview'})
-LOCAL_ONLY_TOOLS = LOCAL_ONLY_TOOLS | {'image.openai.gif.status', 'image.openai.gif.configuration.status', 'audio.project.history', 'audio.project.video.inspect', 'audio.music.provider.read', 'wce.ui.wechat.analytics'}
+LOCAL_ONLY_TOOLS = LOCAL_ONLY_TOOLS | {'image.openai.gif.status', 'image.openai.gif.configuration.status', 'audio.project.history', 'audio.project.video.inspect', 'audio.music.provider.read', 'wce.ui.wechat.analytics', 'video.director.read'}
 
 
 def descriptor():
@@ -95,6 +96,7 @@ class SupportRouter:
             if type(value)is dict:
                 transport_phase=None
                 relay_response=None
+                download_details={}
                 projection=outcome(value)
                 if projection is not None:state,code=projection
                 if name in {'image.openai.gif.submit', 'image.openai.gif.status'}:
@@ -108,8 +110,10 @@ class SupportRouter:
                     elif gif_state == 'SAVE_PENDING':
                         state, code = 'ACTION_REQUIRED', code or 'GIF_FINALIZE_PENDING'
                 request=value.get('request')
-                if (name in {'video.relay.generation.submit', 'video.ark.generation.status'}
-                        and type(request) is dict and request.get('model') == RELAY_MODEL):
+                relay_receipt = type(request) is dict and request.get('model') == RELAY_MODEL
+                relay_workspace_row = name == 'wce.ui.video.workspace' and value.get('model') == RELAY_MODEL
+                if ((name in {'video.relay.generation.submit', 'video.ark.generation.status'} and relay_receipt)
+                        or relay_workspace_row):
                     receipt_state=value.get('state')
                     if receipt_state in ('SUBMIT_UNKNOWN', 'SUBMIT_REJECTED'):
                         state='UNKNOWN' if receipt_state=='SUBMIT_UNKNOWN' else 'TOOL_ERROR'
@@ -122,8 +126,15 @@ class SupportRouter:
                                 http_status=diagnostic.get('http_status')
                                 transport_phase=diagnostic.get('operation_phase')
                                 relay_response=diagnostic.get('relay_response')
-                    elif name=='video.ark.generation.status' and value.get('query_error')==PUBLIC_DNS_REQUIRED:
-                        state,code='CHECK_UNAVAILABLE',PUBLIC_DNS_REQUIRED
+                    elif name in {'video.ark.generation.status', 'wce.ui.video.workspace'}:
+                        query=value.get('query_error')
+                        download=value.get('download_error')
+                        if type(query) is str and query in RESULT_DIAGNOSTIC_CODES:
+                            state,code='CHECK_UNAVAILABLE',query
+                        elif receipt_state=='SAVE_PENDING' and type(download) is str and download in RESULT_DIAGNOSTIC_CODES:
+                            state,code='ACTION_REQUIRED',download
+                            download_details=safe_download_details(value.get('download_diagnostic'))
+                            http_status=download_details.pop('http_status', None)
                 if type(value.get('error_code'))is int and value['error_code']!=0:wechat_code=value['error_code']
                 if code=='PRESERVATION_MISMATCH':kind='LOCAL_COMPARISON';wechat_code=None
                 if name in {'x.media.upload', 'x.attempt.status'} and value.get('kind')=='upload':
@@ -131,7 +142,7 @@ class SupportRouter:
                     failure_kind=value.get(field)
                     if type(failure_kind) is str and failure_kind in X_RESPONSE_ERROR_KINDS:
                         kind=failure_kind
-                details=management_details(value)
+                details=management_details(value) | download_details
                 if relay_response is not None:
                     details['relay_response']=relay_response
                 if type(transport_phase) is str and transport_phase in (TRANSPORT_PHASES | GIF_TRANSPORT_PHASES):

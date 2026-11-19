@@ -77,11 +77,10 @@ def _server_info():
     return {'name':name,'title':'OpenAhoy','version':version}
 
 
-def _discovery_info(router):
+def _discovery_info(catalog, server_info):
     """Non-secret server declarations; never host availability or permission."""
     from .service import digest
-    catalog = _mcp_tools(router.list_tools())
-    return {'state': 'AVAILABLE', 'server_info': _server_info(),
+    return {'state': 'AVAILABLE', 'server_info': dict(server_info),
         'declared_tool_count': len(catalog),
         'descriptor_sha256': digest(sorted(catalog, key=lambda row: row['name'])),
         'tools': [{'name': row['name'], 'declared_visibility':
@@ -194,27 +193,31 @@ class PersonalStdioServer(OperatorStdioServer):
         self._last_tools_list_observation = {'state': 'NOT_OBSERVED_IN_THIS_SERVER'}
         self._management_resources = {}
         support=SupportRouter(TemplateRouter(ProjectContextRouter(UpdateRouter(XHSRouter(XPlatformRouter(DisplayNameRouter(SettingsRouter(router, settings_manager))))), registry=router.registry), registry=router.registry), registry=router.registry, instrument=False)
-        managed=AdoptionRouter(DraftManagementRouter(VideoRouter(support, router.registry),
+        from .video_director_protocol import DirectorRouter
+        managed=AdoptionRouter(DraftManagementRouter(DirectorRouter(VideoRouter(support, router.registry)),
             registry=router.registry, launcher=router.launcher), router.registry)
         self._tool_observer=support
         rows=managed.list_tools()
+        # The personal router describes fixed tools. Entitlements are checked
+        # when tools run, and must never depend on an old cache directory
+        # surviving an upgrade while this process is still serving.
+        self._server_catalog = _mcp_tools(rows)
+        self._server_identity = _server_info()
         support.tool_names=frozenset(t['name']for t in rows)
         support.readonly_tools=support.tool_names & LOCAL_ONLY_TOOLS
         super().__init__(managed, *args, **kwargs)
 
     def _tool_available(self, name, arguments):
-        from .own_updates_protocol import INSTALL
-        # Codex can remove the previous cache after installing the verified
-        # target. This exact read remains available in the original process.
-        if (name == INSTALL and isinstance(arguments, dict)
-                and arguments.get('action') == 'status' and set(arguments) <= {'action', 'request_id'}):
-            return name in self._tool_observer.tool_names
-        return super()._tool_available(name, arguments)
+        return name in self._tool_observer.tool_names
+
+    def _listed_tools(self):
+        return deepcopy(self._server_catalog)
 
     def tool_result(self,name,arguments):
         # One hook surrounds every formal tool and its MCP representation.
+        from .video_director_protocol import MEDIA as DIRECTOR_MEDIA
         from .video_protocol import AUDIO_VIDEO, WORKSPACE
-        if name == WORKSPACE and arguments.get('action') in {'playback', 'preview_frames', 'intro_frames', 'audio_chunk'}:
+        if name == DIRECTOR_MEDIA or (name == WORKSPACE and arguments.get('action') in {'playback', 'preview_frames', 'intro_frames', 'audio_chunk'}):
             value = self.router.call(name, arguments)
             return {'content': [], 'structuredContent': value, 'isError': False}
         if name == AUDIO_VIDEO and 'frame_start' in arguments:
@@ -289,8 +292,6 @@ class PersonalStdioServer(OperatorStdioServer):
                 reply['result']['_meta'] = management_metadata(meta) if type(meta) is UIResult else take_metadata(meta)
         if (type(message) is dict and message.get('method') == 'tools/list'
                 and type(reply) is dict):
-            if isinstance(reply.get('result'), dict) and isinstance(reply['result'].get('tools'), list):
-                reply['result']['tools'] = _mcp_tools(reply['result']['tools'])
             try:self._last_tools_list_observation = _tools_list_observation(message, reply)
             except Exception:
                 self._last_tools_list_observation = {'state': 'OBSERVATION_UNAVAILABLE'}
@@ -304,7 +305,7 @@ class PersonalStdioServer(OperatorStdioServer):
                 # Server declarations are not the host's selected tool set or
                 # API authority. This never calls a tool or starts a broker.
                 try:
-                    discovery = _discovery_info(self.router)
+                    discovery = _discovery_info(self._server_catalog, self._server_identity)
                     discovery['tools_list_observation'] = dict(self._last_tools_list_observation)
                 except Exception:
                     discovery = {'state': 'UNAVAILABLE', 'error': 'SERVER_DISCOVERY_UNAVAILABLE'}
@@ -341,7 +342,7 @@ class PersonalStdioServer(OperatorStdioServer):
         if (type(message) is dict and message.get('method') == 'initialize'
                 and reply is not None and 'result' in reply):
             from .own_branding import host_icons
-            reply['result']['serverInfo'] = {**_server_info(), 'icons': list(host_icons())}
+            reply['result']['serverInfo'] = {**self._server_identity, 'icons': list(host_icons())}
             reply['result']['capabilities'].update({'resources': {}, 'extensions': {
                 'openai/settings': {'readTool': 'wce.settings.read',
                                     'updateTool': 'wce.settings.update'}}})

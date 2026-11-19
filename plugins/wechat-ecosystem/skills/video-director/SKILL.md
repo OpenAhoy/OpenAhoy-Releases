@@ -14,3 +14,7 @@ description: Plan and produce social videos in OpenAhoy. Use when Codex should t
 - 创作新歌曲或新视频配乐时，先按 [歌曲与视频配乐](references/MUSIC_WORKFLOW.md) 读取本机默认音乐供应商。用户本次明确点名时使用该选择。现有歌曲按原资产混音，既有任务按原供应商查询。
 - Token Hex 通过[独立方舟视频中转](references/TOKENHEX_ARK.md)调用。
 5. 读回原片并看实际视频，检查开头、动作变化、片尾、字幕安全区、声画以及拼接点。从可见缺陷回修具体资产或提示词。仅按本次委托交付或发布。
+
+## 导演画布
+
+在媒体工坊打开已登记的项目与作品。使用 [导演台说明](references/DIRECTOR_DESK.md) 读回准确的镜头和修订。独立文字卡、原图和既有音视频资产可以关联同一镜头。生成或修改图片时，用原镜头的 `project_id`、`scene_id`、`shot_id` 和当前修订作为基底，保存新修订后按原回执读回。

@@ -105,6 +105,7 @@ def native_page_body(logo, platform_settings):
     """Single native workspace; secret input has its own view in this resource."""
     from .own_inline_binding_ui import HTML as binding_html
     from .media_monitor_ui import HTML as monitor_html
+    from .video_director_ui import HTML as director_html
     from .openai_gif_ui import SETTINGS_HTML as gif_settings
     from .audio_workspace_ui import HTML as audio_html
     from .own_branding import icons, video_model_mark
@@ -204,7 +205,8 @@ def native_page_body(logo, platform_settings):
 <p id="accountRecoveryStatus" role="status"></p>
 </dialog>
 <footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div><section id="mediaStudio" aria-label="媒体工坊" hidden>
-'''+monitor_html+'''<div id="monitorComponents" hidden>'''+credential+gif_settings+audio_html+'''</div></section>'''+binding_html+'''</main></div>'''
+'''+director_html+'''<dialog id="directorMediaDialog" aria-label="媒体资产"><header class="mm-toolbar">
+<button type="button" id="directorMediaClose">回到画布</button></header>'''+monitor_html+'''</dialog><div id="monitorComponents" hidden>'''+credential+gif_settings+audio_html+'''</div></section>'''+binding_html+'''</main></div>'''
 
 
 HOME_STYLE = '''

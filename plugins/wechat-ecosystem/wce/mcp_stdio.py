@@ -63,6 +63,9 @@ class StdioServer:
     def _tool_available(self, name, arguments):
         return name in {item["name"] for item in self.router.list_tools()}
 
+    def _listed_tools(self):
+        return self.router.list_tools()
+
     def dispatch(self, message):
         request_id = None
         notification = False
@@ -125,7 +128,7 @@ class StdioServer:
             elif method == "tools/list":
                 if params:
                     raise RPCError(-32602, "Invalid params")
-                result = {"tools": self.router.list_tools()}
+                result = {"tools": self._listed_tools()}
             elif method == "tools/call":
                 if set(params) - {"name", "arguments", "_meta"} or not isinstance(params.get("name"), str) or not isinstance(params.get("arguments", {}), dict):
                     raise RPCError(-32602, "Invalid params")

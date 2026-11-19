@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import html
+import math
 import os
 from pathlib import Path
 import re
@@ -37,15 +38,42 @@ def valid_application_name(value):
 
 
 def credential(value, old_refresh=None):
-    if (type(value) is not dict or value.get('token_type', '').lower() != 'bearer'
+    if type(value) is not dict:
+        raise WCEError('X_AUTHORIZATION_SCOPES_INVALID')
+    token_type = value.get('token_type')
+    scope = value.get('scope', ' '.join(SCOPES) if old_refresh else '')
+    if (type(token_type) is not str or token_type.lower() != 'bearer'
             or type(value.get('access_token')) is not str or not value['access_token']
-            or type(value.get('expires_in')) is not int or value['expires_in'] <= 0
-            or set(value.get('scope', ' '.join(SCOPES) if old_refresh else '').split()) != set(SCOPES)):
+            or type(scope) is not str or set(scope.split()) != set(SCOPES)):
         raise WCEError('X_AUTHORIZATION_SCOPES_INVALID')
     refresh = value.get('refresh_token', old_refresh)
     if type(refresh) is not str or not refresh:
         raise WCEError('X_OFFLINE_ACCESS_MISSING')
     return Secret(json.dumps({'access_token': value['access_token'], 'refresh_token': refresh}, separators=(',', ':')))
+
+
+def _credential_expiry(value, now):
+    seconds = value.get('expires_in')
+    if type(seconds) is not int or seconds <= 0:
+        raise WCEError('X_CREDENTIAL_EXPIRY_INVALID')
+    try:
+        expiry = now + float(seconds)
+    except OverflowError:
+        raise WCEError('X_CREDENTIAL_EXPIRY_INVALID') from None
+    if not math.isfinite(expiry) or expiry <= now:
+        raise WCEError('X_CREDENTIAL_EXPIRY_INVALID')
+    return expiry
+
+
+def _stored_tokens(stored):
+    try:
+        tokens = json.loads(stored.reveal_for_adapter())
+    except (TypeError, ValueError, RecursionError):
+        raise WCEError('X_STORED_CREDENTIAL_INVALID') from None
+    if type(tokens) is not dict or any(
+            type(tokens.get(key)) is not str or not tokens[key] for key in ('access_token', 'refresh_token')):
+        raise WCEError('X_STORED_CREDENTIAL_INVALID')
+    return tokens
 
 
 class XPlatform:
@@ -304,6 +332,7 @@ class XPlatform:
     def _finish(self, client_id, token_value, guard=nullcontext, *, expected_connection_id=None,
                 application_name=None, expected_scope=None, expected_user_id=None, removal_markers=None):
         secret = credential(token_value)
+        expires_at = _credential_expiry(token_value, self.clock())
         tokens = json.loads(secret.reveal_for_adapter())
         profile = self.api.profile(Secret(tokens['access_token']))
         cid = 'x-' + identifier(profile['id'])
@@ -330,7 +359,7 @@ class XPlatform:
                 raise WCEError('X_OWN_CLIENT_ID_REQUIRED')
             scope = fingerprint(['x', client_id, profile['id']])
             c = {'connection_id': 'x-' + profile['id'], 'profile': profile, 'scope': list(SCOPES),
-                 'expires_at': self.clock() + token_value['expires_in'],
+                 'expires_at': expires_at,
                  'state': 'BOUND', 'credential_scope': scope, 'binding_revision': secrets.token_hex(32)}
             if previous and 'removal_marker' in previous:
                 c['removal_marker'] = previous['removal_marker']
@@ -387,11 +416,14 @@ class XPlatform:
                     raise WCEError('X_ORIGINAL_APPLICATION_UNAVAILABLE')
         if c['state'] != 'BOUND':
             raise WCEError('X_REAUTHORIZATION_REQUIRED')
+        expiry = c['expires_at']
+        if type(expiry) not in (int, float) or (type(expiry) is float and not math.isfinite(expiry)):
+            raise WCEError('X_CONNECTION_INVALID')
         stored = self.keychain.load(c['credential_scope'])
         if stored is None:
             raise WCEError('X_REAUTHORIZATION_REQUIRED')
-        tokens = json.loads(stored.reveal_for_adapter())
-        if c['expires_at'] <= self.clock() + 30:
+        tokens = _stored_tokens(stored)
+        if expiry <= self.clock() + 30:
             c['state'] = 'REFRESH_UNKNOWN'
             self._save(value)
             try:
@@ -403,10 +435,11 @@ class XPlatform:
                     self._save(value)
                 raise
             secret = credential(updated, tokens['refresh_token'])
+            expires_at = _credential_expiry(updated, self.clock())
             self.keychain.put(c['credential_scope'], secret)
-            c['expires_at'], c['state'] = self.clock() + updated['expires_in'], 'BOUND'
+            c['expires_at'], c['state'] = expires_at, 'BOUND'
             self._save(value)
-            tokens = json.loads(secret.reveal_for_adapter())
+            tokens = _stored_tokens(secret)
         return Secret(tokens['access_token'])
 
     def read(self, cid, kind, post_id=None, cursor=None):
@@ -453,7 +486,8 @@ class XPlatform:
         with locked(self.root / 'connection.lock'):
             self._connection(cid)
             result = self.api.user(self._access(self._load(),cid), username)
-            user = result.get('data', {})
+            user = result.get('data')
+            require(type(user) is dict, 'X_RESPONSE_INCOMPLETE')
             identifier(user.get('id'))
             require(type(user.get('username')) is str and user['username'].lower() == username.lower(),
                     'X_USER_MISMATCH')

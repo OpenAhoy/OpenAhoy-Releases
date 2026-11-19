@@ -32,16 +32,20 @@ class VideoKeychain(XKeychain):
         super().__init__()
 
     def configured(self):
-        result = c.c_void_p()
-        try:
-            with self.query(self.scope, deleting=True) as query:
-                code = self.sec.SecItemCopyMatching(query, c.byref(result))
-            if code not in (0, -25300):
-                raise WCEError('VIDEO_KEYCHAIN_ACCESS_REQUIRED')
-            return code == 0
-        finally:
-            if result.value:
-                self.cf.CFRelease(result)
+        return configured_item(self, self.scope)
+
+
+def configured_item(backend, key_scope):
+    result = c.c_void_p()
+    try:
+        with backend.query(key_scope, deleting=True) as query:
+            code = backend.sec.SecItemCopyMatching(query, c.byref(result))
+        if code not in (0, -25300):
+            raise WCEError('VIDEO_KEYCHAIN_ACCESS_REQUIRED')
+        return code == 0
+    finally:
+        if result.value:
+            backend.cf.CFRelease(result)
 
 
 def load(backend=None, *, provider='ark'):

@@ -707,11 +707,13 @@ SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '公众号默认
         for (const item of r.cover_recovery.targets) {
           const target = item.proposal.target;
           const account = r.existing_accounts.find(a => a.connection_id === item.connection_id);
+          const method = target.asset.declared_type === 'image/jpeg'
+            ? 'JPEG 原上传字节匹配' : 'PNG 尺寸、像素和透明度匹配';
           summary.push('只读核对：'+(account?.label || item.connection_id)+' · '+target.title+
-            '\n原请求：'+target.request_key+'；此前已启动核对 '+item.proposal.prior_read_attempts+' 次。');
+            '\n原请求：'+target.request_key+' · '+method+' · 此前已启动核对 '+item.proposal.prior_read_attempts+' 次。');
         }
         summary.push('每号只允许本次核对：最多 1000 次素材列表读取和 5 次图片读取，零业务写入；确认后 15 分钟内启动，执行最多 5 分钟。中断或结果未知也消耗这一次，不会自动重跑。',
-          '两遍完整列表一致，且只有一张图片的尺寸、全部像素和透明度精确匹配才恢复原记录。允许指定 PNG 元数据差异，不验证 C2PA；不缩放、不近似匹配，不重发封面。');
+          '只有两遍列表一致、匹配素材唯一且能归属原请求时，才恢复原记录。PNG 允许指定元数据差异，无 C2PA 验证。');
       }
       }
       OAManagement.reviewing(intent);

@@ -23,7 +23,7 @@ SCRIPT = r'''
    event.preventDefault();closeFloatingMenus();menu.querySelector(':scope > summary')?.focus();
  });
  mountOpenAhoyHints();
- const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.workspace','wce.ui.wechat.storage_recovery','wce.ui.wechat.analytics']);
+ const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.workspace','video.director.read','video.director.edit','wce.ui.video.director.media','wce.ui.wechat.storage_recovery','wce.ui.wechat.analytics']);
 
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
  let view='home',initialView='',explicitNavigation=false;
@@ -119,7 +119,7 @@ SCRIPT = r'''
   }
  })]));
  function applyHostTheme(context){if(context?.theme==='light'||context?.theme==='dark')document.body.dataset.colorScheme=context.theme;}
- function dispose(){homeIntro?.close();monitor.close();video.dispose();binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
+ function dispose(){homeIntro?.close();closeStudioMedia();director.close();video.dispose();binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
    for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('VIEW_CLOSED'));}pending.clear();
    for(const el of document.querySelectorAll('button,input,select,textarea'))el.disabled=true;
  }
@@ -676,28 +676,60 @@ SCRIPT = r'''
  const audioWorkspace=OAAudioWorkspace(mediaTool,sendChatRequest,openXLink,()=>!!hostCapabilities.message?.text);
  $('monitorVideoSettings').append($('monitorComponents').querySelector('.oa-provider-grid'));
  $('monitorGifSettings').append($('monitorComponents').querySelector('.oa-gif-key'));
- $('monitorSuno').append($('audioWorkspace'));
- let providerMode='',sunoActive=false;
+ $('monitorAudioSettings').append($('audioWorkspace'));
+ let providerMode='';
  function showMediaProvider(mode){
-   if(providerMode)video.setOpen(false,providerMode);
+   if(providerMode&&providerMode!=='audio')video.setOpen(false,providerMode);
    providerMode=mode;
    $('mediaMonitor').hidden=!!mode;
    $('monitorProviders').hidden=!mode;
    $('monitorVideoSettings').hidden=mode!=='video';
    $('monitorGifSettings').hidden=mode!=='gif';
+   $('monitorAudioSettings').hidden=mode!=='audio';
    $('monitorVideoProvider').setAttribute('aria-pressed',String(mode==='video'));
    $('monitorGifProvider').setAttribute('aria-pressed',String(mode==='gif'));
-   if(mode)video.setOpen(true,mode);
+   $('monitorAudioProvider').setAttribute('aria-pressed',String(mode==='audio'));
+   if(mode==='audio'){
+     $('audioWorkspace').hidden=false;
+     audioWorkspace.open(null,{providerOnly:true});
+   }else{
+     $('audioWorkspace').hidden=true;
+     audioWorkspace.close();
+     if(mode)video.setOpen(true,mode);
+   }
  }
  $('monitorVideoProvider').onclick=()=>showMediaProvider('video');
  $('monitorGifProvider').onclick=()=>showMediaProvider('gif');
- const monitor=OAMediaMonitor((action,args)=>mediaTool('wce.ui.video.workspace',{action,...args}),sendChatRequest,
-    open=>{showMediaProvider(open?'video':'');if(open)$('monitorSettingsTitle').focus();},open=>{
-      if(open===sunoActive)return;
-      sunoActive=open;
-      $('audioWorkspace').hidden=!open;
-      if(open)audioWorkspace.open(null,{providerOnly:true});else audioWorkspace.close();
-    });
+ $('monitorAudioProvider').onclick=()=>showMediaProvider('audio');
+ const assetDialog=$('directorMediaDialog');
+ const monitor=OAMediaMonitor((action,args)=>mediaTool('wce.ui.video.workspace',{action,...args}),
+   sendChatRequest,open=>{showMediaProvider(open?'video':'');if(open)$('monitorSettingsTitle').focus();},
+   ()=>{}, {canAttach:row=>director.canAttach(row),attach:row=>director.attach(row)});
+ function openStudioMedia({asset=null,settings=false}={}){
+   if(!assetDialog.open)assetDialog.showModal();
+   monitor.open('media',asset);
+   if(settings)showMediaProvider('video');
+ }
+ function closeStudioMedia(){
+   if(assetDialog.open)assetDialog.close();
+   monitor.close();
+ }
+ $('directorMediaClose').onclick=closeStudioMedia;
+ assetDialog.addEventListener('close',()=>{if(!assetDialog.open)monitor.close();});
+ const director=OADirector(mediaTool,sendChatRequest,()=>!!hostCapabilities.message?.text,{
+    library:()=>openStudioMedia(),settings:()=>openStudioMedia({settings:true}),
+    asset:asset=>openStudioMedia({asset}),closeLibrary:closeStudioMedia,
+    source:url=>{
+      const target=new URL(url);
+      if(target.protocol!=='https:'||!['www.douyin.com','deepmind.google'].includes(target.hostname))
+        throw Error('DIRECTOR_INVALID_SOURCE');
+      return openXLink(target.href);
+    },
+    project:async()=>{
+      await openView(activePlatform||'wechat_official_account',{focus:true});
+      $('contextSettingsTab').click();
+    },
+ });
  const intro=$('homeIntroPlayer'),introToggle=$('homeIntroToggle');
  const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
  let introPreference=null,startupReady=false;
@@ -729,8 +761,12 @@ SCRIPT = r'''
    mediaView=target;
    $('mediaStudio').hidden=!target;
    document.body.classList.toggle('oa-video-open',!!target);
-   if(target){closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();monitor.open(target);}
-   else monitor.close();
+   if(target){
+     closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();
+     void director.open();
+     if(target!=='media')openStudioMedia();
+   }
+   else{closeStudioMedia();director.close();}
  }
  function renderView(){
    targetAnalytics();
@@ -749,7 +785,7 @@ SCRIPT = r'''
      platformEpoch++;selectionIntent++;selectEpoch++;navigationEpoch++;
      if(target==='home'){closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();}
      view=target;showMedia(target==='home'?'':target);renderView();renderPlatforms();
-     if(focus)$(target==='home'?'homeTitle':'monitorTitle').focus();
+     if(focus)$(target==='home'?'homeTitle':'directorTitle').focus();
      return;
    }
    view='platform';
@@ -821,6 +857,8 @@ def resource():
     from .openai_gif_ui import STYLE as gif_style
     from .video_workspace_ui import STYLE as video_style
     from .media_monitor_ui import STYLE as monitor_style, SCRIPT as monitor_script
+    from .video_director_canvas_ui import STYLE as canvas_style, SCRIPT as canvas_script
+    from .video_director_ui import STYLE as director_style, SCRIPT as director_script
     from .video_frame_player import STYLE as frame_style, SCRIPT as frame_script
     from .x_management_ui import HTML as x_html, SCRIPT as x_script
     from .xhs_management_ui import HTML as xhs_html, SCRIPT as xhs_script
@@ -832,9 +870,9 @@ def resource():
     html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>OpenAhoy · Platform management</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + interaction_style + '</style>'
+        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + canvas_style + interaction_style + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
-        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + SCRIPT + '</script></body></html>')
+        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + director_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
         '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://cdn1.suno.ai',
                                                                  'https://cdn2.suno.ai', 'https://suno-data-uploads.s3.amazonaws.com', 'https://acemusic.ai'], 'frameDomains': []}},

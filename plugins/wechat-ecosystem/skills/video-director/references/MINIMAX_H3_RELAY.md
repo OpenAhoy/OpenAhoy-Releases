@@ -11,6 +11,8 @@
 
 以原项目 ID 和 attempt 调用 `video.ark.generation.status`，用 `poll: true` 查询原任务。成功后成片进入原视频资产库。遇到 `SUBMIT_UNKNOWN` 时保留原 attempt，向服务商核对原请求。原站和原 Token 用于查询未结束的旧任务。用量和实际扣费以该站账单为准。
 
+原任务已完成但停在 `SAVE_PENDING` 时，继续对原 attempt 使用 `poll: true`。遇到断流或失效结果链接，插件会查询同一个原任务并尝试重新下载。找不到唯一结果、验证失败或本机保存失败时，查看回执中的 `query_error` 或 `download_error`。成片验证通过后才会进入资产库。
+
 官方 `https://autodl.art` 的提交、查询及已确认的官方结果桶下载遇到系统 DNS 仅返回 Fake IP 时，会通过 Cloudflare HTTPS DNS 查询对应公开域名，并按原域名校验证书。自定义中转站和其他结果域名继续使用本机 DNS。下载不带 AutoDL Token。
 
 官方生成每个 attempt 只提交一次。发送完请求后，客户端最多等到提交开始后的 50 秒接收响应头。超时保留同一个未知回执，回执中的 `operation_phase` 可用于诊断。这个等待时间不影响其他中转站的提交或原任务轮询。

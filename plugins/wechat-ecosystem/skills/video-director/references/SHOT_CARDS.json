@@ -1,0 +1,253 @@
+{
+  "version": 1,
+  "cards": [
+    {
+      "id": "steadicam-follow",
+      "version": 1,
+      "category": "movement",
+      "title": "稳定跟拍",
+      "effect": "让观众与主体保持稳定距离，同时感受前后景视差。",
+      "subjects": "一到两名同向移动的主体",
+      "writing": "指定相机相对人与路径，说明启停及落幅。",
+      "example": "在玻璃温室沿推车右后方稳跟。近处叶片掠过，人物与镜头同速；到长桌边两者同时减速，停在右侧中景。",
+      "fix": "画面飘移时固定人物相对位置，并删掉不必要的绕行。",
+      "source": "https://www.douyin.com/video/7698708825016876507",
+      "reference_subjects": [
+        1,
+        2
+      ],
+      "suggested_for": [
+        "ark",
+        "minimax"
+      ],
+      "verification": "editorial_example"
+    },
+    {
+      "id": "ground-side-track",
+      "version": 1,
+      "category": "movement",
+      "title": "贴地侧跟",
+      "effect": "用脚步交代行进节奏和空间。",
+      "subjects": "一到两人同向行进",
+      "writing": "从脚边平行横移，保留脚和一处前景参照物。",
+      "example": "贴近地砖侧跟穿过门口的两人，保持双脚顺序；推车轮与脚步在画面内平行推进。",
+      "fix": "画面跳步时减少主体动作，保留相同的横移方向。",
+      "source": "https://www.douyin.com/video/7696544830221995283",
+      "reference_subjects": [
+        2
+      ],
+      "suggested_for": [
+        "ark",
+        "minimax"
+      ],
+      "verification": "editorial_example"
+    },
+    {
+      "id": "rising-arc",
+      "version": 1,
+      "category": "movement",
+      "title": "环绕上升",
+      "effect": "在一个转折里由脚边展开为环境中景。",
+      "subjects": "有固定空间锚点的入场",
+      "writing": "从斜后侧低位开始，船形弧线贴过障碍并升到胸高。",
+      "example": "从两双雨靴的斜后方起幅，绕到台阶侧前方时逐渐升到胸高，镜头经过柱子才露出室内。",
+      "fix": "人物互换时重写前后顺序与机位终点，缩短环绕路线。",
+      "source": "https://www.douyin.com/video/7696544830221995283",
+      "reference_subjects": [
+        2
+      ],
+      "suggested_for": [
+        "ark",
+        "minimax"
+      ],
+      "verification": "editorial_example"
+    },
+    {
+      "id": "leading-two-shot",
+      "version": 1,
+      "category": "movement",
+      "title": "前引双人镜头",
+      "effect": "让观众看到前行中的表情与互动。",
+      "subjects": "两名主体沿同轴步行",
+      "writing": "相机在前方随步后退，维持双人中景和原左右关系。",
+      "example": "摄影机在走廊前方随两人后退。靠墙者先看向伙伴，伙伴回应。到窗边一起减速，停成干净双人中景。",
+      "fix": "脸被遮住时减小横移，并写清遮挡消失位置。",
+      "source": "https://www.douyin.com/video/7696544830221995283",
+      "reference_subjects": [
+        2
+      ],
+      "suggested_for": [
+        "ark",
+        "minimax"
+      ],
+      "verification": "editorial_example"
+    },
+    {
+      "id": "two-person-arrival",
+      "version": 1,
+      "category": "sequence",
+      "title": "双人登场",
+      "effect": "由脚步、空间逐步过渡到表情。",
+      "subjects": "三镜叙事中的两名同向主体",
+      "writing": "按脚步、空间、表情拆三镜。跨镜共用门口位置、左右顺序和光线。",
+      "example": "维修员一前一后经过水磨石地面；第二镜从门框外升至胸高露出工作台；第三镜从前方后退拍摄，直到两人同时停在台灯下。",
+      "fix": "方向跳变时用共用边界图连接两镜，不在同一镜硬叠三种运动。",
+      "source": "https://www.douyin.com/video/7696544830221995283",
+      "reference_subjects": [
+        2
+      ],
+      "suggested_for": [
+        "ark",
+        "minimax"
+      ],
+      "verification": "editorial_example"
+    },
+    {
+      "id": "practical-light-contrast",
+      "version": 1,
+      "category": "style",
+      "title": "冷暖实景光",
+      "effect": "从可见灯源建立空间层次。",
+      "subjects": "室内场景有窗、台灯或其他实景光源",
+      "writing": "说清光源位置、颜色、脸上受光和背景明暗。",
+      "example": "黄昏窗光从左边沿书脊滑过，旧铜台灯在桌面留下暖色光池。检修工靠近时脸只由台灯照亮，墙面保留灰蓝。",
+      "fix": "颜色混乱时减少光源，取消没有空间依据的彩色光。",
+      "source": "https://deepmind.google/models/veo/prompt-guide/",
+      "reference_subjects": [
+        1,
+        2
+      ],
+      "suggested_for": [
+        "ark",
+        "minimax"
+      ],
+      "verification": "editorial_example"
+    },
+    {
+      "id": "lens-16",
+      "version": 1,
+      "category": "lens",
+      "title": "16mm · 夸张空间",
+      "effect": "近物与远景形成强烈纵深。",
+      "subjects": "全画幅等效观感",
+      "writing": "明确相机站位、构图、焦点、背景及主体移动，16mm 作为观感参照。",
+      "example": "16mm 等效观感拍摄渡船候船区，栏杆导向人物。先指定相机与人之间的距离，再让绿色信号灯融入背景。近物与远景形成强烈纵深。",
+      "fix": "留意边缘人物，主体避免紧贴宽幅边缘。",
+      "source": "https://www.douyin.com/video/7708330754598533298",
+      "reference_subjects": [
+        1,
+        2
+      ],
+      "suggested_for": [
+        "ark",
+        "minimax"
+      ],
+      "verification": "editorial_example"
+    },
+    {
+      "id": "lens-24",
+      "version": 1,
+      "category": "lens",
+      "title": "24mm · 环境叙事",
+      "effect": "把主体与关键空间放进一幅。",
+      "subjects": "全画幅等效观感",
+      "writing": "明确相机站位、构图、焦点、背景及主体移动，24mm 作为观感参照。",
+      "example": "24mm 等效观感拍摄渡船候船区，栏杆导向人物。先指定相机与人之间的距离，再让绿色信号灯融入背景。把主体与关键空间放进一幅。",
+      "fix": "交代站位，别同时要求人脸大特写和完整场景。",
+      "source": "https://www.douyin.com/video/7708330754598533298",
+      "reference_subjects": [
+        1,
+        2
+      ],
+      "suggested_for": [
+        "ark",
+        "minimax"
+      ],
+      "verification": "editorial_example"
+    },
+    {
+      "id": "lens-35",
+      "version": 1,
+      "category": "lens",
+      "title": "35mm · 环境中景",
+      "effect": "在人与环境之间留适度可读信息。",
+      "subjects": "全画幅等效观感",
+      "writing": "明确相机站位、构图、焦点、背景及主体移动，35mm 作为观感参照。",
+      "example": "35mm 等效观感拍摄渡船候船区，栏杆导向人物。先指定相机与人之间的距离，再让绿色信号灯融入背景。在人与环境之间留适度可读信息。",
+      "fix": "保持自然站位并交代背景中的空间锚点。",
+      "source": "https://www.douyin.com/video/7708330754598533298",
+      "reference_subjects": [
+        1,
+        2
+      ],
+      "suggested_for": [
+        "ark",
+        "minimax"
+      ],
+      "verification": "editorial_example"
+    },
+    {
+      "id": "lens-50",
+      "version": 1,
+      "category": "lens",
+      "title": "50mm · 自然中景",
+      "effect": "让视线集中在行为与表情，环境仍可辨。",
+      "subjects": "全画幅等效观感",
+      "writing": "明确相机站位、构图、焦点、背景及主体移动，50mm 作为观感参照。",
+      "example": "50mm 等效观感拍摄渡船候船区，栏杆导向人物。先指定相机与人之间的距离，再让绿色信号灯融入背景。让视线集中在行为与表情，环境仍可辨。",
+      "fix": "先约定人物距离及水平视角，再描述构图。",
+      "source": "https://www.douyin.com/video/7708330754598533298",
+      "reference_subjects": [
+        1,
+        2
+      ],
+      "suggested_for": [
+        "ark",
+        "minimax"
+      ],
+      "verification": "editorial_example"
+    },
+    {
+      "id": "lens-85",
+      "version": 1,
+      "category": "lens",
+      "title": "85mm · 肖像近景",
+      "effect": "弱化环境，集中于表情、手和视线。",
+      "subjects": "全画幅等效观感",
+      "writing": "明确相机站位、构图、焦点、背景及主体移动，85mm 作为观感参照。",
+      "example": "85mm 等效观感拍摄渡船候船区，栏杆导向人物。先指定相机与人之间的距离，再让绿色信号灯融入背景。弱化环境，集中于表情、手和视线。",
+      "fix": "需要两人同清楚时让他们处在可用焦平面。",
+      "source": "https://www.douyin.com/video/7708330754598533298",
+      "reference_subjects": [
+        1,
+        2
+      ],
+      "suggested_for": [
+        "ark",
+        "minimax"
+      ],
+      "verification": "editorial_example"
+    },
+    {
+      "id": "lens-200",
+      "version": 1,
+      "category": "lens",
+      "title": "200mm · 远距离压缩感",
+      "effect": "让远距离背景的层次看起来更密。",
+      "subjects": "全画幅等效观感",
+      "writing": "明确相机站位、构图、焦点、背景及主体移动，200mm 作为观感参照。",
+      "example": "200mm 等效观感拍摄渡船候船区，栏杆导向人物。先指定相机与人之间的距离，再让绿色信号灯融入背景。让远距离背景的层次看起来更密。",
+      "fix": "写远机位和重复背景，勿用近距离说法冲突。",
+      "source": "https://www.douyin.com/video/7708330754598533298",
+      "reference_subjects": [
+        1,
+        2
+      ],
+      "suggested_for": [
+        "ark",
+        "minimax"
+      ],
+      "verification": "editorial_example"
+    }
+  ]
+}

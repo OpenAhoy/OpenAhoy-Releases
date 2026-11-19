@@ -10,7 +10,8 @@ from .service import digest
 from . import upload_wire as upload
 
 def match_cover(read, guard, report, failed, read_stop, row, intent, original,
-                pixel, synthetic, secret, prepare_read=None, executor_factory=ThreadPoolExecutor):
+                pixel, synthetic, secret, prepare_read=None, executor_factory=ThreadPoolExecutor,
+                *, candidate_name='cover.png', serial_pages=False):
     # Validation policy is shared with the legacy host; authority is supplied
     # only by its caller. No URLs or selectors are accepted from the model.
     from .own_reconcile import MAX_MATERIALS, MAX_READ_WORKERS, PAGE_SIZE, MAX_CANDIDATES, ITEM_FIELDS, item_issue
@@ -107,7 +108,14 @@ def match_cover(read, guard, report, failed, read_stop, row, intent, original,
         total, items = validate_page(page(0), 0, None)
         # Only one small batch is scheduled at a time. Complete scans do not
         # assume Tencent sorts by update time, or stop after finding a match.
-        if total > PAGE_SIZE:
+        if serial_pages:
+            # The personal broker validates SQLite ownership with a descriptor
+            # census. Keep requests and local witness checks on one thread.
+            for offset in range(PAGE_SIZE, total, PAGE_SIZE):
+                guard()
+                _, rows = validate_page(page(offset), offset, total)
+                items.extend(rows)
+        elif total > PAGE_SIZE:
             pool = executor_factory(max_workers=MAX_READ_WORKERS, thread_name_prefix='wce-cover-read')
             primary_error, futures, pending = None, {}, []
             try:
@@ -160,8 +168,8 @@ def match_cover(read, guard, report, failed, read_stop, row, intent, original,
     first = scan()
     # A deliberately narrow local association policy, not an assertion about
     # Tencent clock synchronization or list ordering. A miss remains UNKNOWN.
-    candidates = [i for i in first if i['name'] == 'cover.png'
-        and math.floor(row['created']) - 2 <= i['update_time'] <= math.ceil(row['created']) + 30]
+    candidates = [i for i in first if i['name'] == candidate_name
+        and covers_timestamp(row['created'], i['update_time'])]
     if not 0 < len(candidates) <= MAX_CANDIDATES:
         raise WCEError('OWN_RECONCILE_NO_UNIQUE_CANDIDATE')
     matches = []
@@ -218,3 +226,7 @@ def match_cover(read, guard, report, failed, read_stop, row, intent, original,
         'raster': original_raster.fingerprint() if pixel else None,
         'remote_input_sha256': sha(matched_raw) if pixel else None,
         'remote_input_size': len(matched_raw) if pixel else None}
+
+
+def covers_timestamp(created, observed_time):
+    return math.floor(created) - 2 <= observed_time <= math.ceil(created) + 30

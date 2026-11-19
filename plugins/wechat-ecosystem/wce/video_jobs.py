@@ -21,7 +21,7 @@ from .project_context import ProjectStore
 from .video_keychain import load
 from .video_minimax import (H3, H3_MODELS, MINIMAX_MODELS, SUBJECT_MODEL, V1_MODELS, SITES,
                             MiniMax, MiniMaxRejected, h3_body, h3_usage, subject_body, v1_body)
-from .video_relay import RELAY_MODEL, Relay, RelaySubmitError, workflow_body
+from .video_relay import RELAY_MODEL, RESULT_RETRYABLE, Relay, RelayDownloadError, RelaySubmitError, workflow_body
 from .video_relay_keychain import load_relay
 from .video_tokenhex import TOKENHEX_ORIGIN, TOKENHEX_PROVIDER, TokenHex, load_tokenhex
 from .video_seedance import Ark, ArkSubmitRejected, MINI, MODEL, PRO, STANDARD, MAX_REQUEST, MAX_RESULT, ark_error_code, request_body, result_url, validate_model
@@ -387,7 +387,8 @@ class Jobs:
                 value['list_price_cny'] = (tokens * rate[video_input] + 5_000) // 10_000 / 100
         if recipe and 'recipe' in row:
             value['recipe'] = row['recipe']
-        for key in ('rejection', 'failure', 'query_error', 'download_error', 'submit_diagnostic'):
+        for key in ('rejection', 'failure', 'query_error', 'download_error', 'download_diagnostic',
+                    'diagnostic_persisted', 'submit_diagnostic'):
             if key in row:
                 value[key] = row[key]
         return value
@@ -768,6 +769,9 @@ class Jobs:
 
     def _query_task(self, row, site):
         request = row['request']
+        task = row.get('provider_task_id')
+        if not isinstance(task, str) or not task:
+            raise WCEError('VIDEO_TASK_ID_UNKNOWN')
         if request['model'] == RELAY_MODEL:
             origin, connection, key = self._relay_connection()
             if connection != row.get('relay_connection'):
@@ -781,7 +785,7 @@ class Jobs:
         else:
             api = self.api if site is None else self.minimax(site)
             key = self._key(site)
-        return api, api.query(key, row['provider_task_id'], model=request['model'])
+        return api, api.query(key, task, model=request['model'])
 
     @staticmethod
     def _remote_state(value):
@@ -816,11 +820,51 @@ class Jobs:
         return {'state': state, 'usage': usage, 'read_at': time.time()}
 
     @staticmethod
-    def _remember_diagnostic(receipt, row, category, code):
-        if row.get(category) != code:
+    def _remember_diagnostic(receipt, row, category, code, *, download_details=None, changed=False):
+        changed = changed or row.get(category) != code
+        if category == 'download_error' and row.get('download_diagnostic') != download_details:
+            if download_details:
+                row['download_diagnostic'] = download_details
+            else:
+                row.pop('download_diagnostic', None)
+            changed = True
+        if changed:
             row.update({category: code, 'updated_at': time.time()})
-            atomic_write(receipt, row, maximum=RECEIPT_MAX)
+            try:
+                atomic_write(receipt, row, maximum=RECEIPT_MAX)
+            except OSError:
+                if row['request']['model'] != RELAY_MODEL:
+                    raise
+                row['diagnostic_persisted'] = False
         return row
+
+    def _save_result(self, artifact, receipt, row, api, value, site):
+        request = row['request']
+        relay = request['model'] == RELAY_MODEL
+        started = time.monotonic()
+
+        def save(current_api, response):
+            content = response.get('content')
+            url = content.get('video_url') if type(content) is dict else None
+            if request['model'] in H3_MODELS and response.get('resolution') != request['resolution']:
+                raise WCEError('VIDEO_RESULT_INVALID')
+            return self._save(artifact, url, receipt, row, api=current_api)
+
+        try:
+            return save(api, value)
+        except WCEError as error:
+            # A failed quick read may be a dropped stream or an expired URL.
+            # Requery the original receipt once, with a fresh media staging file.
+            if not relay or error.code not in RESULT_RETRYABLE or time.monotonic() - started >= 30:
+                raise
+            try:
+                api, current = self._query_task(row, site)
+                if self._remote_state(current) != 'SAVE_PENDING':
+                    raise WCEError('VIDEO_RELAY_RESULT_STATE_CHANGED')
+            except WCEError as query_error:
+                row['query_error'] = query_error.code
+                raise error from None
+            return save(api, current)
 
     def status(self, attempt, project_id, poll=False):
         receipt, artifact = self._paths(attempt)
@@ -844,13 +888,7 @@ class Jobs:
                 asset = self._asset(artifact, request=row['request'])
                 if row.get('download_sha256') != asset['sha256']:
                     raise WCEError('VIDEO_ASSET_CONFLICT')
-                row.update(state='ASSET_READY', asset=asset)
-                row.pop('download_error', None)
-                row.pop('query_error', None)
-                atomic_write(receipt, row, maximum=RECEIPT_MAX)
-                self._save_project_copy(row, receipt)
-                self._mark_tokenhex_ready(row)
-                return row
+                return self._finish_result(receipt, row, asset)
             recover_failure = row['state'] == 'FAILED' and 'failure' not in row
             if not poll or (row['state'] in {'SUBMIT_UNKNOWN', 'SUBMIT_REJECTED', 'FAILED', 'EXPIRED', 'CANCELLED'}
                             and not recover_failure):
@@ -872,6 +910,9 @@ class Jobs:
             state = self._remote_state(value)
             if state is None:
                 return self._remember_diagnostic(receipt, row, 'query_error', 'VIDEO_TASK_STATUS_UNKNOWN')
+            if is_relay and row['state'] == 'SAVE_PENDING' and state != 'SAVE_PENDING':
+                return self._remember_diagnostic(receipt, row, 'query_error', 'VIDEO_RELAY_RESULT_STATE_CHANGED')
+            before = dict(row)
             row['state'] = state
             row.pop('query_error', None)
             if remote == 'failed':
@@ -891,25 +932,48 @@ class Jobs:
                 row['usage'] = parse_usage(row.get('usage')) | usage
                 if 'total_tokens' in usage:
                     row['total_tokens'] = usage['total_tokens']
-            atomic_write(receipt, row, maximum=RECEIPT_MAX)
+            if not is_relay or before != row:
+                try:
+                    atomic_write(receipt, row, maximum=RECEIPT_MAX)
+                except OSError:
+                    if not is_relay or remote != 'succeeded':
+                        raise
+                    return self._relay_save_unrecorded(row)
             if remote == 'succeeded':
                 try:
-                    content = value.get('content')
-                    url = content.get('video_url') if type(content) is dict else None
-                    if request['model'] in H3_MODELS and value.get('resolution') != request['resolution']:
-                        raise WCEError('VIDEO_RESULT_INVALID')
-                    asset = self._save(artifact, url, receipt, row, api=api)
-                    row.update(state='ASSET_READY', asset=asset)
-                    row.pop('download_error', None)
+                    asset = self._save_result(artifact, receipt, row, api, value, site)
                 except WCEError as error:
-                    return self._remember_diagnostic(receipt, row, 'download_error', error.code)
-                atomic_write(receipt, row, maximum=RECEIPT_MAX)
-                self._save_project_copy(row, receipt)
-                self._mark_tokenhex_ready(row)
+                    details = error.diagnostic if isinstance(error, RelayDownloadError) else None
+                    return self._remember_diagnostic(receipt, row, 'download_error', error.code,
+                                                     download_details=details or None, changed='query_error' in row)
+                return self._finish_result(receipt, row, asset)
             return row
 
+    @staticmethod
+    def _relay_save_unrecorded(row):
+        result = dict(row, download_error='VIDEO_ASSET_SAVE_FAILED', diagnostic_persisted=False)
+        result.pop('download_diagnostic', None)
+        return result
+
+    def _finish_result(self, receipt, row, asset):
+        ready = dict(row, state='ASSET_READY', asset=asset)
+        for field in ('download_error', 'download_diagnostic', 'query_error'):
+            ready.pop(field, None)
+        try:
+            atomic_write(receipt, ready, maximum=RECEIPT_MAX)
+        except OSError:
+            if row['request']['model'] != RELAY_MODEL:
+                raise
+            return self._relay_save_unrecorded(row)
+        self._save_project_copy(ready, receipt)
+        self._mark_tokenhex_ready(ready)
+        return ready
+
     def _save(self, artifact, url, receipt, row, *, api):
-        fd, name = tempfile.mkstemp(prefix='.video-', suffix='.mp4', dir=self.root)
+        try:
+            fd, name = tempfile.mkstemp(prefix='.video-', suffix='.mp4', dir=self.root)
+        except OSError:
+            raise WCEError('VIDEO_ASSET_SAVE_FAILED') from None
         temporary = Path(name)
         try:
             with os.fdopen(fd, 'wb') as out:
@@ -917,6 +981,9 @@ class Jobs:
                 out.flush()
                 os.fsync(out.fileno())
             ready = self._asset(temporary, request=row['request'])
+            if (row['request']['model'] == RELAY_MODEL and row.get('download_sha256') is not None
+                    and row['download_sha256'] != ready['sha256']):
+                raise WCEError('VIDEO_ASSET_CONFLICT')
             row['download_sha256'] = ready['sha256']
             atomic_write(receipt, row, maximum=RECEIPT_MAX)
             if os.path.lexists(artifact):
@@ -931,7 +998,10 @@ class Jobs:
         except OSError:
             raise WCEError('VIDEO_ASSET_SAVE_FAILED') from None
         finally:
-            temporary.unlink(missing_ok=True)
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                raise WCEError('VIDEO_ASSET_SAVE_FAILED') from None
 
     def _asset(self, path, *, request=None):
         pin = path_check(path)

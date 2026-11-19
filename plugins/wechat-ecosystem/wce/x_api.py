@@ -132,6 +132,9 @@ class XHTTP:
                 value = {} if not response_raw and path.endswith('/append') else json.loads(response_raw)
             if type(value) is not dict or (value.get('errors') and not (article_write or user_post_read)):
                 raise WCEError('X_RESPONSE_INCOMPLETE')
+            # Reject provider scalars that Python's JSON decoder can accept
+            # but the UTF-8 MCP response cannot represent.
+            json.dumps(value, ensure_ascii=False, allow_nan=False).encode('utf-8')
             return value
         except HTTPError as error:
             # Never surface the response body, request, token or callback code.

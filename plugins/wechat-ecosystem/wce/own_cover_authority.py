@@ -24,15 +24,29 @@ from .own_connection_policy import load_policy, locked
 from .own_connection_enrollment import exclusive
 from .own_workflow import OwnWorkflow, stored, encoded
 from .own_store import OwnStore
-from .own_png import policy as png_policy
+from .own_png import MAX_INPUT, policy as png_policy
 from .own_lineage import seal
 from .service import digest
 
 AUTHORITY = 'HUMAN_SCOPED_PERSISTENT_COVER_READ_V1'
+JPEG_ORIGIN = 'OFFICIAL_JPEG_BYTES_READ_MATCH'
 BUDGET = {'list': 1000, 'image': 5, 'total': 1005, 'writes': 0,
           'max_materials': 10000, 'max_candidates': 4, 'max_workers': 8}
 MAX_SECONDS, START_SECONDS = 300, 900
 GRANT_ID = re.compile(r'cover-read-[a-f0-9]{32}')
+
+
+def _grant_policy(mime):
+    if mime == 'image/png':
+        return {'schema': 1, 'pixel_policy': png_policy()}
+    if mime == 'image/jpeg':
+        return {'schema': 2, 'match_policy': jpeg_policy()}
+    raise WCEError('COVER_READ_AUTHORITY_INVALID')
+
+
+def jpeg_policy():
+    return {'id': 'JPEG_TRANSPORT_EXACT_V1', 'max_input_bytes': MAX_INPUT,
+        'comparison': 'ALL_ORIGINAL_TRANSPORT_BYTES'}
 
 
 def filename(identifier, claimed=False):
@@ -82,9 +96,17 @@ def target(workflow, db, profile, row, intent):
     """Stable original identity, usable before and after the single recovery CAS."""
     m, d = workflow._bundle(db, profile, intent['selector']['bundle_id'], intent['selector']['version'])
     approval = workflow._approval(db, profile, m, d, row['approval_id'], False)
+    slot, asset = row['slot'], intent['asset']
     if (stored(approval['body'], approval['body_digest'])['schema'] != 7
-            or row['operation'] != 'cover' or row['slot'] != 'cover'
-            or intent['asset']['declared_type'] != 'image/png'):
+            or row['operation'] != 'cover' or type(asset) is not dict
+            or asset.get('role') != 'cover' or asset.get('slot') != slot
+            or asset.get('declared_type') not in ('image/png', 'image/jpeg')):
+        raise WCEError('COVER_READ_TARGET_UNSUPPORTED')
+    if m['schema'] == 1:
+        article = m['article'] if slot == 'cover' else None
+    else:
+        article = next((a for a in m['document']['articles'] if a['id'] + '--cover' == slot), None)
+    if article is None or article['cover_asset_ref'] != asset['asset_ref']:
         raise WCEError('COVER_READ_TARGET_UNSUPPORTED')
     lineage = seal(db, m)
     if lineage['legacy'] != 0:
@@ -98,7 +120,7 @@ def target(workflow, db, profile, row, intent):
         'original_approval_id': row['approval_id'], 'original_approval_digest': row['approval_digest'],
         'owner': row['owner'], 'target': row['target'], 'created': row['created'],
         'selector': intent['selector'], 'asset': intent['asset'], 'lineage': lineage,
-        'diagnostic_digest': digest(read(db, row)), 'title': m['article']['title']}
+        'diagnostic_digest': digest(read(db, row)), 'title': article['title']}
 
 
 def unknown(workflow, db, profile, key, *, history_locators=None):
@@ -146,13 +168,15 @@ def candidates(registry, *, history_locators=None):
 
 
 def validate_grant(value):
-    keys = {'schema', 'authority', 'id', 'transaction', 'binding', 'policy', 'root_pin',
-        'database_pin', 'target', 'apis', 'budget', 'pixel_policy', 'confirmed_at',
+    keys = {'authority', 'id', 'transaction', 'binding', 'policy', 'root_pin',
+        'database_pin', 'target', 'apis', 'budget', 'confirmed_at',
         'expires_at', 'maximum_execution_seconds'}
-    if (type(value) is not dict or set(value) != keys or type(value['schema']) is not int
-            or value['schema'] != 1 or value['authority'] != AUTHORITY
+    if type(value) is not dict or type(value.get('target')) is not dict or type(value['target'].get('asset')) is not dict:
+        raise WCEError('COVER_READ_AUTHORITY_INVALID')
+    policy_fields = _grant_policy(value['target']['asset'].get('declared_type'))
+    if (set(value) != keys | set(policy_fields) or value['authority'] != AUTHORITY
             or encoded(value['budget']) != encoded(BUDGET) or value['apis'] != list(READ_APIS)
-            or encoded(value['pixel_policy']) != encoded(png_policy())
+            or encoded({key: value[key] for key in policy_fields}) != encoded(policy_fields)
             or type(value['maximum_execution_seconds']) is not int
             or value['maximum_execution_seconds'] != MAX_SECONDS):
         raise WCEError('COVER_READ_AUTHORITY_INVALID')
@@ -174,8 +198,6 @@ def validate_grant(value):
     if (type(start) not in (int, float) or type(end) not in (int, float)
             or not math.isfinite(start) or not math.isfinite(end) or not 0 < start < end
             or end - start > START_SECONDS):
-        raise WCEError('COVER_READ_AUTHORITY_INVALID')
-    if type(value['target']) is not dict:
         raise WCEError('COVER_READ_AUTHORITY_INVALID')
     return value
 
@@ -215,13 +237,13 @@ def publish(policy, reviewed, transaction, confirmed_at, *, history_locators=Non
     with locked(policy.root / 'cover-read-authority.lock', nonblocking=True):
         if len(grants(policy.root)) >= 64: raise WCEError('COVER_READ_METADATA_LIMIT')
         identifier = 'cover-read-' + uuid4().hex
-        value = {'schema': 1, 'authority': AUTHORITY, 'id': identifier,
+        value = {'authority': AUTHORITY, 'id': identifier,
             'transaction': transaction, 'binding': reviewed['binding'],
             'policy': policy.delegation(), 'root_pin': reviewed['root_pin'],
             'database_pin': reviewed['database_pin'], 'target': reviewed['target'],
-            'apis': list(READ_APIS), 'budget': BUDGET, 'pixel_policy': png_policy(),
+            'apis': list(READ_APIS), 'budget': BUDGET,
             'confirmed_at': confirmed_at, 'expires_at': confirmed_at + START_SECONDS,
-            'maximum_execution_seconds': MAX_SECONDS}
+            'maximum_execution_seconds': MAX_SECONDS} | _grant_policy(reviewed['target']['asset']['declared_type'])
         validate_grant(value)
         policy.check()
         exclusive(policy.root / filename(identifier), value, policy.root_pin)

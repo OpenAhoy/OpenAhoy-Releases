@@ -12,10 +12,10 @@ from .http_transport import HTTPRequest, HTTPResponse
 from .own_auth import READ_APIS
 from .own_bootstrap_security import private_read, path_check, decode
 from .own_connection_enrollment import exclusive
-from .own_workflow import encoded
+from .own_workflow import encoded, stored
 from .own_png import ORIGIN, MAX_INPUT
 from .own_reconcile import SOURCES, original_fingerprint
-from .own_cover_match import match_cover
+from .own_cover_match import covers_timestamp, match_cover
 from .service import digest
 from . import own_cover_authority as auth
 from . import upload_wire as upload
@@ -29,11 +29,14 @@ def proof_name(row, grant):
 def validate_proof(w, db, p, row, intent, result, proof):
     """Historical validation never renews an expired grant or consumes it again."""
     try:
+        pixel = intent['asset']['declared_type'] == 'image/png'
+        expected_origin = ORIGIN if pixel else auth.JPEG_ORIGIN
         keys = {'schema', 'authorization_source', 'grant_id', 'grant_sha256', 'claimed_sha256',
             'completed_at', 'read_counts', 'observation', 'original_target_digest', 'provenance'}
-        if type(proof) is not dict or set(proof) != keys or type(proof['schema']) is not int or proof['schema'] != 3:
+        if (type(proof) is not dict or set(proof) != keys or type(proof['schema']) is not int
+                or proof['schema'] != (3 if pixel else 4)):
             raise ValueError()
-        if proof['authorization_source'] != auth.AUTHORITY or result['completion_origin'] != ORIGIN:
+        if proof['authorization_source'] != auth.AUTHORITY or result['completion_origin'] != expected_origin:
             raise ValueError()
         grant_path = w.db.path.parent / auth.filename(proof['grant_id'])
         raw, grant_pin = private_read(grant_path)
@@ -92,9 +95,15 @@ def validate_proof(w, db, p, row, intent, result, proof):
             if counts['list'] != expected_list:
                 raise ValueError()
             _, data = w._asset(db, p.binding(), intent['asset']['asset_ref'], 'cover')
-            if encoded(observation['raster']) != encoded(original_fingerprint(w, data)):
+            if pixel and encoded(observation['raster']) != encoded(original_fingerprint(w, data)):
                 raise ValueError()
-            expected_provenance = ('SYNTHETIC_OWN_' if p.source_kind == 'SYNTHETIC_SETUP' else 'OWN_OFFICIAL_') + 'PIXEL_READ_MATCH'
+            if not pixel and (observation['raster'] is not None
+                    or observation['remote_input_size'] != len(data)
+                    or observation['remote_input_sha256'] != sha256(data).hexdigest()
+                    or not covers_timestamp(row['created'], observation['update_time'])):
+                raise ValueError()
+            expected_provenance = ('SYNTHETIC_OWN_' if p.source_kind == 'SYNTHETIC_SETUP' else 'OWN_OFFICIAL_') + (
+                'PIXEL_READ_MATCH' if pixel else 'JPEG_BYTES_READ_MATCH')
             if proof['provenance'] != expected_provenance:
                 raise ValueError()
             for path, expected_raw, expected_pin in ((grant_path, raw, grant_pin),
@@ -103,6 +112,34 @@ def validate_proof(w, db, p, row, intent, result, proof):
                     raise ValueError()
     except Exception:
         raise WCEError('OWN_STATE_CORRUPT') from None
+
+
+def _check_attribution(w, db, p, row, intent, observation, guard):
+    # The caller still holds the account writer lock. All covers of a given MIME
+    # used the same multipart name, so remote uniqueness alone can borrow a
+    # previously returned ID or confuse two locally admitted unknown writes.
+    if db.execute("SELECT 1 FROM own_steps WHERE resource=? AND id<>? AND operation='cover' "
+            "AND state='SUCCEEDED' AND json_extract(result, '$.media_id')=? LIMIT 1",
+            (p.resource_id, row['id'], observation['result']['media_id'])).fetchone():
+        raise WCEError('OWN_RECONCILE_MATERIAL_ALREADY_ASSOCIATED')
+    observed_time = observation['update_time']
+    asset = intent['asset']
+    for other in db.execute("SELECT * FROM own_steps WHERE resource=? AND id<>? AND operation='cover' "
+            "AND state='RESULT_UNKNOWN' AND created BETWEEN ? AND ?",
+            (p.resource_id, row['id'], observed_time - 31, observed_time + 3)):
+        guard()
+        if not covers_timestamp(other['created'], observed_time):
+            continue
+        competing = stored(other['intent'], other['intent_digest'])
+        other_asset = competing['asset']
+        if other_asset['declared_type'] != asset['declared_type']:
+            continue
+        if other_asset['sha256'] == asset['sha256'] and other_asset['size'] == asset['size']:
+            raise WCEError('OWN_RECONCILE_COMPETING_ORIGINAL')
+        if asset['declared_type'] == 'image/png':
+            _, data = w._asset(db, competing['binding'], other_asset['asset_ref'], 'cover')
+            if original_fingerprint(w, data, guard) == observation['raster']:
+                raise WCEError('OWN_RECONCILE_COMPETING_ORIGINAL')
 
 
 class ReadAttempt:
@@ -203,18 +240,27 @@ class ReadAttempt:
     def run(self):
         w, p, grant = self.w, self.p, self.grant
         synthetic = p.source_kind == 'SYNTHETIC_SETUP'
+        pixel = grant['schema'] == 1
         observation = match_cover(self.read, self.guard, self.report, self.failed,
-            self.stop, self.row, self.intent, self.original, True, synthetic, self.lease.token,
-            prepare_read=self.reserve)
+            self.stop, self.row, self.intent, self.original, pixel, synthetic, self.lease.token,
+            prepare_read=self.reserve, candidate_name='cover.png' if pixel else 'cover.jpg', serial_pages=True)
+        if not pixel:
+            # Exact mode re-read the unmodified original bytes, not a raster projection.
+            observation.update(remote_input_sha256=self.intent['asset']['sha256'],
+                               remote_input_size=self.intent['asset']['size'])
         observation.update(unique_matches=1, final_remote_raw_equal=True,
             sources={k: {'url': v[0], 'sha256': v[1]} for k, v in SOURCES.items()})
         self.guard()
+        with _history_transaction(w.db) as (db, _):
+            _check_attribution(w, db, p, self.row, self.intent, observation, self.current)
+        self.current()
         completed = w.clock()
-        proof = {'schema': 3, 'authorization_source': auth.AUTHORITY, 'grant_id': grant['id'],
+        proof = {'schema': 3 if pixel else 4, 'authorization_source': auth.AUTHORITY, 'grant_id': grant['id'],
             'grant_sha256': self.checksum, 'claimed_sha256': sha256(self.claimed_raw).hexdigest(),
             'original_target_digest': digest(grant['target']), 'completed_at': completed,
             'read_counts': dict(self.counts), 'observation': observation,
-            'provenance': ('SYNTHETIC_OWN_' if synthetic else 'OWN_OFFICIAL_') + 'PIXEL_READ_MATCH'}
+            'provenance': ('SYNTHETIC_OWN_' if synthetic else 'OWN_OFFICIAL_') + (
+                'PIXEL_READ_MATCH' if pixel else 'JPEG_BYTES_READ_MATCH')}
         if upload.contains_secret(proof, self.lease.token):
             raise WCEError('OWN_RECONCILE_READ_UNDETERMINED')
         name = proof_name(self.row, grant)
@@ -224,7 +270,7 @@ class ReadAttempt:
         if raw != (encoded(proof)+'\n').encode():
             raise WCEError('COVER_READ_PROOF_CHANGED')
         self.guard()
-        result = observation['result'] | {'completion_origin': ORIGIN,
+        result = observation['result'] | {'completion_origin': ORIGIN if pixel else auth.JPEG_ORIGIN,
             'reconciliation_proof': name, 'reconciliation_proof_sha256': sha256(raw).hexdigest()}
         with _history_transaction(w.db, write=True) as (db, history_locators):
             w._resource(db, p, history_locators=history_locators)

@@ -296,6 +296,7 @@ class SettingsBackend:
                 'maximum_execution_seconds': cover_authority.MAX_SECONDS,
                 'start_within_seconds': cover_authority.START_SECONDS,
                 'pixel_policy': cover_authority.png_policy(),
+                'jpeg_match_policy': cover_authority.jpeg_policy(),
                 'one_attempt_per_target': True, 'business_writes': 0,
                 'interrupted_attempt_is_spent': True}
         self.clear_target()

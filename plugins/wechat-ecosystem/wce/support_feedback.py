@@ -17,6 +17,7 @@ import uuid
 
 from .support_diagnostics import Diagnostics, private_directory, private_file
 from .support_privacy import redact
+from .contracts import WCEError
 from .own_configuration_export import _directory
 
 REPOSITORY = 'OpenAhoy/OpenAhoy-Feedback'
@@ -77,16 +78,28 @@ class Support:
 
     @contextmanager
     def _db(self):
-        root=private_directory(self.root)
-        fd=private_file(root/'feedback.sqlite3',os.O_RDWR|os.O_CREAT);os.close(fd)
-        db=sqlite3.connect(root/'feedback.sqlite3',timeout=2)
+        # A new installation can report an issue before binding an account.
+        # Create only the standard private container if it is absent.
         try:
-            with db:
-                db.execute('PRAGMA journal_mode=DELETE')
-                db.execute('CREATE TABLE IF NOT EXISTS reports(id TEXT PRIMARY KEY,digest TEXT NOT NULL,payload TEXT NOT NULL,state TEXT NOT NULL,url TEXT)')
-                yield db
-        finally:
-            db.close()
+            default_parent = Path.home() / '.wce'
+            if self.root.parent == default_parent and not os.path.lexists(default_parent):
+                private_directory(default_parent)
+            root = private_directory(self.root)
+            fd = private_file(root / 'feedback.sqlite3', os.O_RDWR | os.O_CREAT)
+            os.close(fd)
+        except (OSError, ValueError):
+            raise WCEError('SUPPORT_STORAGE_UNAVAILABLE') from None
+        try:
+            db = sqlite3.connect(root / 'feedback.sqlite3', timeout=2)
+            try:
+                with db:
+                    db.execute('PRAGMA journal_mode=DELETE')
+                    db.execute('CREATE TABLE IF NOT EXISTS reports(id TEXT PRIMARY KEY,digest TEXT NOT NULL,payload TEXT NOT NULL,state TEXT NOT NULL,url TEXT)')
+                    yield db
+            finally:
+                db.close()
+        except sqlite3.Error:
+            raise WCEError('SUPPORT_STORAGE_UNAVAILABLE') from None
 
     def _put(self, value):
         raw=json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(',',':'))
