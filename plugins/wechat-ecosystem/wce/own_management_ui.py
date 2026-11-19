@@ -71,7 +71,7 @@ def platform_sidebar(logo, navigation, *, localized=False):
                  + brand + '</button><button type="button" id="oaLocale">English</button>')
     return '<aside class="oa-sidebar"><div class="oa-brand">'+brand+'''</div>
 <div id="softwareUpdateSlot"></div>
-<div>'''+('<nav class="oa-nav"><button id="openMediaStudio" type="button" aria-controls="mediaStudio">'+icon('video')+'<span>媒体工坊</span></button></nav>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
+<div>'''+('<nav class="oa-nav"><button id="openMediaStudio" type="button" aria-controls="mediaStudio">'+icon('video')+'<span>Jiusera</span></button></nav>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
 
 
 def minimax_mark():
@@ -126,7 +126,7 @@ def native_page_body(logo, platform_settings):
 <section class="oa-home-features" aria-labelledby="homeFeaturesTitle">
 <h2 id="homeFeaturesTitle">开始使用</h2>
 <div class="oa-home-grid" id="homeFeatures">
-<button id="homeMediaStudio" type="button" class="oa-home-card" disabled><span class="oa-home-card-title">'''+icon('video')+'''<span>媒体工坊</span></span><span class="oa-home-card-description">管理项目动图、视频和音频。</span>'''+icon('arrow')+'''</button>
+<button id="homeMediaStudio" type="button" class="oa-home-card" disabled><span class="oa-home-card-title">'''+icon('video')+'''<span>Jiusera</span></span><span class="oa-home-card-description">管理项目动图、视频和音频。</span>'''+icon('arrow')+'''</button>
 </div></section>'''+promo+'''
 <section id="homeRecommendations" aria-labelledby="homeRecommendationsTitle" hidden>
 <h2 id="homeRecommendationsTitle">推荐插件</h2><div class="oa-home-grid"></div>
@@ -204,7 +204,7 @@ def native_page_body(logo, platform_settings):
 <button id="accountRecoveryAsk" type="button" class="primary" hidden>在 macOS 中确认恢复</button></div>
 <p id="accountRecoveryStatus" role="status"></p>
 </dialog>
-<footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div><section id="mediaStudio" aria-label="媒体工坊" hidden>
+<footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div><section id="mediaStudio" aria-label="Jiusera" hidden>
 '''+director_html+'''<dialog id="directorMediaDialog" aria-label="媒体资产"><header class="mm-toolbar">
 <button type="button" id="directorMediaClose">回到画布</button></header>'''+monitor_html+'''</dialog><div id="monitorComponents" hidden>'''+credential+gif_settings+audio_html+'''</div></section>'''+binding_html+'''</main></div>'''
 

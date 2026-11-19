@@ -19,15 +19,15 @@ from .project_context import text as project_text
 from .video_director import ROOT_NAME, require
 from .video_jobs import FRAME_LIMIT, image, media_facts, probe
 from .video_keychain import configured_item, status
-from .video_minimax import H3_MODELS, V1_MODELS, h3_body, v1_body
+from .video_minimax import SITES, V1_MODELS, h3_body, subject_body, v1_body
+from .video_engine_catalog import CHANNELS, REFERENCE, mode_profiles, validate_config
+from .video_relay import RELAY_MODEL, workflow_body
+from .video_relay_keychain import RelayKeychain
 from .video_provider_ui import directory as provider_directory
-from .video_seedance import ARK_MODELS, MAX_REFERENCE_IMAGES, request_body
+from .video_seedance import ARK_MODELS, request_body
 from .video_tokenhex import TokenHexKeychain
 
 IMAGE_ROLES = ('composition', 'first', 'last', 'subject', 'environment', 'reference')
-REFERENCE = {'subject', 'environment', 'reference'}
-FRAME_ROLES = {'text': (), 'first': ('first',), 'last': ('last',), 'frames': ('first', 'last'),
-               'edit': (), 'extend': ()}
 CATALOG = Path(__file__).resolve().parents[1] / 'skills/video-director/references/SHOT_CARDS.json'
 IMAGE_CHUNK = 256 * 1024
 IMAGE_SUFFIX = {'public.png': 'png', 'public.jpeg': 'jpg'}
@@ -225,8 +225,8 @@ def validate_revision(jobs, values, patch, root, scratch, project_id):
             import_whitebox(root, whitebox['file'], scratch)
     if 'configuration' in patch:
         config = values['configuration']
+        validate_config(config, project_id)
         if 'source' in config:
-            require(config['source']['project_id'] == project_id, 'DIRECTOR_ASSET_WRONG_PROJECT')
             if 'reference_asset' in config['source']:
                 project_text(config['source']['reference_asset'])
     if 'result' in patch:
@@ -280,71 +280,87 @@ def preview_result(jobs, project_id, spec, start=None):
     return jobs.preview_frames(start, spec['attempt_id'], project_id)
 
 
-def tokenhex_connection():
+def configured_connection(keychain):
     try:
-        return 'CONFIGURED' if configured_item(TokenHexKeychain(), TokenHexKeychain.scope) else 'NOT_CONFIGURED'
+        return 'CONFIGURED' if configured_item(keychain(), keychain.scope) else 'NOT_CONFIGURED'
     except Exception:
         return 'ACTION_REQUIRED'
 
 
-def models():
+def models(tokenhex=None):
     catalog = provider_directory()
-    tokenhex_modes = {'text', 'frames', 'reference'}
-    ark = catalog['ark']
-    tokenhex = [dict(row, modes=[mode for mode in row['modes'] if mode in tokenhex_modes])
-                for row in ark if set(row['modes']) & tokenhex_modes]
-    minimax = [dict(row, mode_resolutions=V1_MODELS[row['id']]) if row['id'] in V1_MODELS else row
-               for row in catalog['minimax'] if row['modes'] != ['subject']]
-    return {'models': {'ark': ark, 'tokenhex': tokenhex, 'cn': minimax, 'global': minimax},
-            'connections': {provider: status(provider=provider)['state'] for provider in ('ark', 'cn', 'global')}
-            | {'tokenhex': tokenhex_connection()}}
+    observed = tokenhex or {'state': 'NOT_CHECKED', 'models': []}
+    available = set(observed['models'])
+    verified = observed['state'] in ('MODELS_VISIBLE', 'NO_SUPPORTED_MODELS', 'EMPTY_CATALOG')
+    candidates = {'ark': catalog['ark'], 'cn': catalog['minimax'], 'global': catalog['minimax'],
+                  'relay': [{'id': RELAY_MODEL, 'name': 'MiniMax H3', 'version': 'workflow'}],
+                  'tokenhex': catalog['ark']}
+    rows = {}
+    for channel, entries in candidates.items():
+        results = []
+        for row in entries:
+            profiles = mode_profiles(channel, row['id'])
+            if not profiles:
+                continue
+            visibility = 'UNVERIFIED' if channel != 'tokenhex' or not verified else (
+                'VISIBLE' if row['id'] in available else 'NOT_VISIBLE')
+            results.append(dict(row, modes=list(profiles), profiles=profiles, visibility=visibility))
+        rows[channel] = results
+    return {'models': rows, 'channels': CHANNELS,
+            'connections': {provider: status(provider=provider)['state'] for provider in ('ark', *SITES)}
+            | {'relay': configured_connection(RelayKeychain), 'tokenhex': configured_connection(TokenHexKeychain)},
+            'tokenhex_catalog': {'state': observed['state'], 'models': [r['id'] for r in rows['tokenhex']
+                                                                       if r['visibility'] == 'VISIBLE']}
+                                | {k: observed[k] for k in ('selected_model', 'native_verified') if k in observed}}
 
 
 def compute_request(jobs, context, root, scratch):
     """Use the adapters' actual validation and serialization, then discard their body."""
     revision = context['revision']
     config = revision['configuration']
+    prompt = revision['prompt']
     require(config, 'DIRECTOR_CONFIGURATION_REQUIRED')
-    require(revision['prompt'].strip(), 'DIRECTOR_PROMPT_REQUIRED')
+    require(prompt.strip(), 'DIRECTOR_PROMPT_REQUIRED')
+    pid = context['project_id']
+    profile = validate_config(config, pid, ready=True)
     provider, model, mode = (config[k] for k in ('provider', 'model', 'mode'))
-    is_minimax = provider in ('cn', 'global')
-    require(len(revision['prompt']) <= 4096 and len(revision['prompt'].encode()) <= 16384,
-            'DIRECTOR_PROMPT_TOO_LONG')
-    if mode == 'reference':
+    limit, byte_limit = (20000, 80000) if provider == 'relay' else (4096, 16384)
+    require(len(prompt) <= limit and len(prompt.encode()) <= byte_limit, 'DIRECTOR_PROMPT_TOO_LONG')
+    receipt = {'provider': provider, 'model': model, 'mode': mode, 'configuration': config, 'prompt': prompt}
+    if mode == 'subject':
+        url = config['subject_image_url']
+        subject_body(prompt, url)
+        return receipt | {'inputs': [{'role': 'subject', 'url': url}]}
+    if mode == 'workflow':
+        workflow_body({'prompt': prompt, **{k: config[k] for k in (
+            'reference_images', 'reference_audio', 'duration', 'resolution') if k in config}})
+        return receipt | {'inputs': [{'role': role, 'url': url}
+                                      for field, role in (('reference_images', 'reference_image'),
+                                                          ('reference_audio', 'reference_audio'))
+                                      for url in config.get(field, [])]}
+    roles = profile['local_roles']
+    if profile['reference_count']:
         inputs = [row for row in revision['images'] if row['role'] in REFERENCE]
-        require(1 <= len(inputs) <= (9 if is_minimax else MAX_REFERENCE_IMAGES), 'DIRECTOR_REFERENCE_IMAGES_REQUIRED')
+        require(1 <= len(inputs) <= profile['reference_count'], 'DIRECTOR_REFERENCE_IMAGES_REQUIRED')
     else:
-        roles = FRAME_ROLES[mode]
         inputs = [row for role in roles for row in revision['images'] if row['role'] == role]
         require(len(inputs) == len(roles), 'DIRECTOR_INPUT_FRAMES_REQUIRED')
-    require(not is_minimax or not config.get('audio'), 'VIDEO_OUTPUT_UNSUPPORTED')
-    require(provider != 'tokenhex' or mode in ('text', 'frames', 'reference'), 'VIDEO_MODE_UNSUPPORTED')
+    is_minimax = provider in SITES
     frames = [source_image(root, row['file'], scratch, h3=is_minimax) for row in inputs]
     params = {k: config[k] for k in ('mode', 'duration', 'resolution', 'ratio')}
-    source = config.get('source')
-    require(bool(source) == (mode in ('edit', 'extend')), 'VIDEO_REFERENCE_SOURCE_UNAVAILABLE')
-    require(mode == 'extend' or 'direction' not in config, 'VIDEO_MODE_PARAMETERS_INVALID')
-    if provider == 'tokenhex':
-        require(model in ARK_MODELS, 'VIDEO_MODEL_UNSUPPORTED')
     if is_minimax:
-        require(model in H3_MODELS or model in V1_MODELS, 'VIDEO_MODEL_UNSUPPORTED')
         encoder = v1_body if model in V1_MODELS else h3_body
-        encoder(revision['prompt'], frames, model=model, **params)
+        encoder(prompt, frames, model=model, **params)
     else:
         reference = None
-        if source:
-            pid = context['project_id']
-            require(source['project_id'] == pid, 'DIRECTOR_ASSET_WRONG_PROJECT')
-            receipt = jobs.status(source['attempt_id'], pid)
-            request = receipt.get('request', {})
+        if source := config.get('source'):
+            original = jobs.status(source['attempt_id'], pid)
+            request = original.get('request', {})
             require(request.get('model') in ARK_MODELS and not request.get('provider'),
                     'VIDEO_REFERENCE_SOURCE_UNAVAILABLE')
             facts = preview_result(jobs, pid, source)
             require((4 if mode == 'edit' else 2) <= facts['seconds'] <= 30, 'VIDEO_REFERENCE_DURATION_INVALID')
-            # Format-only placeholder. The existing submit path resolves the
-            # verified original task or explicit asset, when the user authorizes it.
             reference = source.get('reference_asset') or 'asset://openahoy-preflight'
-        request_body(revision['prompt'], frames, model=model, reference=reference,
+        request_body(prompt, frames, model=model, reference=reference,
                      audio=config.get('audio', False), direction=config.get('direction'), **params)
-    return {'provider': provider, 'model': model, 'mode': mode, 'inputs': inputs,
-            'configuration': config, 'prompt': revision['prompt']}
+    return receipt | {'inputs': inputs}

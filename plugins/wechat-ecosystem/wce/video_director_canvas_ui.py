@@ -7,6 +7,7 @@ HTML = '''
    <button id="directorCanvasNote" type="button">文字卡</button>
    <button id="directorCanvasImage" type="button">添加图片</button>
    <button id="directorCanvasAssets" type="button">媒体资产</button>
+   <button id="directorCanvasEngine" type="button">选择视频引擎</button>
    <button id="directorCanvasRemove" type="button" hidden>移出画布</button>
   </div>
   <div class="dd-actions" aria-label="画布缩放">
@@ -27,6 +28,12 @@ HTML = '''
 '''
 
 STYLE = '''
+.dd-engine-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));grid-auto-rows:max-content;gap:6px;max-height:50dvh;overflow:auto}
+#directorDialog .dd-engine-grid .dd-engine-option{display:grid;align-content:start;gap:3px;height:auto;min-height:76px;
+ text-align:left;white-space:normal;overflow-wrap:anywhere;padding:7px 9px}
+.dd-engine-option small,.dd-engine-option span{font-size:11px;color:var(--muted)}
+#directorCanvasPreviewBody video{display:block;width:100%;max-height:67dvh}
+
 #mediaStudio #videoDirectorDesk{min-height:0;flex:1}
 #videoDirectorDesk .dd-board{grid-template-columns:minmax(118px,170px) minmax(0,1fr) minmax(224px,325px)}
 #videoDirectorDesk .dd-view{align-self:stretch}
@@ -85,13 +92,13 @@ STYLE = '''
 '''
 
 SCRIPT = r'''
-function OADirectorCanvas(commit, select, show, picture){
+function OADirectorCanvas(commit, select, show, picture, engineName){
  const $=id=>document.getElementById(id);
  const viewport=$('directorCanvas'),plane=$('directorCanvasPlane'),nodes=$('directorCanvasNodes');
  const edge=$('directorCanvasEdges'),empty=$('directorCanvasEmpty');
  const actions={remove:$('directorCanvasRemove'),reset:$('directorCanvasReset')};
  const labels={shot:'镜头',note:'文字卡',image:'图片',video:'视频',gif:'动图',audio:'音频'};
- let scope={key:'',version:0},selected='',work=null,view={x:28,y:28,scale:100},cards=new Map(),gesture=null,timer=null,pending=Promise.resolve();
+ let scope={key:'',version:0},selected='',work=null,deliveries=[],focused='',view={x:28,y:28,scale:100},cards=new Map(),gesture=null,timer=null,pending=Promise.resolve();
  function clamp(value,low,high){return Math.max(low,Math.min(high,value));}
  const point=value=>clamp(Math.round(value),-1000000,1000000);
  function transform(){
@@ -139,11 +146,23 @@ function OADirectorCanvas(commit, select, show, picture){
        const revision=shot.adopted_revision||shot.head_revision;
        const meta=shot.revisions.find(row=>row.id===revision);
        found.push({kind:'shot',id:shot.id,title:meta.title,scene:scene.id,revision,
-                   cover:shot.cover_revision,position:{x:(serial%3)*184,y:Math.floor(serial/3)*140}});
+                   cover:shot.cover_revision,engine:shot.engine,position:{x:(serial%3)*184,y:Math.floor(serial/3)*140}});
        serial++;
      }
    }
-   return found.concat(Object.values(w.canvas.nodes));
+   const primary=found.concat(Object.values(w.canvas.nodes));
+   const saved=primary.map(row=>w.canvas.positions[row.id]||row.position);
+   let rowIndex=Math.ceil(serial/3);
+   return primary.concat(deliveries.map((delivery,index)=>{
+     let position;
+     do{
+       position={x:(index%3)*184,y:rowIndex*144};
+       if(saved.some(point=>point&&Math.abs(point.x-position.x)<172&&Math.abs(point.y-position.y)<132))rowIndex++;
+       else break;
+     }while(true);
+     saved.push(position);
+     return {...delivery,position};
+   }));
  }
  function redrawLinks(){
    const linked=[...cards.values()].filter(card=>cards.has(card.row.shot_id));
@@ -175,9 +194,9 @@ function OADirectorCanvas(commit, select, show, picture){
  }
  function render(key,model,shot){
    if(key!==scope.key){
-     void flush();scope={key,version:model?.canvas.version||0};selected='';gesture=null;
+     void flush();scope={key,version:model?.canvas.version||0};selected='';gesture=null;deliveries=[];
    }else if(model)scope.version=Math.max(scope.version,model.canvas.version);
-   work=model;nodes.replaceChildren();cards=new Map();
+   work=model;focused=shot;nodes.replaceChildren();cards=new Map();
    if(!work){empty.hidden=true;edge.hidden=true;return;}
    if(timer===null&&!gesture){
      const saved=model.canvas.viewport;
@@ -186,19 +205,34 @@ function OADirectorCanvas(commit, select, show, picture){
    const rows=collect(model);
    empty.hidden=!!rows.length;
    for(const row of rows){
-     const type=row.kind==='asset'?(row.asset.family==='audio'&&row.asset.media_kind==='video'?'video':row.asset.family):row.kind;
+     const delivery=row.kind==='shot_video'||row.kind==='work_video';
+     const type=delivery?'video':row.kind==='asset'?(row.asset.family==='audio'&&row.asset.media_kind==='video'?'video':row.asset.family):row.kind;
+     const statusNames={AWAITING_RECEIPT:'等待原任务回执',SUBMITTED:'已提交',QUEUED:'排队中',RUNNING:'生成中',
+       SAVE_PENDING:'正在取件',ASSET_READY:'可播放',SUBMIT_UNKNOWN:'提交结果未知',SUBMIT_REJECTED:'提交被拒绝',
+       FAILED:'生成失败',EXPIRED:'已过期',CANCELLED:'已取消',UNAVAILABLE:'原素材不可读',UNKNOWN:'状态未知'};
      const wrapper=document.createElement('article'),pick=document.createElement('button');
      wrapper.dataset.kind=type;wrapper.dataset.nodeId=row.id;wrapper.className='dd-canvas-card';
+     if(delivery){wrapper.dataset.deliveryKind=row.kind;wrapper.dataset.deliveryState=row.state;}
+     if(row.kind==='shot'&&row.engine)wrapper.dataset.engine=row.engine.provider+':'+row.engine.model;
      pick.type='button';
      const badge=document.createElement('span');badge.className='dd-canvas-kind';OAUI.set(badge,labels[type]);
      const name=document.createElement('strong');OAUI.raw(name,row.title);
      pick.append(badge,name);
-     const card={row,element:wrapper};
+     if(delivery){
+       OAUI.set(badge,row.kind==='work_video'?'作品成片':'镜头视频');
+       const state=document.createElement('small');OAUI.set(state,statusNames[row.state]||'状态未知');
+       pick.append(state);
+     }
+     if(row.engine){
+       const summary=document.createElement('small');OAUI.raw(summary,engineName(row.engine));
+       summary.title=summary.textContent;pick.append(summary);
+     }
+     const card={row,element:wrapper,delivery};
      position(card,model.canvas.positions[row.id]||row.position);
      pick.onclick=()=>activate(card,shot);
      pick.onkeydown=event=>{
        const offset={ArrowLeft:[-12,0],ArrowUp:[0,-12],ArrowRight:[12,0],ArrowDown:[0,12]}[event.key];
-       if(!offset)return;
+       if(!offset||delivery)return;
        event.preventDefault();flush();
        const pos={x:point(card.position.x+offset[0]),y:point(card.position.y+offset[1])};
        position(card,pos);redrawLinks();void queue('canvas_move',{node_id:row.id,position:pos});
@@ -214,6 +248,7 @@ function OADirectorCanvas(commit, select, show, picture){
  viewport.addEventListener('pointerdown',event=>{
    if(event.button!==0||event.isPrimary===false)return;
    const target=event.target.closest('[data-node-id]'),card=cards.get(target?.dataset.nodeId);
+   if(card?.delivery)return;
    gesture={pointer:event.pointerId,x:event.clientX,y:event.clientY,view:{...view},card,moved:false};
    if(card)gesture.position={...card.position};
  });
@@ -253,7 +288,10 @@ function OADirectorCanvas(commit, select, show, picture){
  $('directorCanvasOut').onclick=()=>zoom(-10);
  actions.reset.onclick=()=>setView({x:28,y:28,scale:100});
  actions.remove.onclick=()=>{if(work?.canvas.nodes[selected]){flush();void queue('canvas_remove',{node_id:selected});}};
- return {render,flush,add(node){flush();return queue('canvas_add',{node,position:location()});},
+ return {render,flush,setDeliveries(key,rows){
+     if(key!==scope.key||JSON.stringify(deliveries)===JSON.stringify(rows)||gesture)return;
+     deliveries=rows;render(key,work,focused);
+   },add(node){flush();return queue('canvas_add',{node,position:location()});},
          editNote(node_id,title,text){flush();return queue('canvas_note_edit',{node_id,title,text});}};
 }
 '''

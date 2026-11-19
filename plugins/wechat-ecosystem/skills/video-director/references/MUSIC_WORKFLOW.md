@@ -1,6 +1,6 @@
 # 歌曲与视频配乐
 
-开始任何需要新生成的歌曲或视频配乐前，用 `audio.music.provider.read` 读取本机当前默认。该设置适用于 OpenAhoy 在本机的所有窗口和项目。用户已明确指定供应商时，按本次指定执行。仅在工具返回 `READY` 时使用默认值，不用聊天记忆、其他项目设置、可见工具或此前版本的默认值代替。返回 `UNAVAILABLE` 时说明设置无法核对，请在媒体工坊音频页核对。
+开始任何需要新生成的歌曲或视频配乐前，用 `audio.music.provider.read` 读取本机当前默认。该设置适用于 OpenAhoy 在本机的所有窗口和项目。用户已明确指定供应商时，按本次指定执行。仅在工具返回 `READY` 时使用默认值，不用聊天记忆、其他项目设置、可见工具或此前版本的默认值代替。返回 `UNAVAILABLE` 时说明设置无法核对，请在Jiusera音频页核对。
 
 - 返回 `suno` 或用户点名 Suno，使用 [Suno 歌曲与视频配乐](SUNO_AUDIO.md) 对应的官方 MCP。
 - 返回 `ace-music` 或用户点名 ACE Music，使用 [ACE Music 歌曲与项目配乐](ACE_MUSIC.md) 对应的官方 MCP。

@@ -4,7 +4,7 @@ from .audio_workspace_ui import BRAND
 HTML = '''
 <section id="mediaMonitor">
  <header class="mm-toolbar">
-  <h1 id="monitorTitle" tabindex="-1">媒体工坊</h1>
+  <h1 id="monitorTitle" tabindex="-1">Jiusera</h1>
   <button id="monitorRefresh" type="button">刷新</button><button id="monitorSunoJump" type="button" hidden>音频供应商</button><button id="monitorSettings" type="button">供应商设置</button>
  </header>
  <div class="mm-toolbar">
@@ -22,7 +22,7 @@ HTML = '''
  </div>
 </section>
 <section id="monitorProviders" hidden>
- <header class="mm-toolbar"><h1 id="monitorSettingsTitle" tabindex="-1">供应商设置</h1><button id="monitorSettingsBack" type="button">返回媒体工坊</button></header>
+ <header class="mm-toolbar"><h1 id="monitorSettingsTitle" tabindex="-1">供应商设置</h1><button id="monitorSettingsBack" type="button">返回Jiusera</button></header>
  <nav id="monitorProviderTabs" class="mm-toolbar"><button id="monitorVideoProvider" type="button">视频</button><button id="monitorGifProvider" type="button">动图</button><button id="monitorAudioProvider" type="button">音频</button></nav>
  <div id="monitorVideoSettings"></div><div id="monitorGifSettings" hidden></div><div id="monitorAudioSettings" hidden></div>
 </section>

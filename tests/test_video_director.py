@@ -1,5 +1,5 @@
 """Close the director's project, revision, and provider boundaries without network access."""
-from base64 import b64encode
+from base64 import b64decode, b64encode
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 import json
@@ -18,7 +18,10 @@ sys.path.insert(0, str(ROOT / 'plugins/wechat-ecosystem'))
 
 from wce.contracts import WCEError
 from wce.video_director_protocol import DirectorRouter, EDIT, MEDIA, READ, prompt_cards
-from wce.video_jobs import Jobs
+from wce.video_jobs import Jobs, PROMO_DIR
+from wce.own_connection_policy import atomic_write
+from wce.video_director_media import models
+from wce.video_engine_catalog import public_media_url
 from wce.video_seedance import MODEL
 
 
@@ -189,6 +192,92 @@ class DirectorTests(unittest.TestCase):
         self.assertEqual(image['sha256'], digest)
         self.assertEqual(self.revised(self.a, {'images':[{'role':'composition','file':asset}]})['shot_id'],
                          self.a['shot_id'])
+
+    def test_channel_catalog_and_strict_provider_specific_save(self):
+        with patch('wce.video_director_media.status', return_value={'state':'NOT_CONFIGURED'}), \
+                patch('wce.video_director_media.configured_connection', return_value='NOT_CONFIGURED'):
+            inventory = models({'state':'MODELS_VISIBLE', 'models':[MODEL, 'unrelated'],
+                                'selected_model':MODEL, 'native_verified':False})
+        self.assertEqual({provider:len(rows) for provider,rows in inventory['models'].items()},
+                         {'ark':7, 'cn':13, 'global':13, 'relay':1, 'tokenhex':7})
+        self.assertEqual(inventory['tokenhex_catalog']['models'], [MODEL])
+        self.assertEqual(inventory['tokenhex_catalog']['selected_model'], MODEL)
+        self.assertEqual({row['visibility'] for row in inventory['models']['tokenhex']}, {'VISIBLE', 'NOT_VISIBLE'})
+        subject = {'provider':'cn','model':'S2V-01','mode':'subject',
+                   'subject_image_url':'https://cdn.example.org/subject.png?sortKey=1'}
+        revision = self.revised(self.a, {'configuration':subject,'prompt':'本地预检'})
+        result = self.read('preflight',revision)['request']
+        self.assertEqual(result['inputs'], [{'role':'subject','url':subject['subject_image_url']}])
+        self.assertNotIn('duration',result['configuration'])
+        with self.assertRaisesRegex(WCEError,'VIDEO_OUTPUT_UNSUPPORTED'):
+            self.revised(revision, {'configuration':subject|{'resolution':'2K'}})
+        with self.assertRaisesRegex(WCEError,'PROJECT_SECRET_NOT_ALLOWED'):
+            public_media_url('https://cdn.example.org/subject.png?X-Amz-Signature=fixture')
+        relay = {'provider':'relay','model':'MiniMax-H3-Relay','mode':'workflow','duration':4,
+                 'resolution':'768p横','reference_images':['https://cdn.example.org/first.png'],
+                 'reference_audio':['https://cdn.example.org/track.wav']}
+        updated = self.revised(revision, {'configuration':relay})
+        result = self.read('preflight',updated)['request']
+        self.assertEqual([row['role'] for row in result['inputs']],['reference_image','reference_audio'])
+        with self.assertRaisesRegex(WCEError,'VIDEO_MODE_UNSUPPORTED'):
+            self.revised(updated, {'configuration':relay|{'mode':'frames'}})
+
+    def test_work_delivery_reads_original_once_and_keeps_separate_local_edit(self):
+        movie = (PROMO_DIR / 'openahoy-intro.mp4').read_bytes()
+        config = {'provider':'ark','model':MODEL,'mode':'text','duration':10,
+                  'resolution':'720p','ratio':'16:9','audio':True}
+        prompt = '原镜头文字'
+        rev = self.revised(self.a, {'configuration':config,'prompt':prompt})
+        track = rev | {'attempt_id':'original-attempt'}
+        self.edit('track_generation', track)
+        query = {'action':'deliveries', **self.base}
+        self.assertEqual(self.desk.call(READ, query)['cards'][0]['state'], 'AWAITING_RECEIPT')
+        self.jobs._directory()
+        receipt, original = self.jobs._paths('original-attempt')
+        request = {'project_id':self.p,'model':MODEL,'frames':[], 'prompt_sha256':sha256(prompt.encode()).hexdigest(),
+                   **{k:config[k] for k in ('mode','duration','resolution','ratio','audio')}}
+        pending = {'generation_attempt_id':'original-attempt','state':'RUNNING','created_at':1,
+                   'provider_task_id':'cgt-original','request':request}
+        atomic_write(receipt, pending|{'request':request|{'duration':11}})
+        rejected = self.desk.call(EDIT, self.base|{'action':'poll_delivery','attempt_id':'original-attempt'})
+        self.assertEqual(rejected['cards'][0]['state'], 'UNAVAILABLE')
+        self.jobs.api.query.assert_not_called()
+        atomic_write(receipt, pending)
+        self.assertEqual(self.desk.call(READ, query)['cards'][0]['state'], 'RUNNING')
+        self.jobs.api.query.return_value={'status':'succeeded','content':{'video_url':'https://cdn.example.org/original.mp4'}}
+        self.jobs.api.download.side_effect=lambda _uri, target: target.write(movie)
+        from wce.contracts import Secret
+        self.jobs.credential.return_value=Secret('fixture')
+        ready = self.desk.call(EDIT,self.base|{'action':'poll_delivery','attempt_id':'original-attempt'})
+        self.assertEqual(ready['cards'][0]['state'], 'ASSET_READY')
+        self.assertEqual(sha256(original.read_bytes()).hexdigest(),sha256(movie).hexdigest())
+        self.jobs.api.query.assert_called_once()
+        self.jobs.api.submit.assert_not_called()
+        checksum = sha256(movie).hexdigest()
+        linked = self.revised(rev, {'result': {'project_id':self.p,'attempt_id':'original-attempt','sha256':checksum}})
+        shot = self.read('context',linked)
+        self.assertEqual(shot['revision']['result']['attempt_id'],'original-attempt')
+        with self.assertRaisesRegex(WCEError,'DIRECTOR_GENERATION_SCOPE_CHANGED'):
+            self.edit('track_generation',linked|{'attempt_id':'original-attempt'})
+        composition = self.project/'review-cut.mp4'
+        composition.write_bytes(movie)
+        file = {'project_id':self.p,'path':composition.name,'sha256':checksum}
+        film = self.edit('register_work_video',self.base|{'file':file,'title':'整片'})
+        repeated = self.edit('register_work_video',self.base|{'file':file,'title':'整片'})
+        self.assertEqual(film['delivery_id'],repeated['delivery_id'])
+        self.assertEqual(film['chat_path'],str(composition))
+        self.desk = DirectorRouter(self.inner)
+        cards = self.desk.call(READ,query)['cards']
+        self.assertEqual([row['kind'] for row in cards],['shot_video','work_video'])
+        self.assertEqual([row['state'] for row in cards],['ASSET_READY','ASSET_READY'])
+        chunk = self.desk.call(MEDIA,self.base|{'action':'work_video_chunk','delivery_id':film['delivery_id'],'offset':0})
+        self.assertEqual(b64decode(chunk['bytes']),movie[:len(b64decode(chunk['bytes']))])
+        self.assertEqual(chunk['sha256'],checksum)
+        self.assertEqual(sha256(composition.read_bytes()).hexdigest(),checksum)
+        self.assertEqual(self.desk.call(EDIT,self.base|{'action':'poll_delivery','attempt_id':'original-attempt'})['cards'],cards)
+        self.jobs.api.query.assert_called_once()
+        other = self.edit('create_work',{'fields':{'title':'不同作品'}})['work_id']
+        self.assertEqual(self.desk.call(READ,query|{'work_id':other})['cards'],[])
 
     def test_provider_preflight_does_not_use_credentials_or_submit(self):
         config = {'provider':'ark','model':MODEL,'mode':'frames','duration':5,'resolution':'720p','ratio':'16:9'}

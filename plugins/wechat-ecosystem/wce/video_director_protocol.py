@@ -9,9 +9,10 @@ from .contracts import WCEError
 from .prepared_contracts import strict_validate
 from .tools import schema
 from .video_director import Director, canvas_state, lookup, require
+from . import video_director_delivery as delivery
 from .video_director_media import (CATALOG, IMAGE_CHUNK, IMAGE_ROLES, compute_request, import_image_chunk, models, preview_image,
                                    preview_result, preview_whitebox, validate_revision)
-from .video_protocol import ATTEMPT, FRAME, FRAME_INDEX, HANDLE, PROJECT, action
+from .video_protocol import ATTEMPT, FRAME, FRAME_INDEX, HANDLE, PROJECT, RELAY_URL, RELAY_IMAGES, RELAY_AUDIO, action
 from .video_seedance import MAX_REFERENCE_IMAGES
 from .video_jobs import FRAME_LIMIT
 
@@ -38,13 +39,12 @@ ORIGIN = {'type': 'string', 'enum': ['panel', 'codex']}
 CARD = schema({'id': {'type': 'string', 'pattern': '^[a-z0-9-]+$', 'maxLength': 80},
                'version': {'type': 'integer', 'minimum': 1}})
 CONFIG = schema({
-    'provider': {'type': 'string', 'enum': ['ark', 'cn', 'global', 'tokenhex']},
+    'provider': {'type': 'string', 'enum': ['ark', 'cn', 'global', 'relay', 'tokenhex']},
     'model': {'type': 'string', 'maxLength': 160, 'minLength': 1},
-    'mode': {'type': 'string', 'enum': ['text', 'first', 'last', 'frames', 'reference', 'edit', 'extend']},
-    'duration': {'type': 'integer', 'minimum': -1, 'maximum': 30},
-    'resolution': {'type': 'string', 'maxLength': 20, 'minLength': 1},
-    'ratio': RATIO,
-}, {'audio': {'type': 'boolean'}, 'direction': {'type': 'string', 'enum': ['before', 'after']},
+    'mode': {'type': 'string', 'enum': ['text', 'first', 'last', 'frames', 'reference', 'edit', 'extend', 'subject', 'workflow']},
+}, {'duration': {'type': 'integer', 'minimum': -1, 'maximum': 30},
+    'resolution': {'type': 'string', 'maxLength': 20, 'minLength': 1}, 'ratio': RATIO,
+    'subject_image_url': RELAY_URL, 'reference_images': RELAY_IMAGES, 'reference_audio': RELAY_AUDIO, 'audio': {'type': 'boolean'}, 'direction': {'type': 'string', 'enum': ['before', 'after']},
     'source': schema(SOURCE['properties'], {'reference_asset': {
         'type': 'string', 'pattern': '^asset://[A-Za-z0-9_-]{1,128}$', 'maxLength': 136}})})
 WHITEBOX = schema({'mode': {'type': 'string', 'enum': ['none', 'plan', 'import']}},
@@ -80,8 +80,9 @@ SPECS = {
         action('projects', {}),
         action('overview', PROJECT_ARG, {'work_id': PROJECT}),
         action('context', TARGET),
+        action('deliveries', WORK_ARG),
         action('preflight', TARGET),
-        action('models', {}),
+        action('models', {}, {'refresh_tokenhex': {'type': 'boolean'}}),
         action('cards', {}, {'card_id': CARD['properties']['id']}),
     ]},
     EDIT: {'oneOf': [
@@ -89,6 +90,9 @@ SPECS = {
         action('edit_work', WORK_ARG | WRITE | {'expected_version': ORDINAL,
                                               'fields': schema({}, NAME_FIELDS | WORK_OPTIONS)}),
         action('select_work', WORK_ARG | WRITE),
+        action('poll_delivery', WORK_ARG | {'attempt_id': ATTEMPT}),
+        action('track_generation', TARGET | WRITE | {'attempt_id': ATTEMPT}),
+        action('register_work_video', WORK_ARG | WRITE | {'file': FILE, 'title': TITLE}),
         action('canvas_view', CANVAS_WRITE | {'viewport': VIEWPORT}),
         action('canvas_add', CANVAS_WRITE | {'node': CANVAS_NODE, 'position': POSITION}),
         action('canvas_note_edit', CANVAS_WRITE | {'node_id': PROJECT, 'title': TITLE, 'text': TEXT}),
@@ -103,6 +107,7 @@ SPECS = {
         action('adopt', TARGET | WRITE | {'base_revision': PROJECT}, {'expected_adopted': PROJECT}),
     ]},
     MEDIA: {'oneOf': [
+        action('work_video_chunk', WORK_ARG | {'delivery_id': PROJECT, 'offset': MS}),
         action('import_image_chunk', WORK_ARG | {
             'sha256': HANDLE, 'offset': {'type': 'integer', 'minimum': 0, 'maximum': FRAME_LIMIT-1},
             'total': {'type': 'integer', 'minimum': 1, 'maximum': FRAME_LIMIT-1},
@@ -117,8 +122,8 @@ SPECS = {
     ]},
 }
 DESCRIPTIONS = {
-    READ: 'Read project storyboards, one exact shot revision, model configuration preflight, or built-in video-director cards. Preflight only validates local input and encoding; no generation.',
-    EDIT: 'Create or revise a storyboard in a registered local project. Manage project canvas notes, layout and links to verified sources. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Existing revisions remain. Use project-relative files with project_id and SHA-256; no network and no generation.',
+    READ: 'Read project storyboards, one exact shot revision, shared model/channel options, original-work delivery status, local preflight, or built-in video-director cards. Refresh Token Hex only when explicitly requested. Preflight only validates local input and encoding; no generation.',
+    EDIT: 'Create or revise a storyboard in a registered local project. Manage project canvas notes, layout, exact shot generation bindings and work-level local MP4 delivery. Poll_delivery may contact the original provider to query a tracked attempt and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Existing revisions remain. Use project-relative files with project_id and SHA-256.',
     MEDIA: 'App-only local image import and verified storyboard image, whitebox or completed clip previews.',
 }
 
@@ -150,7 +155,7 @@ class DirectorRouter:
         for name, spec in SPECS.items():
             row = {'name': name, 'description': DESCRIPTIONS[name], 'inputSchema': deepcopy(spec),
                    'annotations': {'readOnlyHint': name == READ, 'destructiveHint': False,
-                                   'idempotentHint': True, 'openWorldHint': False}}
+                                   'idempotentHint': True, 'openWorldHint': name in (READ, EDIT)}}
             if name == MEDIA:
                 row['_meta'] = {'ui': {'visibility': ['app']}}
             descriptions.append(row)
@@ -160,9 +165,9 @@ class DirectorRouter:
         if name not in SPECS:
             return self.inner.call(name, args)
         strict_validate(args, SPECS[name])
-        if name == EDIT:
-            return self.director.edit(args, partial(validate_revision, self.jobs), self.verify_canvas_node)
         command = args['action']
+        if name == EDIT and command != 'poll_delivery':
+            return self.director.edit(args, partial(validate_revision, self.jobs), self.verify_canvas_node, self.jobs)
         if command == 'projects':
             return {'projects': self.director.registered()}
         if command == 'overview':
@@ -175,12 +180,26 @@ class DirectorRouter:
             require(card, 'DIRECTOR_UNKNOWN_CARD')
             return deepcopy(card)
         if command == 'models':
+            if args.get('refresh_tokenhex'):
+                try:
+                    return models(self.jobs.tokenhex_check())
+                except (WCEError, OSError):
+                    return models({'state': 'CHECK_UNAVAILABLE', 'models': []})
             return models()
         if command == 'import_image_chunk':
             try:
                 return import_image_chunk(self.director, args)
             except OSError:
                 raise WCEError('DIRECTOR_IMAGE_IMPORT_UNAVAILABLE') from None
+        if command in ('deliveries', 'poll_delivery', 'work_video_chunk'):
+            project = args['project_id']
+            root, pin = self.director.project(project)
+            state = self.director.load(project, self.director.storage(root, pin))
+            work = lookup(state['works'], args['work_id'], 'DIRECTOR_WORK_NOT_FOUND')
+            if command == 'work_video_chunk':
+                return delivery.chunk(root, work, args)
+            return {'project_id': project, 'work_id': work['id'],
+                    'cards': delivery.collect(self.jobs, root, project, work, poll_attempt=args.get('attempt_id'))}
         if command == 'canvas_image':
             root, pin = self.director.project(args['project_id'])
             state = self.director.load(args['project_id'], self.director.storage(root, pin))

@@ -110,8 +110,12 @@ def canvas_edit(work, args, verify_node):
     return receipt | {'canvas_version': canvas['version'], 'work_id': work['id']}
 
 
+def engine_view(config):
+    return {key: config[key] for key in ('provider', 'model', 'mode')} if config else None
+
+
 def work_view(work):
-    result = {key: value for key, value in work.items() if key not in ('scenes', 'focus')}
+    result = {key: value for key, value in work.items() if key not in ('scenes', 'focus', 'generations', 'films')}
     result['selection'] = current_selection(work)
     result['canvas'] = canvas_state(work)
     result['scenes'] = [
@@ -121,6 +125,7 @@ def work_view(work):
               'revisions': [{key: rev[key] for key in
                              ('id', 'number', 'title', 'notes', 'start_ms', 'end_ms', 'origin')}
                             for rev in sorted(shot['revisions'].values(), key=lambda row: row['number'])],
+              'engine': engine_view(shot['revisions'][shot['head_revision']].get('configuration')),
               'cover_revision': (shot['adopted_revision'] or shot['head_revision'])
               if shot['revisions'][shot['adopted_revision'] or shot['head_revision']]['images'] else None}
              for shot in in_order(scene['shots'])
@@ -218,7 +223,7 @@ class Director:
             'adopted_revision': shot['adopted_revision'],
         }
 
-    def edit(self, args, verify_revision, verify_canvas_node=None):
+    def edit(self, args, verify_revision, verify_canvas_node=None, jobs=None):
         project_id = args['project_id']
         root, pin = self.project(project_id)
         location = self.storage(root, pin, create=args['action'] == 'create_work')
@@ -232,7 +237,7 @@ class Director:
             if previous is not None:
                 require(previous['fingerprint'] == fingerprint, 'DIRECTOR_OPERATION_CONFLICT')
                 return previous['receipt']
-            receipt = self.apply(state, args, root, location, verify_revision, verify_canvas_node)
+            receipt = self.apply(state, args, root, location, verify_revision, verify_canvas_node, jobs)
             state['version'] += 1
             receipt.update(state='SAVED', project_id=project_id, version=state['version'])
             state['operations'][args['operation_id']] = {'fingerprint': fingerprint, 'receipt': receipt}
@@ -243,7 +248,7 @@ class Director:
                     == receipt, 'DIRECTOR_SAVE_NOT_VERIFIED')
             return receipt
 
-    def apply(self, state, args, root, scratch, verify_revision, verify_canvas_node=None):
+    def apply(self, state, args, root, scratch, verify_revision, verify_canvas_node=None, jobs=None):
         action = args['action']
         if action == 'create_work':
             work_id = secrets.token_hex(16)
@@ -259,6 +264,12 @@ class Director:
         work = lookup(state['works'], work_id, 'DIRECTOR_WORK_NOT_FOUND')
         if action in ('canvas_add', 'canvas_view', 'canvas_move', 'canvas_remove', 'canvas_note_edit'):
             return canvas_edit(work, args, lambda node: verify_canvas_node(node, root, state['project_id']))
+        if action == 'track_generation':
+            from .video_director_delivery import track
+            return track(jobs, state, work, args)
+        if action == 'register_work_video':
+            from .video_director_delivery import register_work_video
+            return register_work_video(root, work, args)
         if action == 'select_work':
             state['selected_work'] = work_id
             return {'work_id': work_id}
