@@ -3,6 +3,7 @@ from copy import deepcopy
 
 from .contracts import WCEError
 from .media_library import LIBRARY_ID
+from . import music_preferences
 from .audio_jobs import AudioJobs
 from .openai_gif_jobs import GifJobs
 from .openai_gif_keychain import PROVIDER as GIF_PROVIDER, status as gif_status
@@ -35,6 +36,7 @@ AUDIO_MIX='audio.project.mix'
 MEDIA_PREPARE = 'media.library.prepare'
 AUDIO_COVER='audio.project.cover_video'
 AUDIO_HISTORY='audio.project.history'
+MUSIC_PROVIDER='audio.music.provider.read'
 AUDIO_VIDEO='audio.project.video.inspect'
 KEY_PROVIDERS = [*PROVIDERS, GIF_PROVIDER]
 SITE = {'type': 'string', 'enum': list(SITES)}
@@ -86,6 +88,10 @@ WORKSPACE_SPECS = {'oneOf': [
     action('media_monitor', {}),
     action('media_monitor_task', JOB),
     action('audio_library', {}),
+    action('music_provider_read', {}),
+    action('music_provider_save', {'provider': {'type': 'string', 'enum': list(music_preferences.PROVIDERS)},
+                                  'expected_revision': {'type': 'integer', 'minimum': 0,
+                                                        'maximum': music_preferences.MAX_REVISION}}),
     action('suno_snapshot', {}, {'downloaded': {'type': 'boolean'},
                                  'cursor': {'type': 'string', 'maxLength': 2048},
                                  'expected': {'type': 'string', 'maxLength': 80},
@@ -93,6 +99,10 @@ WORKSPACE_SPECS = {'oneOf': [
     action('suno_playback', {'track': {'type': 'string', 'pattern': r'^[a-f0-9-]{36}$'},
                              'expected': {'type': 'string', 'maxLength': 80}},
                             {'cursor': {'type': 'string', 'maxLength': 2048}}),
+    action('ace_snapshot', {}, {'cursor': {'type': 'string', 'minLength': 1, 'maxLength': 512}}),
+    action('ace_oauth_begin', {}),
+    action('ace_oauth_status', {}),
+    action('ace_oauth_cancel', {}),
     action('provider_catalog', {}),
     action('audio_history', {}, {'project_id': PROJECT}),
     action('audio_chunk', AUDIO_SCOPE | {'offset': {'type':'integer','minimum':0}}),
@@ -127,7 +137,7 @@ RELAY_OPTIONS = {'reference_audio': RELAY_AUDIO,
 
 SPECS = {
     AUDIO_IMPORT: schema(AUDIO_SCOPE | {'title':PROMPT,'audio':FRAME},
-         {'provider':{'type':'string','const':'suno'},'provider_id':ATTEMPT,'source_project_id':PROJECT}),
+         {'provider':{'type':'string','enum':['suno','ace-music']},'provider_id':ATTEMPT,'source_project_id':PROJECT}),
     AUDIO_MIX: schema(AUDIO_SCOPE | {'title':PROMPT,'video_attempt_id':ATTEMPT,'song_attempt_id':ATTEMPT,
         'timeline':AUDIO_TIMELINE}, {'score_plan':PROMPT, 'song_project_id':PROJECT, 'video_project_id':PROJECT}),
     AUDIO_COVER: schema(AUDIO_SCOPE | {'title':PROMPT, 'song_attempt_id':ATTEMPT, 'cover':FRAME},
@@ -136,6 +146,7 @@ SPECS = {
         'kind': {'type':'string','const':'audio'}, 'attempt_id':ATTEMPT,
     }, {'account':schema({'platform_id':{'type':'string','enum':['wechat_official_account','x','xiaohongshu']},
                           'connection_id':{'type':'string','minLength':1,'maxLength':128}})})}),
+    MUSIC_PROVIDER: schema({}),
     AUDIO_HISTORY: schema({'project_id':PROJECT}),
     AUDIO_VIDEO: schema(JOB, {'frame_start': FRAME_INDEX, 'include_audio_evidence': {'type':'boolean'}}),
 
@@ -178,9 +189,10 @@ SPECS = {
 }
 DESCRIPTIONS = {
     MEDIA_PREPARE: 'Prepare the unified local audio library. Optionally record a known project and a bound account for the original audio attempt. Omit unknown context. Does not contact the platform.',
-    AUDIO_IMPORT: 'Copy and decode an existing WAV, MP3 or M4A from the registered project. Requires a relative path and SHA-256. Provider and ID link a confirmed official download. No network or Suno generation.',
-    AUDIO_MIX: 'Create a new local soundtrack MP4 for a completed video, reusing imported project audio. Timeline positions and fades are milliseconds; gain is a percentage. Original media is retained. A different mix uses a new local attempt; does not use Suno credits.',
+    AUDIO_IMPORT: 'Copy and decode an existing WAV, MP3 or M4A from the registered project. Requires a relative path and SHA-256. Provider and ID link a confirmed official download. Runs locally without calling any provider.',
+    AUDIO_MIX: 'Create a new local soundtrack MP4 for a completed video, reusing imported project audio. Timeline positions and fades are milliseconds; gain is a percentage. Original media is retained. A different mix uses a new local attempt; uses no provider credits.',
     AUDIO_COVER: 'Create a local H.264/AAC MP4 from a project song and a project PNG or JPEG cover. Requires the cover SHA-256. Returns its project-relative file; does not publish it.',
+    MUSIC_PROVIDER: 'Read the current device-wide OpenAhoy default music provider (Suno or ACE Music). Call before planning new songs or newly generated video scores when the user did not name a provider. Apply only the returned provider. If unavailable, or if that provider is disconnected, surface the issue and do not fall back or generate. Existing assets and explicit provider choices are independent.',
     AUDIO_HISTORY: 'List the songs and soundtrack assets already saved in a project.',
     AUDIO_VIDEO: 'Read facts for a specific project video and its SHA-256. Pass frame_start to receive up to four timecoded JPEGs as images, at 8 fps. Set include_audio_evidence for optional first-track RMS timings. Levels do not identify dialogue. No supplier upload.',
     TOKENHEX_CHECK: 'Read supported model IDs visible under the locally configured Token Hex video credential using GET /v1/models. Read only. Visibility does not verify the native video route.',
@@ -220,7 +232,7 @@ class VideoRouter:
     def list_tools(self):
         rows = self.inner.list_tools()
         for name, spec in SPECS.items():
-            local_read = name in {CONNECTION, GIF_CONFIG, GIF_STATUS, TOKENHEX_CHECK, AUDIO_HISTORY, AUDIO_VIDEO}
+            local_read = name in {CONNECTION, GIF_CONFIG, GIF_STATUS, TOKENHEX_CHECK, AUDIO_HISTORY, AUDIO_VIDEO, MUSIC_PROVIDER}
             row = {'name': name, 'inputSchema': deepcopy(spec), 'description': DESCRIPTIONS[name],
                    'annotations': {'readOnlyHint': local_read, 'destructiveHint': False,
                                    'idempotentHint': name != CREDENTIAL, 'openWorldHint': name in {SUBMIT, STATUS, WORKSPACE, H3_SUBMIT, RELAY_SUBMIT, GIF_SUBMIT, TOKENHEX_CHECK, TOKENHEX_SUBMIT}}}
@@ -233,6 +245,8 @@ class VideoRouter:
         if name not in SPECS:
             return self.inner.call(name, arguments)
         strict_validate(arguments, SPECS[name])
+        if name == MUSIC_PROVIDER:
+            return music_preferences.read(self.video_jobs.projects.root)
         if name == MEDIA_PREPARE:
             media = self.audio_jobs.media
             source = arguments.get('source_project_id')
@@ -367,11 +381,18 @@ class VideoRouter:
         if command in {'suno_snapshot', 'suno_playback'}:
             from .suno_panel import run
             return run(command, {key: value for key, value in arguments.items() if key != 'action'})
+        if command in {'ace_snapshot', 'ace_oauth_begin', 'ace_oauth_status', 'ace_oauth_cancel'}:
+            from .ace_panel import run
+            return run(command, {key: value for key, value in arguments.items() if key != 'action'})
         if command == 'media_monitor_task':
             return job.monitor_task(attempt, project)
         if command == 'media_monitor':
             from .media_monitor import collect
             return collect(job, self.gif_jobs, self.audio_jobs)
+        if command == 'music_provider_read':
+            return music_preferences.read(job.projects.root)
+        if command == 'music_provider_save':
+            return music_preferences.save(job.projects.root, arguments['provider'], arguments['expected_revision'])
         if command == 'audio_library':
             return self.audio_jobs.history(unified=True)
         if command == 'audio_history':

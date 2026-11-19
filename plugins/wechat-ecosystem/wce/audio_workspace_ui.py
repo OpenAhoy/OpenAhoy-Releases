@@ -2,22 +2,41 @@
 from base64 import b64encode
 from pathlib import Path
 
+from . import ace_workspace_ui
+
 BRAND = b64encode((Path(__file__).resolve().parents[1] / 'assets/management/suno-favicon.ico').read_bytes()).decode('ascii')
 
 HTML = """
 <section id="audioWorkspace" aria-labelledby="audioPageTitle" hidden>
 <header class="oa-audio-heading">
  <div><h1 id="audioPageTitle" tabindex="-1">音频工作台</h1><p>创作歌曲、给视频配乐和管理音频。</p></div>
- <div class="oa-audio-actions">
-  <button id="audioScore" type="button">视频配乐</button>
-  <button id="audioCreate" class="primary" type="button">创作歌曲</button>
- </div>
 </header>
 <p id="audioActionNotice" class="oa-audio-note" role="status" aria-live="polite"></p>
 <textarea id="audioCopy" aria-label="复制 Codex 指令" readonly hidden></textarea>
 
-<div class="oa-audio-dashboard">
- <section class="oa-audio-card oa-suno-card" aria-labelledby="sunoTitle">
+<form id="musicProviderForm" class="oa-audio-card" aria-labelledby="musicProviderTitle">
+ <div class="oa-music-setting-heading">
+  <label id="musicProviderTitle" for="musicProviderChoice">默认音乐供应商</label>
+  <div class="oa-music-controls">
+   <select id="musicProviderChoice" disabled>
+    <option value="" disabled>请选择</option><option value="suno">Suno</option><option value="ace-music">ACE Music</option>
+   </select>
+   <button id="musicProviderSave" class="primary" type="button" disabled>保存选择</button>
+  </div>
+ </div>
+ <p class="oa-audio-note">应用于本机所有项目和窗口中未指定供应商的新歌曲与新配乐。</p>
+ <p id="musicProviderStatus" class="oa-audio-note" role="status"></p>
+ <div class="oa-audio-actions">
+  <button id="musicCreateDefault" type="button">创作歌曲</button><button id="musicScoreDefault" type="button">视频配乐</button>
+ </div>
+ <p id="musicProviderRequest" class="oa-audio-note" role="status"></p>
+</form>
+<nav class="oa-audio-provider-nav" aria-label="音频供应商">
+ <button id="audioProviderSuno" type="button" aria-controls="audioSunoCard" aria-pressed="true">Suno</button>
+ <button id="audioProviderAce" type="button" aria-controls="audioAceCard" aria-pressed="false">ACE Music</button>
+</nav>
+<div class="oa-audio-dashboard" data-provider-view="suno">
+ <section id="audioSunoCard" class="oa-audio-card oa-suno-card" aria-labelledby="sunoTitle">
   <header class="oa-audio-card-header">
    <img class="oa-suno-brand" src="data:image/x-icon;base64,__SUNO_BRAND__" alt="" width="38" height="38">
    <div class="oa-suno-title"><h2 id="sunoTitle">Suno</h2><span id="sunoState" class="oa-audio-badge" role="status"></span></div>
@@ -34,8 +53,20 @@ HTML = """
    <p id="sunoReadAt" class="oa-audio-note"></p>
    <details id="sunoModels" hidden><summary>模型与功能</summary><div></div></details>
   </div>
+  <div class="oa-audio-actions"><button id="audioCreate" type="button">用 Suno 创作</button></div>
   <button id="sunoHelp" type="button" hidden>查看 Suno 官方连接说明</button>
+  <details id="sunoLibrary" hidden>
+   <summary>Suno 曲库</summary>
+   <div class="oa-audio-actions oa-suno-actions">
+    <button id="sunoAll" type="button" aria-pressed="true">全部曲目</button>
+    <button id="sunoPlayable" type="button" aria-pressed="false">曾下载曲目</button>
+    <button id="sunoNext" type="button" hidden>下一页</button>
+   </div>
+   <p id="sunoLibraryState" class="oa-audio-note" role="status"></p>
+   <ul id="sunoTracks"></ul>
+  </details>
  </section>
+ __ACE_CARD__
  <section class="oa-audio-card oa-audio-monitor" aria-labelledby="audioMonitorTitle">
   <h2 id="audioMonitorTitle">任务与用量</h2>
   <p id="audioMonitorLocal"></p><ul id="audioRecent"></ul>
@@ -48,16 +79,6 @@ HTML = """
  <section class="oa-audio-card oa-audio-local" aria-labelledby="audioLibraryTitle">
   <div class="oa-audio-section-heading"><h2 id="audioLibraryTitle">本机音频库</h2><button id="audioReload" type="button">刷新音频库</button></div>
   <ul id="audioList"></ul><p id="audioEmpty" class="oa-audio-note"></p>
-  <details id="sunoLibrary" hidden>
-   <summary>Suno 曲库</summary>
-   <div class="oa-audio-actions oa-suno-actions">
-    <button id="sunoAll" type="button" aria-pressed="true">全部曲目</button>
-    <button id="sunoPlayable" type="button" aria-pressed="false">曾下载曲目</button>
-    <button id="sunoNext" type="button" hidden>下一页</button>
-   </div>
-   <p id="sunoLibraryState" class="oa-audio-note" role="status"></p>
-   <ul id="sunoTracks"></ul>
-  </details>
  </section>
  <section class="oa-audio-card oa-audio-preview" aria-labelledby="audioPreviewTitle">
   <div class="oa-audio-section-heading"><h2 id="audioPreviewTitle">播放与下载</h2><button id="audioDownload" type="button" disabled>下载原文件</button></div>
@@ -73,7 +94,7 @@ HTML = """
  </section>
 </div>
 </section>
-""".replace('__SUNO_BRAND__', BRAND)
+""".replace('__SUNO_BRAND__', BRAND).replace('__ACE_CARD__', ace_workspace_ui.HTML)
 
 STYLE = """
 #audioWorkspace[hidden],#audioWorkspace [hidden]{display:none!important}
@@ -90,7 +111,19 @@ STYLE = """
 .oa-audio-actions{flex-wrap:wrap}
 #audioWorkspace button{min-height:30px;max-width:100%;white-space:normal}
 .oa-audio-dashboard,.oa-audio-workspace{display:grid;gap:10px;align-items:stretch}
-.oa-audio-dashboard{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+.oa-audio-dashboard{grid-template-columns:repeat(2,minmax(0,1fr))}
+.oa-audio-monitor{grid-column:1/-1}
+#musicProviderForm{gap:5px;background:linear-gradient(100deg,var(--audio-fill),var(--audio-card) 75%)}
+#musicProviderTitle{font-size:14px;font-weight:650}
+.oa-music-setting-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px}
+.oa-music-controls{display:flex;align-items:center;min-width:0;gap:6px}
+#musicProviderChoice{min-height:30px;min-width:0;padding:3px 6px}
+#musicProviderSave{width:auto;flex:none}
+.oa-audio-provider-nav{display:none;gap:5px}
+.oa-audio-provider-nav button{flex:1}
+.oa-audio-provider-nav button[aria-pressed=true]{background:var(--audio-fill);border-color:var(--accent,var(--audio-line))}
+@media(max-width:600px){#audioWorkspace:not(#monitorSuno #audioWorkspace) .oa-audio-provider-nav{display:flex}
+ #audioWorkspace:not(#monitorSuno #audioWorkspace) :is([data-provider-view=suno] #audioAceCard,[data-provider-view=ace] #audioSunoCard){display:none}}
 .oa-audio-workspace{grid-template-columns:minmax(160px,1fr) minmax(0,1.6fr)}
 .oa-audio-card{min-width:0;min-height:0;display:flex;flex-direction:column;gap:9px;padding:12px;border:1px solid var(--audio-line);border-radius:12px;background:var(--audio-card)}
 .oa-suno-card{background:linear-gradient(150deg,var(--audio-fill),var(--audio-card) 62%)}
@@ -125,9 +158,15 @@ STYLE = """
 #audioWorkspace :is(audio,video){width:100%;min-width:0;max-height:35dvh}
 #audioCopy{width:100%;min-height:66px;resize:vertical}
 @media(max-width:600px){.oa-audio-dashboard,.oa-audio-workspace{grid-template-columns:minmax(0,1fr)}}
-"""
+""" + ace_workspace_ui.STYLE
 
-SCRIPT = r'''
+SCRIPT = ace_workspace_ui.SCRIPT + r'''
+const OAMusicRequest=(kind,asset=null)=>{
+ const routing='开始规划任何需要新生成的音乐前，调用模型可见的 audio.music.provider.read 读取本机最新默认音乐供应商。若我明确点名供应商，则按本次明确选择。只使用该供应商对应的官方 MCP 和随包 video-director 指引，确认当前聊天可调用，再核对账号、模型和官网费用。若偏好无法读取，或所选服务未连接、工具不可用，告诉我原因和连接入口，停止生成。不要换用另一家。给出方案和实际费用后，只有我明确授权本次提交时才调用一次，后续按原任务查询。';
+ if(kind==='song')return '帮我构思一首歌。先沿当前 brief 或确认主题，准备标题、歌词、风格与人声。'+routing;
+ const source=asset?' 当前原视频项目 '+asset.project+'，原视频任务 '+asset.attempt+'。':' 请从当前聊天确认原视频。';
+ return '帮我给视频配乐。可使用我明确选定的现有曲目，沿原素材 ID、本机统一音频库和 audio.project.mix 混合。跨项目时使用各自实际项目 ID。需要创作新配乐时，先按画面确认节奏、入点和原声处理。'+source+routing;
+};
 const OAAudioWorkspace=(call,send,openLink,canSend)=>{
  const $=id=>document.getElementById(id);
  const list=$('audioList'),download=$('audioDownload'),notice=$('audioNotice');
@@ -135,6 +174,54 @@ const OAAudioWorkspace=(call,send,openLink,canSend)=>{
  let active=false,refreshEpoch=0,selection=0,row=null,sending=false,videoIntent=null;
  const invoke=(action,args={})=>call('wce.ui.video.workspace',{action,...args});
  const sunoLibrary=$('sunoLibrary'),sunoPlayer=$('sunoPlayer');
+ const ace=OAAcePanel(invoke,request,openLink,()=>{stopSuno();clear();});
+ const musicChoice=$('musicProviderChoice'),musicSave=$('musicProviderSave'),musicStatus=$('musicProviderStatus');
+ let musicEpoch=0,musicBusy=false,musicRecord=null;
+ function musicControls(){
+   musicChoice.disabled=musicBusy||!musicRecord;
+   musicSave.disabled=musicBusy||!musicRecord||musicChoice.value===musicRecord.provider;
+ }
+ function showMusic(value){
+   musicRecord=value?.state==='READY'&&['suno','ace-music'].includes(value.provider)&&Number.isSafeInteger(value.revision)?value:null;
+   musicChoice.value=musicRecord?.provider||'';
+   musicControls();
+ }
+ async function syncMusic(change=null){
+   if(musicBusy)return;
+   const capture=++musicEpoch;
+   musicBusy=true;musicControls();
+   const current=()=>active&&capture===musicEpoch;
+   OAUI.set(musicStatus,change?'正在保存默认供应商…':'正在读取默认供应商…');
+   try{
+     let value;
+     try{
+       value=change?await invoke('music_provider_save',change):await invoke('music_provider_read');
+     }catch(error){
+       if(!change||!current())throw error;
+       value={...await invoke('music_provider_read'),save_status:'FAILED'};
+     }
+     if(!current())return;
+     showMusic(value);
+     if(!musicRecord)OAUI.set(musicStatus,'无法确认本机默认供应商。');
+     else if(value.save_status==='STALE')OAUI.set(musicStatus,'其他窗口已改动。已显示本机当前选择。');
+     else if(value.save_status==='FAILED')OAUI.set(musicStatus,'保存未确认。已显示本机当前选择。');
+     else if(change)OAUI.set(musicStatus,'已保存到本机');
+     else OAUI.set(musicStatus,'');
+   }catch(_){
+     if(current()){showMusic(null);OAUI.set(musicStatus,'无法确认本机默认供应商。');}
+   }finally{
+     if(current()){musicBusy=false;musicControls();}
+   }
+ }
+ musicChoice.onchange=musicControls;
+ musicSave.onclick=event=>{
+   if(event.isTrusted&&active&&!musicSave.disabled)void syncMusic({provider:musicChoice.value,expected_revision:musicRecord.revision});
+ };
+ function refreshMusicOnFocus(){
+   if(active&&!document.hidden&&!musicBusy&&(!musicRecord||musicChoice.value===musicRecord.provider))void syncMusic();
+ }
+ window.addEventListener('focus',refreshMusicOnFocus);
+ document.addEventListener('visibilitychange',refreshMusicOnFocus);
  let sunoEpoch=0,sunoActivity=0,sunoHandle='',sunoCursor='',sunoNext='',sunoDownloaded=false;
  function stopSuno(){
    sunoActivity++;sunoPlayer.pause();sunoPlayer.removeAttribute('src');sunoPlayer.load();sunoPlayer.hidden=true;
@@ -182,7 +269,7 @@ const OAAudioWorkspace=(call,send,openLink,canSend)=>{
  }
  async function playSuno(track){
    if(!active||!sunoDownloaded||!sunoHandle)return;
-   clear();stopSuno();
+   clear();ace.stop();stopSuno();
    const epoch=sunoEpoch,activity=sunoActivity;
    const current=()=>active&&epoch===sunoEpoch&&activity===sunoActivity;
    OAUI.set($('sunoPlaybackState'),'正在准备播放…');
@@ -274,7 +361,7 @@ const OAAudioWorkspace=(call,send,openLink,canSend)=>{
  }
  function fields(asset){return {project_id:asset.project_id,attempt_id:asset.attempt_id};}
  async function preview(asset){
-   stopSuno();clear();row=asset;const id=selection;const player=asset.kind==='song'?audio:movie;
+   stopSuno();ace.stop();clear();row=asset;const id=selection;const player=asset.kind==='song'?audio:movie;
    $('audioEmptyPreview').hidden=true;
    for(const button of list.querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.dataset.attempt===asset.attempt_id));
    OAUI.raw($('audioTitle'),assetName(asset));
@@ -335,8 +422,9 @@ const OAAudioWorkspace=(call,send,openLink,canSend)=>{
        const time=document.createElement('span'),action=document.createElement('span'),charge=document.createElement('span');
        OAUI.raw(time,readableDate(asset.created_at));
        const operation=asset.kind==='song'?'导入音频':asset.kind==='cover'?'生成封面视频':'视频混音';
-       OAUI.set(action,'{0} · {1}',asset.provider==='suno'?'Suno':OAUI.message('本机'),OAUI.message(operation));
-       OAUI.set(charge,asset.provider==='suno'?'单笔用量未提供':'本地处理');
+       const provider={suno:'Suno','ace-music':'ACE Music'}[asset.provider];
+       OAUI.set(action,'{0} · {1}',provider||OAUI.message('本机'),OAUI.message(operation));
+       OAUI.set(charge,provider?'单笔用量未提供':'本地处理');
        details.append(time,action,charge);item.append(heading,details);recent.append(item);
      }
      for(const asset of history.assets){
@@ -363,11 +451,18 @@ const OAAudioWorkspace=(call,send,openLink,canSend)=>{
  $('audioCreate').onclick=()=>{
    void request('帮我构思一首 Suno 歌曲。先询问主题或沿当前聊天的 brief；保存歌曲方案和独立的标题、风格、歌词、人声字段。仅在本轮明确授权时调用官方 audio-create。需要保存成片时调用 media.library.prepare，使用统一媒体库；已明确账号时用实际平台和连接 ID 标记，未指定就留空。');
  };
- $('audioScore').onclick=()=>{
-   const context=videoIntent?' 已选视频项目 '+videoIntent.project+'，原视频任务 '+videoIntent.attempt+'。':'';
-   void request('帮我给视频配乐。请从当前聊天选定原视频与歌曲，确认需要的节奏、音量和淡入淡出。沿现有原素材任务 ID，使用统一音频库和 audio.project.mix；跨项目素材用各自真实项目 ID。缺少选定素材时询问，不发起付费生成。'+context);
- };
+ $('musicCreateDefault').onclick=()=>void request(OAMusicRequest('song'),$('musicProviderRequest'));
+ $('musicScoreDefault').onclick=()=>void request(OAMusicRequest('score',videoIntent),$('musicProviderRequest'));
  $('audioReload').onclick=()=>{stopSuno();void refresh();};
+ function selectProvider(value){
+   const dashboard=$('audioWorkspace').querySelector('.oa-audio-dashboard');
+   if(dashboard.dataset.providerView!==value){stopSuno();ace.stop();}
+   dashboard.dataset.providerView=value;
+   $('audioProviderSuno').setAttribute('aria-pressed',String(value==='suno'));
+   $('audioProviderAce').setAttribute('aria-pressed',String(value==='ace'));
+ }
+ $('audioProviderSuno').onclick=()=>selectProvider('suno');
+ $('audioProviderAce').onclick=()=>selectProvider('ace');
  download.onclick=async event=>{
    if(!event.isTrusted||!row||download.disabled)return;
    const id=selection,asset=row;download.disabled=true;
@@ -381,10 +476,12 @@ const OAAudioWorkspace=(call,send,openLink,canSend)=>{
  };
  return {open(intent,{providerOnly=false}={}){
    videoIntent=intent&&typeof intent==='object'&&intent.project&&intent.attempt?intent:null;
-   active=true;if(!providerOnly)void refresh();sunoButtons(false);showSunoTracks(null);
+   active=true;if(!providerOnly)void refresh();sunoButtons(false);showSunoTracks(null);ace.open();
+   showMusic(null);void syncMusic();
    OAUI.set($('sunoState'),'点击「刷新 Suno」读取已有连接。');
  },close(){
-   active=false;refreshEpoch++;sunoEpoch++;stopSuno();clear();
+   active=false;refreshEpoch++;sunoEpoch++;musicEpoch++;musicBusy=false;showMusic(null);stopSuno();ace.close();clear();
+   OAUI.set($('musicProviderRequest'),'');
    sunoHandle='';sunoCursor='';sunoDownloaded=false;videoIntent=null;
    $('sunoInfo').hidden=true;sunoLibrary.hidden=true;sunoLibrary.open=false;
    OAUI.raw($('sunoAccount'),'');showSunoUsage(null);showSunoTracks(null);

@@ -11,10 +11,10 @@
 
 ## 先保全旧缓存再升级
 
-0.6.80 的更新进程可能拒绝安装目录中由 Python 产生的缓存，并报 `UPDATE_PACKAGE_INVALID`。从已核对的正式发行固定标签将源码检出到独立目录，核对其中的运行文件和清单，运行 `scripts/upgrade_existing.py`。参数使用官方清单查到的原插件 ID 和该次稳定版版本。以核对 0.6.85 为正式目标、原市场为专属公开市场为例：
+0.6.80 的更新进程可能拒绝安装目录中由 Python 产生的缓存，并报 `UPDATE_PACKAGE_INVALID`。从已核对的正式发行固定标签将源码检出到独立目录，核对其中的运行文件和清单，运行 `scripts/upgrade_existing.py`。参数使用官方清单查到的原插件 ID 和该次稳定版版本。以核对 0.6.86 为正式目标、原市场为专属公开市场为例：
 
 ```sh
-python3 -I -B scripts/upgrade_existing.py --plugin-id wechat-ecosystem@openahoy-distribution --version 0.6.85
+python3 -I -B scripts/upgrade_existing.py --plugin-id wechat-ecosystem@openahoy-distribution --version 0.6.86
 ```
 
 命令适用于专属公开市场和已支持的本机共享市场。共享市场使用实际查到的原插件 ID。恢复程序复用同一套更新锁、包验证和回执，调用官方 Codex CLI 更新原槽。遇到可归因的 Python 缓存时，原目录会原样保存在 Codex 数据目录的 `plugins/openahoy-retained-cache` 下。回退使用校验过的干净软件。看到未知结果时先查原回执和官方安装清单。
@@ -27,4 +27,6 @@ python3 -I -B scripts/upgrade_existing.py --plugin-id wechat-ecosystem@openahoy-
 - **共享市场**。由该市场维护者只更新 OpenAhoy 一条来源，既有名称和其他插件保持不变。使用维护者更新后的源，再通过官方 Codex 对原 `wechat-ecosystem@原市场名` 安装一次。用户维护的本机市场可将这一条指向已完整核验、保留在市场根内的插件源目录，也可以使用固定公开 tag 和 Git SHA 的 `git-subdir`，插件路径为 `plugins/wechat-ecosystem`。保留原条目供回退。共享市场的远端登记沿该市场自己的维护通路更新。
 - **旧私有来源**。旧源固定标签提供同一运行包。先核对原请求、市场和旧安装缓存。缓存存在或无法核实时，使用经核对的公开固定源码和保全入口，先确认当前市场来源受恢复程序支持。私有独占 Git 市场不属于该入口已验证范围，保持原安装并由市场维护者处理原条目或根据本人明确委托迁移到公开来源。保留原市场名、插件 ID 和旧目录。
 
-完成后用官方 plugin list 与标准 MCP 启动回读目标版本，再核对管理页的「当前运行」。回退前先核对升级、排期、令牌刷新和发表的原回执，保留现有账号与业务资料，仅沿相同市场和插件 ID 回退软件到已验证版本。专属公开市场通过官方 marketplace remove / add 切回原固定标签，再为同一插件 ID 执行 plugin add。共享本机市场将原条目指回已验证的干净来源，再安装同一个 ID。0.6.85 的上一公开版为 [0.6.83](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.83)。
+完成后用官方 plugin list 与标准 MCP 启动回读目标版本，再核对管理页的「当前运行」。回退前先核对升级、排期、令牌刷新和发表的原回执，保留现有账号与业务资料，仅沿相同市场和插件 ID 回退软件到已验证版本。专属公开市场通过官方 marketplace remove / add 切回原固定标签，再为同一插件 ID 执行 plugin add。共享本机市场将原条目指回已验证的干净来源，再安装同一个 ID。0.6.86 的上一公开版为 [0.6.85](https://github.com/OpenAhoy/OpenAhoy-Releases/releases/tag/v0.6.85)。
+
+回退到 0.6.85 后，ACE 全局音乐选择与 ACE 音频导入不适用。保留音乐偏好、原供应商、原任务 ID 和授权记录。需要继续这些流程时沿原槽使用 0.6.86。

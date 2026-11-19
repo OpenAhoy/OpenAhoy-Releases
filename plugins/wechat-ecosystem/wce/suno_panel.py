@@ -8,6 +8,7 @@ import select
 import subprocess
 from tempfile import TemporaryDirectory
 from time import monotonic, time
+from typing import NamedTuple
 from urllib.parse import urlsplit
 
 from .contracts import WCEError
@@ -26,56 +27,72 @@ HANDLE = re.compile(r'[A-Za-z0-9_.-]{1,80}')
 READ_TOOLS = frozenset(('account-me', 'account-usage', 'library-list', 'audio-download'))
 
 
-def scoped_configuration():
-    allow = json.dumps(sorted(READ_TOOLS), separators=(',', ':'))
-    return ['-c', f'mcp_servers.suno.url="{ENDPOINT}"',
+class MusicMcp(NamedTuple):
+    name: str
+    endpoint: str
+    code: str
+    tools: frozenset[str]
+
+
+SUNO = MusicMcp(SERVER, ENDPOINT, 'SUNO', READ_TOOLS)
+
+
+def scoped_configuration(connection=SUNO):
+    allow = json.dumps(sorted(connection.tools), separators=(',', ':'))
+    return ['-c', f'mcp_servers.{connection.name}.url="{connection.endpoint}"',
             '-c', 'mcp_oauth_credentials_store="keyring"',
-            '-c', f'mcp_servers.suno.enabled_tools={allow}',
+            '-c', f'mcp_servers.{connection.name}.enabled_tools={allow}',
             '-c', 'features.plugins=false']
 
 
-def require_existing_oauth(binary, scope):
+def require_existing_oauth(binary, scope, connection=SUNO):
     # The CLI list inspects the credential store. It never opens a browser
     # or owns a callback. Check before starting an MCP connection.
     try:
-        process = subprocess.run([str(binary), 'mcp', 'list', *scoped_configuration(), '--json'],
+        process = subprocess.run([str(binary), 'mcp', 'list', *scoped_configuration(connection), '--json'],
                                  cwd=scope, env=dict(os.environ, CODEX_HOME=str(scope)),
                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                  timeout=PRESENCE_TIMEOUT, check=True)
         rows = json.loads(process.stdout)
     except (OSError, ValueError, subprocess.SubprocessError):
-        raise WCEError('SUNO_CODEX_AUTH_CHECK_UNAVAILABLE') from None
+        raise WCEError(f'{connection.code}_CODEX_AUTH_CHECK_UNAVAILABLE') from None
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
-        raise WCEError('SUNO_CODEX_SCOPE_MISMATCH')
+        raise WCEError(f'{connection.code}_CODEX_SCOPE_MISMATCH')
     row = rows[0]
     transport = row.get('transport')
-    if (row.get('name') != SERVER or row.get('enabled') is not True or not isinstance(transport, dict)
-            or transport.get('url') != ENDPOINT):
-        raise WCEError('SUNO_CODEX_SCOPE_MISMATCH')
+    if (row.get('name') != connection.name or row.get('enabled') is not True or not isinstance(transport, dict)
+            or transport.get('url') != connection.endpoint):
+        raise WCEError(f'{connection.code}_CODEX_SCOPE_MISMATCH')
     if row.get('auth_status') != 'o_auth':
-        raise WCEError('SUNO_CODEX_AUTH_REQUIRED')
+        raise WCEError(f'{connection.code}_CODEX_AUTH_REQUIRED')
 
 
-@contextmanager
-def codex_client():
+def codex_binary(connection=SUNO):
     binary = next((path for path in (BUNDLED_CLI, Path('/opt/homebrew/bin/codex'),
                                     Path('/usr/local/bin/codex')) if path.is_file()), None)
     if binary is None:
-        raise WCEError('SUNO_CODEX_CLIENT_UNAVAILABLE')
-    with TemporaryDirectory(prefix='openahoy-suno-client-') as location:
+        raise WCEError(f'{connection.code}_CODEX_CLIENT_UNAVAILABLE')
+    return binary
+
+
+@contextmanager
+def codex_client(connection=SUNO):
+    binary = codex_binary(connection)
+    with TemporaryDirectory(prefix=f'openahoy-{connection.name}-client-') as location:
         # The official Keychain store is independent of CODEX_HOME. A fresh
         # workspace isolates all other registered MCPs, hooks and plugins.
         scope = Path(location).resolve()
-        require_existing_oauth(binary, scope)
-        with scoped_client(binary, scope) as tool:
+        args = () if connection == SUNO else (connection,)
+        require_existing_oauth(binary, scope, *args)
+        with scoped_client(binary, scope, *args) as tool:
             yield tool
 
 
 @contextmanager
-def scoped_client(binary, scope):
+def scoped_client(binary, scope, connection=SUNO):
     deadline = monotonic() + APP_SERVER_TIMEOUT
     process = subprocess.Popen(
-        [str(binary), 'app-server', *scoped_configuration(), '--listen', 'stdio://'],
+        [str(binary), 'app-server', *scoped_configuration(connection), '--listen', 'stdio://'],
         cwd=scope, env=dict(os.environ, CODEX_HOME=str(scope)), stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
     )
@@ -100,40 +117,40 @@ def scoped_client(binary, scope):
                 if reply.get('id') != counter or 'method' in reply:
                     continue
                 if 'result' not in reply:
-                    raise WCEError('SUNO_CODEX_RPC_UNAVAILABLE')
+                    raise WCEError(f'{connection.code}_CODEX_RPC_UNAVAILABLE')
                 return reply['result']
             if len(buffer) >= MAX_RESPONSE:
-                raise WCEError('SUNO_CODEX_RESPONSE_INVALID')
+                raise WCEError(f'{connection.code}_CODEX_RESPONSE_INVALID')
             if not select.select([process.stdout], [], [], max(0, deadline-monotonic()))[0]:
                 break
             payload = os.read(process.stdout.fileno(), 65536)
             if not payload:
-                raise WCEError('SUNO_CODEX_RPC_UNAVAILABLE')
+                raise WCEError(f'{connection.code}_CODEX_RPC_UNAVAILABLE')
             buffer += payload
-        raise WCEError('SUNO_CODEX_READ_TIMEOUT')
+        raise WCEError(f'{connection.code}_CODEX_READ_TIMEOUT')
 
     try:
-        rpc('initialize', {'clientInfo': {'name': 'openahoy-suno-panel', 'version': '1'},
+        rpc('initialize', {'clientInfo': {'name': f'openahoy-{connection.name}-panel', 'version': '1'},
                            'capabilities': {'experimentalApi': True}})
         rpc('initialized', {}, notify=True)
         thread = rpc('thread/start', {'cwd': str(scope), 'ephemeral': True,
                                      'approvalPolicy': 'never', 'sandbox': 'read-only'})['thread']['id']
         response = rpc('mcpServerStatus/list', {'detail': 'full', 'threadId': thread})
         rows = response['data']
-        if [row.get('name') for row in rows] != [SERVER]:
-            raise WCEError('SUNO_CODEX_SCOPE_MISMATCH')
+        if [row.get('name') for row in rows] != [connection.name]:
+            raise WCEError(f'{connection.code}_CODEX_SCOPE_MISMATCH')
         server = rows[0]
-        if not set(server.get('tools', {})) <= READ_TOOLS:
-            raise WCEError('SUNO_CODEX_SCOPE_MISMATCH')
+        if not set(server.get('tools', {})) <= connection.tools:
+            raise WCEError(f'{connection.code}_CODEX_SCOPE_MISMATCH')
         if server.get('authStatus') != 'oAuth':
-            raise WCEError('SUNO_CODEX_AUTH_REQUIRED')
+            raise WCEError(f'{connection.code}_CODEX_AUTH_REQUIRED')
 
         def tool(name, args):
-            if name not in READ_TOOLS or (name == 'audio-download' and set(args) != {'id', 'format'}):
-                raise WCEError('SUNO_CODEX_TOOL_NOT_ALLOWED')
+            if name not in connection.tools or (name == 'audio-download' and set(args) != {'id', 'format'}):
+                raise WCEError(f'{connection.code}_CODEX_TOOL_NOT_ALLOWED')
             if name not in server.get('tools', {}):
-                raise WCEError('SUNO_CODEX_TOOL_UNAVAILABLE')
-            reply = rpc('mcpServer/tool/call', {'threadId': thread, 'server': SERVER, 'tool': name, 'arguments': args})
+                raise WCEError(f'{connection.code}_CODEX_TOOL_UNAVAILABLE')
+            reply = rpc('mcpServer/tool/call', {'threadId': thread, 'server': connection.name, 'tool': name, 'arguments': args})
             if not reply.get('isError'):
                 data = reply.get('structuredContent')
                 if isinstance(data, dict):
@@ -143,11 +160,12 @@ def scoped_client(binary, scope):
                         data = json.loads(block['text'])
                         if isinstance(data, dict):
                             return data
-            raise WCEError('SUNO_TOOL_READ_FAILED')
+            raise WCEError(f'{connection.code}_TOOL_READ_FAILED')
 
+        tool.catalog = server.get('tools', {})
         yield tool
     except (OSError, ValueError, TypeError, KeyError):
-        raise WCEError('SUNO_CODEX_RESPONSE_INVALID') from None
+        raise WCEError(f'{connection.code}_CODEX_RESPONSE_INVALID') from None
     finally:
         if process.poll() is None:
             process.terminate()

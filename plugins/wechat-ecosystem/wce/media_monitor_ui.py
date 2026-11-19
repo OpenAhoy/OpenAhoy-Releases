@@ -5,7 +5,7 @@ HTML = '''
 <section id="mediaMonitor">
  <header class="mm-toolbar">
   <h1 id="monitorTitle" tabindex="-1">媒体工坊</h1>
-  <button id="monitorRefresh" type="button">刷新</button><button id="monitorSunoJump" type="button" hidden>Suno</button><button id="monitorSettings" type="button">供应商设置</button>
+  <button id="monitorRefresh" type="button">刷新</button><button id="monitorSunoJump" type="button" hidden>音频供应商</button><button id="monitorSettings" type="button">供应商设置</button>
  </header>
  <div class="mm-toolbar">
   <nav id="monitorFilters" aria-label="媒体类型"><button type="button" data-kind="all">全部</button><button type="button" data-kind="video">视频</button><button type="button" data-kind="audio">音频</button><button type="button" data-kind="gif">动图</button></nav>
@@ -85,10 +85,17 @@ STYLE = '''
 #monitorListBack{display:none}
 #monitorSuno{margin-top:8px}
 #monitorSuno .oa-audio-card{padding:7px}
+#monitorSuno .oa-audio-local{display:none}
 #monitorSuno summary{min-height:32px;padding-block:5px;cursor:pointer}
 #monitorSuno .oa-audio-heading,#monitorSuno .oa-audio-monitor,#monitorSuno .oa-audio-section-heading,
-#monitorSuno :is(#audioActionNotice,#audioCopy,#audioList,#audioEmpty,#audioTitle,#audioEmptyPreview,#audioNotice){display:none!important}
-#monitorSuno :is(.oa-audio-dashboard,.oa-audio-workspace){display:grid;grid-template-columns:minmax(0,1fr);gap:4px}
+#monitorSuno :is(#audioActionNotice,#audioList,#audioEmpty,#audioTitle,#audioEmptyPreview,#audioNotice){display:none!important}
+#monitorSuno{container-type:inline-size}
+#monitorSuno :is(.oa-audio-dashboard,.oa-audio-workspace){display:grid;grid-template-columns:minmax(0,1fr);gap:6px}
+@container (min-width:540px){#monitorSuno .oa-audio-dashboard{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container (width < 540px){
+ #monitorSuno .oa-audio-provider-nav{display:flex}
+ #monitorSuno :is([data-provider-view=suno] #audioAceCard,[data-provider-view=ace] #audioSunoCard){display:none}
+}
 #monitorSuno .oa-audio-preview:has(#sunoPlayer[hidden]):has(#sunoPlaybackState:empty){display:none}
 @media(max-width:690px){
  .mm-columns{display:block}
@@ -322,7 +329,7 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
        const line=element('div','mm-relation');
        if(rel.provider==='suno'){const logo=element('img');logo.src='data:image/x-icon;base64,__SUNO_BRAND__';logo.alt='';line.append(logo);}
        const text=element('div','mm-text');
-       text.append(raw('strong',[rel.provider==='suno'?'Suno':rel.provider,rel.target.title].filter(Boolean).join(' · ')));
+       text.append(raw('strong',[({suno:'Suno','ace-music':'ACE Music'}[rel.provider]||rel.provider),rel.target.title].filter(Boolean).join(' · ')));
        if(interval(rel))text.append(label('small','{0}',interval(rel)));
        line.append(text,button('试听',()=>jump(rel.target,true)),button('查看音频',()=>jump(rel.target,false)));
        section.append(line);
@@ -435,7 +442,19 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
        typeof asset.seconds==='number'?message('{0} 秒',fmt(asset.seconds)):null,
        typeof (asset.frames??asset.frame_count)==='number'?message('{0} 帧',fmt(asset.frames??asset.frame_count)):null].filter(Boolean);
      meter.append(label('span','{0}',properties));
-     const save=button('下载原文件',event=>void download(event,row,save));save.setAttribute('aria-live','polite');meter.append(save);body.append(meter);
+     const save=button('下载原文件',event=>void download(event,row,save));save.setAttribute('aria-live','polite');meter.append(save);
+     if(row.kind==='video'){
+       const score=button('生成配乐',async()=>{
+         const instruction=OAMusicRequest('score',{project:row.project,attempt:row.attempt});
+         try{await sendChat(instruction);OAUI.set(score,'已发到当前 Codex 聊天。');}
+         catch(_){
+           const copy=element('textarea');copy.readOnly=true;copy.value=instruction;OAUI.attr(copy,'aria-label','复制 Codex 指令');
+           meter.append(copy);copy.focus();copy.select();
+         }
+       });
+       meter.append(score);
+     }
+     body.append(meter);
    }else body.append(label('p',stageName[row.state]||'记录状态待核实'));
    relationships(row);facts(row);
  }
@@ -483,7 +502,10 @@ function OAMediaMonitor(invoke, sendChat, activateSettings, activateSuno){
  $('monitorRelationBack').onclick=restore;
  $('monitorSunoJump').onclick=()=>{
    root.dataset.detail='true';renderDetail();
-   $('sunoRefresh').focus({preventScroll:true});$('monitorSuno').scrollIntoView({block:'start'});
+   const current=$('audioProviderAce').getAttribute('aria-pressed')==='true'?'audioProviderAce':'audioProviderSuno';
+   const control=$(current);
+   (control.getClientRects().length?control:$('sunoRefresh')).focus({preventScroll:true});
+   $('monitorSuno').scrollIntoView({block:'start'});
  };
  narrow.addEventListener('change',()=>{if(active)renderDetail();});
  $('monitorRefresh').onclick=()=>void refresh();
