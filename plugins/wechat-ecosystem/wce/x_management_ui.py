@@ -11,9 +11,6 @@ HTML = '''<style>
 .oa-x-app-fields,.oa-x-balance{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:8px}
 .oa-x-app-fields input{box-sizing:border-box;width:100%}.oa-x-balance>div{padding:8px 10px;border-radius:8px;background:var(--tint)}
 .oa-x-balance dt{color:var(--muted);font-size:12px}.oa-x-balance dd{margin:4px 0 0;font-weight:600;font-variant-numeric:tabular-nums}
-.oa-x-card-line{display:flex;align-items:center;white-space:nowrap;font-size:11px;line-height:1.45;color:var(--muted)}
-.oa-x-card-line span{flex:none;color:var(--ink)}
-.oa-management .oa-x-card-line button.oa-x-developer-link{border:0;background:transparent;box-shadow:none;padding:0;margin:0;min-height:24px;min-width:0;overflow:hidden;text-overflow:ellipsis;color:inherit;font:inherit;text-decoration:underline;text-underline-offset:2px}
 .oa-x-developer{padding:10px 12px;border-radius:12px;background:var(--oa-fill,var(--bg));margin-bottom:6px}
 .oa-x-developer h3,.oa-x-developer p{margin:0 0 7px}
 .oa-x-developer .actions{display:flex;gap:6px;flex-wrap:wrap}

@@ -9,6 +9,9 @@ SCRIPT = r'''
 (() => {
  'use strict';
  const $=id=>document.getElementById(id),bridge=window.parent,pending=new Map();
+ const accountPanel=$('accountPanel'),accountList=$('accounts'),platformNavigation=$('platformNavigation');
+ const compactAccounts=matchMedia('(max-width:560px)');
+ let accountsExpanded=false,renderedAccounts=[];
  const floatingMenus='details.oa-more-settings[open],details.oa-account-menu[open],details.oa-task-menu[open]';
  function closeFloatingMenus(except=null){
    for(const menu of document.querySelectorAll(floatingMenus))if(menu!==except)menu.open=false;
@@ -16,11 +19,15 @@ SCRIPT = r'''
  document.addEventListener('click',event=>{
    const path=event.composedPath();
    for(const menu of document.querySelectorAll(floatingMenus))if(!path.includes(menu))menu.open=false;
+   if(accountPanel.matches(':popover-open')&&!path.includes(accountPanel)&&!path.includes(platformButton())){
+     closeAccountNavigation();
+   }
  },true);
  document.addEventListener('keydown',event=>{
    if(event.key!=='Escape'||event.defaultPrevented||document.querySelector('dialog[open]'))return;
-   const menu=document.querySelector(floatingMenus);if(!menu)return;
-   event.preventDefault();closeFloatingMenus();menu.querySelector(':scope > summary')?.focus();
+   const menu=document.querySelector(floatingMenus);
+   if(menu){event.preventDefault();closeFloatingMenus();menu.querySelector(':scope > summary')?.focus();return;}
+   if(accountPanel.matches(':popover-open')){event.preventDefault();closeAccountNavigation({focus:true});}
  });
  mountOpenAhoyHints();
  const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.workspace','video.director.read','video.director.edit','wce.ui.video.director.media','wce.ui.wechat.storage_recovery','wce.ui.wechat.analytics']);
@@ -183,7 +190,7 @@ SCRIPT = r'''
  }
  function showSettings(id){
    const p=platform(id),editor=editors.get(id),supported=!!p?.settings_supported&&!!editor;
-   if(p&&!platformName(id))OAUI.raw($('pageTitle'),p.name);else OAUI.set($('pageTitle'),p?platformName(id):id?'平台暂不可用':'选择平台');
+   paintAccountHeader();
    if(p&&platformName(id))OAUI.set($('platformHelp'),p.settings_help||'');else OAUI.raw($('platformHelp'),p?.settings_help||'');$('unsupportedSettings').hidden=supported;
    for(const el of document.querySelectorAll('#settingsPanel [data-platform-id]'))el.hidden=!supported||el.dataset.platformId!==id;
    $('xSettings').hidden=id!=='x';if(id==='x')$('unsupportedSettings').hidden=true;
@@ -193,14 +200,17 @@ SCRIPT = r'''
    if(contextOpen){$('wechatSettings').hidden=true;$('xSettings').hidden=true;$('xhsSettings').hidden=true;$('unsupportedSettings').hidden=true;}
    return supported;
  }
- async function selectPlatform(id,focus=false){
-   showMedia('');const intent=++platformEpoch;navigationEpoch++;closeXTools();activePlatform=id;
+ async function selectPlatform(id,{focus,user}){
+   showMedia('');const intent=++platformEpoch;selectEpoch++;selectionIntent++;navigationEpoch++;
+   closeXTools();activePlatform=id;
+   accountsExpanded=user||!compactAccounts.matches;
+   paintAccountHeader();
    if(isWechat())wechatPage='monitor';
    renderView();renderPlatforms();await renderAccounts();if(closed||intent!==platformEpoch||view!=='platform'||activePlatform!==id)return;showSettings(id);
    if(id==='x'&&ready&&!contextOpen)xManagement.activate();else xManagement.deactivate();
    if(id==='xiaohongshu'&&ready&&!contextOpen)xhsManagement.activate();else xhsManagement.deactivate();
    $('xCapabilities').hidden=id!=='x';
-   if(focus)for(const el of $('platformNavigation').children)if(el.dataset.platformId===id)el.focus();
+   if(focus)platformButton()?.focus();
  }
  function avatar(row){
    const box=document.createElement('div');box.className='avatar';box.setAttribute('aria-label',name(row)+'，未设置头像');const a=row.presentation?.avatar;
@@ -314,12 +324,12 @@ SCRIPT = r'''
    $('accountRecoveryAsk').disabled=true;
    await storageRecovery(row,'confirm');
  };
- function accountMenu(row){
+ function accountMenu(row,bindingAvailable){
    const menu=document.createElement('details'),toggle=document.createElement('summary');
    const actions=document.createElement('div'),rebind=document.createElement('button'),remove=document.createElement('button');
    menu.className='oa-account-menu';
    toggle.textContent='⋯';toggle.dataset.oaHint='';OAUI.attr(toggle,'aria-label','{0} 的更多操作',name(row)||row.account_id);
-   remove.type='button';OAUI.set(remove,'移除账号');
+   remove.type='button';remove.className='oa-account-remove';OAUI.set(remove,'移除账号');
    remove.onclick=()=>{
      if(!ready||closed||refreshing||removing||activePlatform!==row.platform_id)return;
      if(!rows.some(item=>key(item)===key(row)&&item.account_id===row.account_id&&item.binding_revision===row.binding_revision))return;
@@ -338,7 +348,7 @@ SCRIPT = r'''
      if(row.platform_id==='xiaohongshu')return xhsManagement.reconnect(row.connection_id);
      await openXAuthorization(true);
    };
-   if(canEditName(row)){
+   if(bindingAvailable&&canEditName(row)){
      const edit=document.createElement('button');edit.type='button';OAUI.set(edit,'编辑显示名称');
      edit.onclick=event=>{
        if(!event.isTrusted||refreshing||!currentNameTarget(row))return;
@@ -348,53 +358,62 @@ SCRIPT = r'''
      };
      actions.append(edit);
    }
-   actions.append(rebind,remove);menu.append(toggle,actions);
-   if(row.platform_id==='wechat_official_account')bindWechatPopover(menu);
+   if(row.platform_id==='x'){
+     const developer=document.createElement('button');developer.type='button';
+     OAUI.raw(developer,'X Developer Console');
+     developer.onclick=()=>{menu.open=false;void openXDeveloper(row);};
+     actions.append(developer);
+   }
+   if(bindingAvailable)actions.append(rebind,remove);
+   menu.append(toggle,actions);
+   bindWorkspacePopover(menu);
    return menu;
  }
- function placeWechatPopover(anchor,popup){
+ function placeWorkspacePopover(anchor,popup,{size=224,start=false,limit=Infinity}={}){
    const box=anchor.getBoundingClientRect(),root=document.documentElement;
-   const width=Math.min(224,root.clientWidth-16);
-   const left=Math.max(8,Math.min(root.clientWidth-width-8,box.right-width));
+   const width=Math.min(size,root.clientWidth-16);
+   const left=Math.max(8,Math.min(root.clientWidth-width-8,start?box.left:box.right-width));
    const below=root.clientHeight-box.bottom-12,above=box.top-12;
    const down=below>=Math.min(popup.scrollHeight,180)||below>=above;
-   Object.assign(popup.style,{width:width+'px',left:left+'px',maxHeight:Math.max(48,down?below:above)+'px',
+   Object.assign(popup.style,{width:width+'px',left:left+'px',maxHeight:Math.min(limit,Math.max(48,down?below:above))+'px',
      top:down?box.bottom+4+'px':'auto',bottom:down?'auto':root.clientHeight-box.top+4+'px'});
  }
- function unmountWechatPopover(popup){
+ function unmountWorkspacePopover(popup){
    if(!popup.hasAttribute('popover'))return;
    if(popup.matches(':popover-open'))popup.hidePopover();
-   popup.removeAttribute('popover');popup.classList.remove('oa-wechat-popover');
+   popup.removeAttribute('popover');popup.classList.remove('oa-workspace-popover');
    for(const property of ['width','left','max-height','top','bottom'])popup.style.removeProperty(property);
  }
- function bindWechatPopover(details){
+ function bindWorkspacePopover(details){
    const anchor=details.querySelector(':scope > summary'),popup=details.querySelector(':scope > div');
    details.addEventListener('toggle',()=>{
-     if(details.open&&isWechat()&&typeof popup.showPopover==='function'){
+     if(details.open&&view==='platform'&&typeof popup.showPopover==='function'){
        popup.setAttribute('popover','manual');
-       popup.classList.add('oa-wechat-popover');
+       popup.classList.add('oa-workspace-popover');
        if(!popup.matches(':popover-open'))popup.showPopover();
-       placeWechatPopover(anchor,popup);
-     }else unmountWechatPopover(popup);
+       placeWorkspacePopover(anchor,popup);
+     }else unmountWorkspacePopover(popup);
    });
  }
- bindWechatPopover(document.querySelector('#accountPanel details.oa-more-settings'));
- addEventListener('resize',()=>{if(isWechat())closeFloatingMenus();});
- const compactWechat=matchMedia('(max-width:560px)');
+ bindWorkspacePopover(document.querySelector('#accountTools details.oa-more-settings'));
+ addEventListener('resize',()=>{if(view==='platform'){closeFloatingMenus();syncAccountNavigation();}});
+ accountList.addEventListener('scroll',()=>closeFloatingMenus(),{passive:true});
+ accountPanel.addEventListener('scroll',()=>closeFloatingMenus(),{passive:true});
+ const compactUpdates=matchMedia('(max-width:799px), (max-height:740px)');
  const updateToggle=$('wechatCompactUpdates'),updateSlot=$('softwareUpdateSlot');
- function syncWechatUpdates(){
-   const compact=isWechat()&&$('inlineBinding').hidden&&compactWechat.matches&&typeof updateSlot.showPopover==='function';
+ function syncPlatformUpdates(){
+   const compact=view==='platform'&&compactUpdates.matches&&typeof updateSlot.showPopover==='function';
    updateToggle.hidden=!compact;
    const sidebar=updateSlot.parentElement,support=sidebar.querySelector('.oa-support-links');
    if(compact&&!updateSlot.hasAttribute('popover')){
-     updateSlot.setAttribute('popover','auto');updateSlot.classList.add('oa-wechat-popover');
-   }else if(!compact)unmountWechatPopover(updateSlot);
+     updateSlot.setAttribute('popover','auto');updateSlot.classList.add('oa-workspace-popover');
+   }else if(!compact)unmountWorkspacePopover(updateSlot);
    if(support&&support.parentElement!==(compact?updateSlot:sidebar))(compact?updateSlot:sidebar).append(support);
  }
- compactWechat.addEventListener('change',syncWechatUpdates);
+ compactUpdates.addEventListener('change',syncPlatformUpdates);
  updateToggle.onclick=()=>{
    if(updateSlot.matches(':popover-open'))updateSlot.hidePopover();
-   else{updateSlot.showPopover();placeWechatPopover(updateToggle,updateSlot);}
+   else{closeAccountNavigation({compactOnly:true});updateSlot.showPopover();placeWorkspacePopover(updateToggle,updateSlot);}
  };
  updateSlot.addEventListener('toggle',()=>updateToggle.setAttribute('aria-expanded',String(updateSlot.matches(':popover-open'))));
  $('accountRemoveCancel').onclick=()=>removalDialog.close();
@@ -427,50 +446,36 @@ SCRIPT = r'''
      }
    }
  };
- function card(row,choose=false){
-   const el=document.createElement('div');el.className='account';el.style.display='flex';el.dataset.accountKey=key(row);
-   const body=document.createElement('div');body.style.minWidth='0';const title=document.createElement(choose?'button':'strong');title.className=choose?'account-select':'account-title';const display=row.recovery?row.label:name(row);if(display)OAUI.raw(title,display);else OAUI.set(title,'账号资料暂不可用');if(choose)title.dataset.oaOverflow='';
-   if(choose){el.tabIndex=0;el.setAttribute('role','option');el.addEventListener('click',e=>{if(!e.target.closest('button,a,summary,.oa-account-menu')){selectionIntent++;select(key(row));}});el.addEventListener('keydown',e=>{if(e.target===el&&['Enter',' '].includes(e.key)){e.preventDefault();selectionIntent++;select(key(row));}});title.setAttribute('aria-pressed',String(key(row)===selected));title.addEventListener('click',()=>{selectionIntent++;select(key(row));});}
-   const attribution=document.createElement('span');attribution.className='help';attribution.style.display='block';if(platformName(row.platform_id))OAUI.set(attribution,platformName(row.platform_id));else OAUI.raw(attribution,platform(row.platform_id)?.name||'');
-   const state=document.createElement('span');state.className='status'+(['CONNECTED','BOUND','BOUND_IDLE'].includes(row.state)?' good':'');OAUI.set(state,accountState(row));
-   if(row.platform_id==='x'){
-    el.classList.add('oa-x-account');
-    body.append(title,xCardLine('X','oa-x-oauth-state'),xCardLine('X Developer Console','oa-x-console-state',choose?row:null));
-   }else body.append(title,attribution,state);
-   body.className='oa-account-copy';el.append(avatar(row),body);
-   if(choose&&row.account_id&&/^[a-f0-9]{64}$/.test(row.binding_revision)&&row.error!=='CONNECTION_ENTRY_UNAVAILABLE')el.append(accountMenu(row));
-   else if(choose&&row.platform_id==='wechat_official_account'&&row.recovery)el.append(recoveryAction(row));
-   if(row.platform_id==='x')updateXCard(el,row);
+ function accountCard(row){
+   const el=document.createElement('div'),pick=document.createElement('button');
+   const label=document.createElement('span'),title=document.createElement('strong'),state=document.createElement('small');
+   const id=key(row),display=row.recovery?row.label:name(row);
+   el.className='account';el.dataset.accountKey=id;
+   pick.type='button';pick.className='account-select';pick.setAttribute('aria-controls','nativeWorkspace');
+   title.dataset.oaOverflow='';
+   if(display)OAUI.raw(title,display);else OAUI.set(title,'账号资料暂不可用');
+   const connected=['CONNECTED','BOUND','BOUND_IDLE'].includes(row.state);
+   state.className='status'+(connected?' good':'');
+   OAUI.set(state,row.platform_id==='x'&&connected?'已连接':accountState(row));
+   label.className='oa-account-copy';
+   label.append(title,state);
+   const photo=avatar(row);photo.setAttribute('aria-hidden','true');
+   pick.append(photo,label);
+   pick.onclick=async()=>{
+     const intent=++selectionIntent;
+     await select(id);
+     if(intent===selectionIntent&&id===selected)closeAccountNavigation({compactOnly:true,focus:true});
+   };
+   el.append(pick);
+   const canManage=row.account_id&&/^[a-f0-9]{64}$/.test(row.binding_revision)&&row.error!=='CONNECTION_ENTRY_UNAVAILABLE';
+   if(canManage||row.platform_id==='x')el.append(accountMenu(row,canManage));
+   else if(row.platform_id==='wechat_official_account'&&row.recovery)el.append(recoveryAction(row));
    return el;
  }
- function xCardLine(label,className,row){
-   const line=document.createElement('span'),value=document.createElement('span');
-   line.className='oa-x-card-line';value.className=className;
-   if(row){
-     const button=document.createElement('button');button.type='button';button.className='oa-x-developer-link';
-     OAUI.raw(button,label);OAUI.attr(button,'aria-label','{0} 的 X 开发者设置',name(row)||row.username||row.account_id||'X');
-     button.onclick=()=>openXDeveloper(row);line.append(button,'\u00a0·\u00a0',value);
-   }else line.append(label+' · ',value);
-   return line;
- }
- function xDeveloperState(row,compact=false){
+ function xDeveloperState(row){
    const state=xManagement?.pendingAuthorization(row.connection_id)?'NEEDS_AUTHORIZATION':row.own_application;
-   const labels=compact
-    ?{CONNECTED:'已连接',NEEDS_AUTHORIZATION:'待授权',UNCONFIGURED:'未配置'}
-    :{CONNECTED:'开发者应用已接入',NEEDS_AUTHORIZATION:'待完成 X 授权',UNCONFIGURED:'自有应用未配置'};
+   const labels={CONNECTED:'开发者应用已接入',NEEDS_AUTHORIZATION:'待完成 X 授权',UNCONFIGURED:'自有应用未配置'};
    return labels[state]||'状态待核对';
- }
- function updateXCard(el,row){
-   const oauth=el.querySelector('.oa-x-oauth-state'),app=el.querySelector('.oa-x-console-state');
-   OAUI.set(oauth,row.state==='BOUND_IDLE'?'已连接':row.state==='ACTION_REQUIRED'&&row.account_id?'待授权':'状态待核对');
-   OAUI.set(app,xDeveloperState(row,true));
- }
- function updateXCards(){
-   for(const el of $('accounts').querySelectorAll('.oa-x-account')){
-    const row=rows.find(item=>key(item)===el.dataset.accountKey);
-    if(row)updateXCard(el,row);
-   }
-   updateXDeveloper();
  }
  async function select(id){
    const selecting={platform:activePlatform};
@@ -479,11 +484,12 @@ SCRIPT = r'''
    finally{if(pendingSelection===selecting)pendingSelection=null;}
  }
  async function selectAccount(id){
-   const requested=rows.find(row=>key(row)===id),token=++selectEpoch;
+   const platformId=activePlatform,token=++selectEpoch;
+   const requested=rows.find(row=>row.platform_id===platformId&&key(row)===id);
    let target=requested;
    const editor=editors.get(requested?.platform_id||activePlatform);
    const staged=ready&&initializedEditors.has(requested?.platform_id||activePlatform)&&editor;
-   const isCurrent=()=>!closed&&token===selectEpoch&&(!requested||rows.some(row=>key(row)===id&&
+   const isCurrent=()=>!closed&&activePlatform===platformId&&token===selectEpoch&&(!requested||rows.some(row=>key(row)===id&&
      row.account_id===requested.account_id&&row.binding_revision===requested.binding_revision));
    let accepted=true;
    if(staged){
@@ -497,6 +503,7 @@ SCRIPT = r'''
    for(const editor of editors.values())editor.closeCreator();
    selected=rows.some(row=>key(row)===id)?id:'';if(selected)selectedByPlatform.set(activePlatform,selected);
    paintSelection();
+   revealSelectedAccount();
    const row=current();
    projectContext?.target(activePlatform,row?.connection_id||'',rows);for(const editor of editors.values())editor.targetChanged?.();
    if(staged&&accepted)void editor.loadAccountScope(row?.connection_id||'');
@@ -519,7 +526,6 @@ SCRIPT = r'''
    const shown=isWechat()&&$('inlineBinding').hidden;
    const monitor=shown&&wechatPage==='monitor';
    document.body.classList.toggle('oa-wechat-view',shown);
-   syncWechatUpdates();
    $('wechatWorkspaceNavigation').hidden=!shown;
    $('wechatMonitorTab').setAttribute('aria-pressed',String(monitor));
    $('wechatConfigTab').setAttribute('aria-pressed',String(shown&&!monitor));
@@ -541,16 +547,44 @@ SCRIPT = r'''
  }
  function paintSelection(){
    targetAnalytics();
-   for(const el of $('accounts').children){const chosen=el.dataset.accountKey===selected;el.classList.toggle('is-selected',chosen);el.setAttribute('aria-selected',String(chosen));el.querySelector('button')?.setAttribute('aria-pressed',String(chosen));}
-   const row=current();$('accountCurrent').replaceChildren();if(row){const text=document.createElement('span'),title=document.createElement('strong'),sub=document.createElement('small');if(name(row))OAUI.raw(title,name(row));else OAUI.set(title,'账号资料暂不可用');if(row.platform_id==='x'&&row.username)OAUI.raw(sub,'@'+row.username);else OAUI.set(sub,accountState(row));text.append(title,sub);$('accountCurrent').append(avatar(row),text);}else OAUI.set($('accountCurrent'),'平台默认规则 / 尚未选择账号');
+   for(const el of accountList.querySelectorAll(':scope > .account')){
+     const chosen=el.dataset.accountKey===selected;
+     el.classList.toggle('is-selected',chosen);
+     el.querySelector('.account-select').setAttribute('aria-current',chosen?'true':'false');
+   }
+   paintAccountHeader();
+   const row=current();
    $('selectedAccount').replaceChildren();
    if(row){const line=document.createElement('p');line.className='account-id';line.textContent=typeof row.account_id==='string'?(platform(row.platform_id)?.account_id_label||'账号标识')+' '+row.account_id:'账号资料暂不可用';$('selectedAccount').append(line);}
    else{const p=document.createElement('p');OAUI.set(p,'选择一个账号，查看所属平台与设置。');$('selectedAccount').append(p);}
  }
+ function paintAccountHeader(){
+   const row=current(),p=platform(activePlatform),label=platformName(activePlatform);
+   const title=$('pageTitle'),caption=$('accountCaption');
+   caption.hidden=!row;
+   $('accountTools').hidden=!row||activePlatform!=='wechat_official_account';
+   if(row){
+     const display=row.recovery?row.label:name(row);
+     if(display)OAUI.raw(title,display);else OAUI.set(title,'账号资料暂不可用');
+     const parts=[label?OAUI.message(label):p?.name||'',OAUI.message(accountState(row))];
+     if(row.platform_id==='x'&&row.username)parts.push('@'+row.username);
+     OAUI.set(caption,'{0}',parts);
+   }else if(label)OAUI.set(title,label);
+   else if(p)OAUI.raw(title,p.name);
+   else OAUI.set(title,activePlatform?'平台暂不可用':'选择平台');
+ }
  async function renderAccounts({preserveSelection=false}={}){
    const visible=rows.filter(row=>row.platform_id===activePlatform);
-   $('accounts').replaceChildren();for(const row of visible)$('accounts').append(card(row,true));
-   if(!visible.length){const p=document.createElement('p');p.className='empty';OAUI.set(p,'尚未绑定账号');$('accounts').append(p);}
+   if(!accountList.childElementCount||visible.length!==renderedAccounts.length||visible.some((row,i)=>row!==renderedAccounts[i])){
+     const samePlatform=renderedAccounts[0]?.platform_id===activePlatform;
+     const previousScroll=samePlatform?accountList.scrollTop:0;
+     const focused=document.activeElement?.closest('.account')?.dataset.accountKey;
+     accountList.replaceChildren(...visible.map(accountCard));
+     if(!visible.length){const p=document.createElement('p');p.className='empty';OAUI.set(p,'尚未绑定账号');accountList.append(p);}
+     if(focused)Array.from(accountList.children).find(el=>el.dataset.accountKey===focused)?.querySelector('.account-select')?.focus({preventScroll:true});
+     renderedAccounts=visible;
+     accountList.scrollTop=previousScroll;
+   }
    $('accountCount').textContent=String(visible.length);
    if(preserveSelection&&pendingSelection?.platform===activePlatform){
      paintSelection();buttons();return;
@@ -572,15 +606,71 @@ SCRIPT = r'''
    const remembered=prior||selected;
    await select(visible.some(row=>key(row)===remembered)?remembered:(visible[0]?key(visible[0]):''));
  }
+ function platformButton(){
+   return platformNavigation.querySelector('button[aria-current=page]');
+ }
+ function closeAccountNavigation({compactOnly=false,focus=false}={}){
+   if(!accountsExpanded||(compactOnly&&!compactAccounts.matches))return;
+   accountsExpanded=false;
+   closeFloatingMenus();
+   syncAccountNavigation();
+   if(focus)platformButton()?.focus();
+ }
+ function syncAccountNavigation(){
+   const button=platformButton();
+   const shown=!!button&&accountsExpanded&&!$('nativeWorkspace').hidden;
+   const floating=shown&&compactAccounts.matches&&typeof accountPanel.showPopover==='function';
+   button?.setAttribute('aria-expanded',String(shown));
+   if(!floating)unmountWorkspacePopover(accountPanel);
+   accountPanel.hidden=!shown;
+   if(floating){
+     accountPanel.setAttribute('popover','manual');
+     accountPanel.classList.add('oa-workspace-popover');
+     if(!accountPanel.matches(':popover-open'))accountPanel.showPopover();
+     placeWorkspacePopover(button,accountPanel,{size:310,start:true,limit:380});
+   }
+ }
+ function revealSelectedAccount(){
+   if(accountPanel.hidden)return;
+   const row=accountList.querySelector('.is-selected');if(!row)return;
+   const floating=accountPanel.matches(':popover-open');
+   const scroll=floating?accountPanel:accountList;
+   const border=scroll.getBoundingClientRect(),item=row.getBoundingClientRect();
+   const top=border.top+(floating?accountPanel.querySelector('.oa-list-head').offsetHeight:0);
+   if(item.top<top)scroll.scrollTop+=item.top-top;
+   else if(item.bottom>border.bottom)scroll.scrollTop+=item.bottom-border.bottom;
+ }
  function renderPlatforms(){
    const ids=[...new Set([...directory.map(p=>p.id),...rows.map(row=>row.platform_id),...(activePlatform?[activePlatform]:[])])];
-   $('platformNavigation').replaceChildren();
+   unmountWorkspacePopover(accountPanel);
+   platformNavigation.replaceChildren();
    for(const id of ids){
-     const p=platform(id),button=document.createElement('button');OAPlatformBranding.decorate(button,id,p?.name,OAUI);
-     button.dataset.platformId=id;button.setAttribute('aria-current',view==='platform'&&id===activePlatform?'page':'false');
-     button.addEventListener('click',()=>openView(id,{user:true,focus:true}));$('platformNavigation').append(button);
+     const p=platform(id),group=document.createElement('div'),button=document.createElement('button');
+     const active=view==='platform'&&id===activePlatform;
+     group.className='oa-platform-group';
+     button.type='button';button.className='oa-platform-trigger';
+     OAPlatformBranding.decorate(button,id,p?.name,OAUI);
+     button.dataset.platformId=id;button.setAttribute('aria-current',active?'page':'false');
+     button.setAttribute('aria-expanded',String(active&&accountsExpanded));
+     const chevron=document.createElement('span');
+     chevron.className='oa-platform-chevron';chevron.setAttribute('aria-hidden','true');
+     button.append(chevron);
+     button.onclick=async event=>{
+       if(!ready||closed||!$('inlineBinding').hidden)return;
+       if(view==='platform'&&activePlatform===id){
+         closeFloatingMenus();accountsExpanded=!accountsExpanded;syncAccountNavigation();revealSelectedAccount();
+       }else await openView(id,{user:true,focus:true});
+       if(event.detail===0&&compactAccounts.matches&&accountsExpanded&&activePlatform===id){
+         (accountList.querySelector('.is-selected .account-select')||accountList.querySelector('.account-select'))?.focus();
+       }
+     };
+     group.append(button);
+     if(active){button.setAttribute('aria-controls','accountPanel');group.append(accountPanel);}
+     platformNavigation.append(group);
    }
-   if(!ids.length){const p=document.createElement('p');p.className='help';OAUI.set(p,'暂无可用平台');$('platformNavigation').append(p);}
+   if(!accountPanel.isConnected)platformNavigation.append(accountPanel);
+   if(!ids.length){const p=document.createElement('p');p.className='help';OAUI.set(p,'暂无可用平台');platformNavigation.append(p);}
+   syncAccountNavigation();
  }
  function renderFeatures(){
    const grid=$('homeFeatures');
@@ -649,9 +739,9 @@ SCRIPT = r'''
    }
  }
  binding=OAInlineBinding.mount(async(operation,args)=>content(await platformCall(originalSelection.platform,operation,args)),{
-  enter(){originalSelection.platform=activePlatform;originalSelection.account=selected;$('nativeWorkspace').hidden=true;},
-  leave(){$('nativeWorkspace').hidden=false;activePlatform=originalSelection.platform;select(originalSelection.account);},
-  async complete(cid,existing=false,state='BOUND_IDLE'){$('nativeWorkspace').hidden=false;activePlatform=originalSelection.platform;await refresh({afterWrite:true});const row=rows.find(r=>r.connection_id===cid&&r.platform_id===activePlatform);if(row)await select(key(row));notice(state==='DISCONNECTED'?'原绑定已提交，账号当前已断开。':state==='ACTION_REQUIRED'?'原绑定已提交，当前账号需要处理，请查看账号状态。':existing?'账号已绑定，已选中原账号。':'已验证并绑定。');}
+  enter(){originalSelection.platform=activePlatform;originalSelection.account=selected;$('nativeWorkspace').hidden=true;closeAccountNavigation({compactOnly:true});syncAccountNavigation();},
+  leave(){$('nativeWorkspace').hidden=false;activePlatform=originalSelection.platform;syncAccountNavigation();select(originalSelection.account);},
+  async complete(cid,existing=false,state='BOUND_IDLE'){$('nativeWorkspace').hidden=false;activePlatform=originalSelection.platform;syncAccountNavigation();await refresh({afterWrite:true});const row=rows.find(r=>r.connection_id===cid&&r.platform_id===activePlatform);if(row)await select(key(row));notice(state==='DISCONNECTED'?'原绑定已提交，账号当前已断开。':state==='ACTION_REQUIRED'?'原绑定已提交，当前账号需要处理，请查看账号状态。':existing?'账号已绑定，已选中原账号。':'已验证并绑定。');}
  });
  async function sendChatRequest(text){
   if(!hostCapabilities.message?.text)throw new Error('HOST_MESSAGE_UNAVAILABLE');
@@ -660,7 +750,7 @@ SCRIPT = r'''
  async function openXLink(url){
   if(!hostCapabilities.openLinks)throw new Error('HOST_OPEN_LINK_UNAVAILABLE');const result=await rpc('ui/open-link',{url});if(!result||result.isError)throw new Error('HOST_OPEN_LINK_FAILED');return result;
  }
- xManagement=OAXManagement.mount((operation,args)=>tool('x.ui.action',{operation,arguments:args}),openXLink,async(cid,original)=>{await refresh({afterWrite:true});if(!closed&&original?.platform==='x'&&activePlatform==='x'&&original.epoch===platformEpoch&&original.intent===selectionIntent){const row=rows.find(r=>r.platform_id==='x'&&r.connection_id===cid);if(row)await select(key(row));}},{captureSelection:()=>({platform:activePlatform,epoch:platformEpoch,intent:selectionIntent}),selectedAccount:()=>current()?.platform_id==='x'?current().connection_id:null,sendChatRequest,canSendChatRequest:()=>!!hostCapabilities.message?.text,onStatusChange:updateXCards});
+ xManagement=OAXManagement.mount((operation,args)=>tool('x.ui.action',{operation,arguments:args}),openXLink,async(cid,original)=>{await refresh({afterWrite:true});if(!closed&&original?.platform==='x'&&activePlatform==='x'&&original.epoch===platformEpoch&&original.intent===selectionIntent){const row=rows.find(r=>r.platform_id==='x'&&r.connection_id===cid);if(row)await select(key(row));}},{captureSelection:()=>({platform:activePlatform,epoch:platformEpoch,intent:selectionIntent}),selectedAccount:()=>current()?.platform_id==='x'?current().connection_id:null,sendChatRequest,canSendChatRequest:()=>!!hostCapabilities.message?.text,onStatusChange:updateXDeveloper});
  xhsManagement=OAXHSManagement.mount((operation,args)=>tool('xhs.ui.action',{operation,...args}),()=>refresh({afterWrite:true}),()=>current()?.platform_id==='xiaohongshu'?current().connection_id:null,buttons);
  projectContext=OAProjectContext.mount(async(operation,args)=>{
    if(args?.platform_id&&args.connection_id&&!rows.some(row=>
@@ -704,6 +794,7 @@ SCRIPT = r'''
    const intent=++selectionIntent;
    if(selected!==key(row))await select(key(row));
    if(closed||intent!==selectionIntent||activePlatform!=='x'||selected!==key(row))return;
+   closeAccountNavigation({compactOnly:true});
    closeXTools();contextOpen=false;projectContext.deactivate();showSettings('x');
    xDeveloperKey=key(row);document.body.classList.add('oa-x-tools','oa-x-developer-open');
    $('xDeveloperSettings').hidden=false;OAUI.set($('xDeveloperNotice'),'');updateXDeveloper();
@@ -848,6 +939,8 @@ SCRIPT = r'''
    else{closeStudioMedia();director.close();}
  }
  function renderView(){
+   document.body.classList.toggle('oa-platform-view',view==='platform');
+   syncPlatformUpdates();
    renderWechatWorkspace();
    syncIntro();
    $('openAhoyHome').hidden=view!=='home';
@@ -867,8 +960,9 @@ SCRIPT = r'''
      if(focus)$(target==='home'?'homeTitle':'directorTitle').focus();
      return;
    }
+   if(view==='platform'&&activePlatform===target)return;
    view='platform';
-   await selectPlatform(target,focus);
+   await selectPlatform(target,{focus,user});
  }
  $('openHome').onclick=()=>openView('home',{user:true,focus:true});
  for(const id of ['openMediaStudio','homeMediaStudio'])$(id).onclick=()=>openView('media',{user:true,focus:true});
@@ -930,7 +1024,7 @@ SCRIPT = r'''
 def resource():
     from .own_settings_ui import LOGO, STYLE
     from .own_management_ui import HOME_STYLE, STYLE as management_style, native_page_body
-    from .management_workspace_ui import NATIVE_FINISH_STYLE
+    from .management_workspace_ui import NATIVE_FINISH_STYLE, PLATFORM_ACCOUNT_NAV_STYLE
     from .management_interactions import STYLE as interaction_style, SCRIPT as interaction_script
     from .own_wechat_management import settings_html, settings_script
     from .own_inline_binding_ui import SCRIPT as binding_script
@@ -955,7 +1049,7 @@ def resource():
     html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>OpenAhoy · Platform management</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + canvas_style + interaction_style + wechat_workspace_style + '</style>'
+        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + canvas_style + interaction_style + wechat_workspace_style + PLATFORM_ACCOUNT_NAV_STYLE + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
         + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + director_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,

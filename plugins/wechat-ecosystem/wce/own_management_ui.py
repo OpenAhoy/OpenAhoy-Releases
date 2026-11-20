@@ -69,9 +69,14 @@ def platform_sidebar(logo, navigation, *, localized=False):
     if localized:
         brand = ('<button id="openHome" type="button" aria-label="OpenAhoy 首页" aria-current="page">'
                  + brand + '</button><button type="button" id="oaLocale">English</button>')
+        navigation += (
+            '<section id="accountPanel" class="oa-platform-accounts" aria-label="平台账号" hidden>'
+            '<div class="oa-list-head"><span>已绑定账号</span><span id="accountCount" class="count">0</span></div>'
+            '<div id="accounts" class="oa-account-options"></div></section>'
+        )
     return '<aside class="oa-sidebar"><div class="oa-brand">'+brand+'''</div>
 <div id="softwareUpdateSlot"></div>'''+('<button id="wechatCompactUpdates" type="button" aria-controls="softwareUpdateSlot" aria-expanded="false" hidden>版本与帮助</button>' if localized else '')+'''
-<div>'''+('<nav class="oa-nav"><button id="openMediaStudio" type="button" aria-controls="mediaStudio">'+icon('video')+'<span>Jiusera</span></button></nav>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
+<div>'''+('<nav class="oa-nav"><button id="openMediaStudio" type="button" aria-label="Jiusera" aria-controls="mediaStudio">'+icon('video')+'<span>Jiusera</span></button></nav>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
 
 
 def minimax_mark():
@@ -173,11 +178,9 @@ def native_page_body(logo, platform_settings):
     return '''<body class="oa-management oa-platform-workspace oa-native"><div class="oa-shell">
 '''+platform_sidebar(logo, '<p class="help">正在读取平台…</p>', localized=True)+'''
 <main class="oa-content">'''+home+'''<div id="nativeWorkspace" hidden><header class="oa-account-header">
-<div class="oa-heading"><h1 id="pageTitle">选择平台</h1></div>
-<section id="accountPanel" class="oa-account-cards" aria-label="平台账号"><span id="accountCurrent" hidden></span>
-<div class="oa-account-cards-body"><div class="oa-list-head"><span>已绑定账号</span><span id="accountCount" class="count">—</span></div><div id="accounts" class="oa-account-options"></div>
-<div class="oa-account-tools"><details class="oa-more-settings"><summary>更多设置</summary><div class="oa-more-popover"><button id="accountRules" disabled>编辑本号配置</button><button id="accountCreate" disabled>快速创建配置</button><button id="accountImport" disabled>加载并保存配置</button><div><button id="accountBackend" disabled>打开公众号后台</button></div><p id="wechatBackendHelp" class="help">使用浏览器现有登录，请核对账号。</p><details><summary>账号信息</summary><div id="selectedAccount"></div></details></div></details></div></div></section>
-<div class="actions"><button id="refresh" aria-label="刷新账号">刷新</button><button id="showAdd" class="primary" aria-label="绑定账号">绑定账号</button></div></header>
+<div class="oa-heading"><div id="accountCurrent"><h1 id="pageTitle" data-oa-overflow>选择平台</h1><small id="accountCaption" hidden></small></div></div>
+<div class="actions"><div id="accountTools" class="oa-account-tools"><details class="oa-more-settings"><summary>更多设置</summary><div class="oa-more-popover"><button id="accountRules" disabled>编辑本号配置</button><button id="accountCreate" disabled>快速创建配置</button><button id="accountImport" disabled>加载并保存配置</button><div><button id="accountBackend" disabled>打开公众号后台</button></div><p id="wechatBackendHelp" class="help">使用浏览器现有登录，请核对账号。</p><details><summary>账号信息</summary><div id="selectedAccount"></div></details></div></details></div>
+<button id="refresh" aria-label="刷新账号">刷新</button><button id="showAdd" class="primary" aria-label="绑定账号">绑定账号</button></div></header>
 <nav id="wechatWorkspaceNavigation" aria-label="公众号工作区" hidden>
 <button id="wechatMonitorTab" type="button" aria-pressed="true" aria-controls="wechatAnalytics">数据监控</button>
 <button id="wechatConfigTab" type="button" aria-pressed="false" aria-controls="settingsPanel">公众号配置</button>
