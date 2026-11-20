@@ -17,4 +17,4 @@ description: Plan and produce social videos in OpenAhoy. Use when Codex should t
 
 ## 导演画布
 
-在Jiusera打开已登记的项目与作品。使用 [导演台说明](references/DIRECTOR_DESK.md) 读回准确的镜头和修订。独立文字卡、原图和既有音视频资产可以关联同一镜头。生成或修改图片时，用原镜头的 `project_id`、`scene_id`、`shot_id` 和当前修订作为基底，保存新修订后按原回执读回。
+在 Jiusera 从当前 Codex 聊天开始创作时，无论由面板发起还是用户直接开口，都按导演台说明匹配本聊天的真实项目根，以原操作编号创建或复用作品并精确读回。打开面板可只读浏览监看和画布。使用 [导演台说明](references/DIRECTOR_DESK.md) 读回准确的镜头和修订。独立文字卡、原图和既有音视频资产可以关联同一镜头。生成或修改图片时，用原镜头的 `project_id`、`scene_id`、`shot_id` 和当前修订作为基底，保存新修订后按原回执读回。

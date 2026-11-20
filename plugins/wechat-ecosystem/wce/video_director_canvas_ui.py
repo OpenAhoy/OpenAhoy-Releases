@@ -451,11 +451,13 @@ function OADirectorCanvas(commit, select, show, picture, engineName, playVideo, 
      selected='';cancelGesture();deliveries=[];
      for(const card of cards.values())dispose(card);
      cards.clear();previews={};
+     if(!key)setView({x:28,y:28,scale:100},false);
      try{previews=JSON.parse(sessionStorage.getItem(previewStore(key)))||{};}catch(_){}
    }
    viewFeedback();
    work=model;focused=shot;
-   if(!work){empty.hidden=true;edge.hidden=true;mapLayout=null;return;}
+   OAUI.set(empty,work?'新建镜头，或把图片和媒体放到画布上。':'作品就绪后，镜头和素材会出现在这里。');
+   if(!work){empty.hidden=false;edge.hidden=true;mapLayout=null;refreshSelection(shot);return;}
    scope.inbox=!!model.inbox;
    const canvas=model.canvas;
    if(!scope.readback||canvas.version>=scope.readback.version)

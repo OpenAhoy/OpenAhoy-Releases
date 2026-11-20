@@ -1,7 +1,14 @@
 # 项目导演台与 Codex 往返
 
-- 通过 `video.director.read` 的 `projects` 找到已登记的真实项目，`overview` 查询作品、场与镜头，`context` 使用页面传来的 project_id、work_id、scene_id、shot_id、revision_id 读取原修订。项目未登记先按插件的项目上下文流程关联当前实际项目。实体名称不是唯一 ID。
-- 构思作品后，用 `video.director.edit` 依次创建作品、场和镜。文字修订可只提交本次改动的字段，使用当前镜头的 `head_revision` 作为 `base_revision`，并指定 `origin: "codex"`。每次新动作使用新的 32 位小写十六进制 operation_id，同一动作回查沿原 ID。若原明确要求基于某修订，而它已经过时，读回差异后再处理，不自动覆盖。
+## 从当前 Codex 聊天开始
+
+1. 使用本聊天的真实工作区和适用 AGENTS 确认项目根绝对路径。必要时在该已知工作区核对物理路径。用 `own.projects.read view=catalog` 按完整 `root` 精确匹配，项目名仅用于显示。目录已实际存在、归属和本次授权明确却未登记时，使用 `own.projects.sync`，传真实 `project_root`、明确可用的 `skill_paths`、当前 `expected_revision` 和独立的 `project-<32位小写十六进制>` 原键。读回 catalog 的同一路径和 `project_id`。登记结果未知时，先查 `own.projects.read view=operation` 的原键和 catalog。保留原目录和项目文件。若当前聊天没有明确工作区，或存在归属冲突，在本聊天说明具体缺项，等待澄清。面板缓存、默认项目、重名目录、其他对话及插件进程工作目录不能提供项目身份。
+2. 面板发来的 `operation_id` 原样保留。用户直接在聊天提出开始创作也走同一流程，给本次请求生成一个 32 位小写十六进制原键，并在聊天注明供恢复。先用 `video.director.read action=work_request` 查询原键。若找到回执，核对其 `project_id` 和当前真实项目一致。对 `READY` 按原精确作品读回；对 `PENDING` 沿原项目、原参数、原键续查或续做。结果不明时不换键。
+3. 首次执行时，按用户实际意图用 `video.director.read action=overview` 找到明确指向的既有作品，或准备新作品的 `fields`。同名作品或意图不明确时在当前聊天指出歧义。调用 `video.director.edit action=start_work`，传规范 `project_root`、精确 `project_id`、同一 `operation_id`，复用传 `work_id`，新建传 `fields`（含 `title`）。用回执的 `project_id/work_id` 调用 `overview` 精确读回并在本聊天报告。面板由原键收取结果，消息送达只是已发送。面板重新创建时，可在「更多 → 找回聊天作品」使用聊天中的原操作编号。直接聊天新建的首部作品也可在明确手选过同一个项目的空页面中读回。
+4. 作品就绪后，按本次委托需要用 `video.director.edit` 添加场和镜。用 `context` 精确读取 `project_id/work_id/scene_id/shot_id/revision_id`。文字修订可以只提交本次变化，使用当前镜头的 `head_revision` 作为 `base_revision` 并指定 `origin: "codex"`。不同动作使用各自新的原键。基底已变化时读回差异再处理。
+
+## 镜头和资产
+
 - 图片先由 Codex 现有图像工具生成，或按用户要求使用已取得的项目图片。保存到登记根内，核对实际 PNG/JPEG 和 SHA-256。修订的 `images` 是有序数组，每项为 `{"role":"composition","file":{"project_id":"…","path":"相对路径","sha256":"…"}}`。修改该数组时保留本次仍采用的其他图片与角色。纯构图使用 composition，生成输入才用 first、last、subject、environment 或 reference。
 - 保存后用同一 project_id、work_id、scene_id、shot_id 和返回的 revision_id 调用 `context`，确认实际回读的内容和素材。旧版继续存在，只有用户要求采用时才切换采用指针。
 - 按需使用 [同源提示词卡](SHOT_CARDS.json)，或经 `video.director.read` 的 `cards` 查询目录与具体卡。卡片 ID 与 version 可直接附到修订。目录的原创示例属于写作参照；供应商实测须有独立证据。

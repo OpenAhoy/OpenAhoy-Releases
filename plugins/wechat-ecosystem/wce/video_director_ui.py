@@ -14,6 +14,10 @@ HTML = '''
    <button id="directorAssetBack" type="button" hidden>回到画布</button>
    <details id="directorMore" class="dd-more"><summary>更多</summary>
     <div class="dd-more-menu">
+     <button type="button" id="directorNewWork">手动新建作品</button>
+     <button type="button" id="directorRecoverWork">找回聊天作品</button>
+     <button type="button" id="directorStopFollowing" hidden>停止等待聊天结果</button>
+     <button type="button" id="directorProjectSettings">登记项目</button>
      <button type="button" id="directorCardsLink">提示词库</button>
      <button type="button" id="directorSettings">供应商设置</button>
     </div>
@@ -24,13 +28,14 @@ HTML = '''
   <div class="dd-projects">
    <label>项目 <select id="directorProject"></select></label>
    <label>作品 <select id="directorWork"></select></label>
-   <button type="button" id="directorNewWork" class="primary">新建作品</button>
+   <button type="button" id="directorChatWork" class="primary">在 Codex 开始创作</button>
   </div>
   <div class="dd-actions">
    <button type="button" id="directorWorkSettings">作品约定</button>
    <button type="button" id="directorRefresh">刷新</button>
   </div>
  </div>
+ <p id="directorWorkHint" class="dd-work-hint" hidden></p>
  ''' + MONITOR_HTML + '''
  <div id="directorBoard" class="dd-board" hidden>
   <aside class="dd-panel dd-scenes" aria-label="场次">
@@ -62,7 +67,6 @@ HTML = '''
    </details>
   </aside>
  </div>
- <div id="directorEmpty" class="dd-panel dd-empty" hidden></div>
  <section id="directorCardPage" class="dd-card-page" aria-label="提示词库" hidden>
   <div class="dd-toolbar">
    <input type="search" id="directorCardQuery" aria-label="搜索提示词卡" placeholder="搜索镜头、焦距、构图或用途">
@@ -165,7 +169,7 @@ STYLE = '''
 .dd-version,.dd-asset-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px;padding:5px 0;border-bottom:1px solid var(--line)}
 .dd-version>div,.dd-asset-row>div{min-width:0;overflow-wrap:anywhere}
 .dd-form label:has(textarea){min-width:0}
-.dd-empty{display:grid;gap:8px;align-content:start;justify-items:start;padding:18px}
+.dd-work-hint{flex:none;margin:0;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
 .dd-footer{display:grid;gap:4px;flex:none}
 .dd-footer p{color:var(--muted);min-height:1em;font-size:12px}
 .dd-footer p:empty{display:none}
@@ -191,7 +195,7 @@ STYLE = '''
 }
 @media(max-width:700px){
  #videoDirectorDesk{overflow:auto}
- .dd-board{display:flex;flex-direction:column;flex:none}
+ .dd-board{display:flex;flex-direction:column;align-items:stretch;flex:none}
  #directorStage{flex:0 0 clamp(165px,36vh,330px);min-height:0}
  .dd-inspector{overflow:visible}
  .dd-card-grid{display:grid;grid-template-columns:1fr}
@@ -261,6 +265,11 @@ function OADirector(tool, send, canSend, navigation){
   DIRECTOR_WHITEBOX_MP4_REQUIRED:'白模预览需要 MP4。',
   DIRECTOR_TIME_RANGE_INVALID:'结束时间必须大于或等于开始时间。',
   HOST_TIMEOUT:'宿主响应超时，请刷新后核对是否保存。',
+  DIRECTOR_PROJECT_NOT_REGISTERED:'这个项目尚未登记。',
+  DIRECTOR_PROJECT_UNAVAILABLE:'原项目目录不可用。',
+  DIRECTOR_PROJECT_CHANGED:'项目已切换，请核对当前选择。',
+  DIRECTOR_WORK_NOT_FOUND:'找不到这部作品，请核对原请求或项目。',
+  PROJECT_OPERATION_CONFLICT:'这次请求已关联其他项目或作品，请核对聊天中的原请求。',
  };
  let mode='',tab='text',data=null,context=null,sceneID=null,projects=[],modelData=null,cardData=null,cardID='';
  let engineDraft=null,engineDirty=false,workspaceTimer=null,workspaceBusy=false;
@@ -270,11 +279,11 @@ function OADirector(tool, send, canSend, navigation){
  const engineChannel={...providers,relay:'AutoDL'};
  const engineName=engine=>engine.model+' · '+txt(engineChannel[engine.provider]||engine.provider||'渠道未记录');
  let watch=null,watchTimer=null,player=null,reading=0,visual=0,writing=false,dialogWrite=null;
+ let explicitProject='',selection=0,projectLoad=0,chatRequest=null,readingRequest=false,ticking=false;
  const pid=()=>project.value;
  const present=()=>data?.work;
  const currentScene=()=>present()?.scenes.find(row=>row.id===sceneID);
  const currentShot=()=>currentScene()?.shots.find(row=>row.id===context?.shot_id);
- const projectKey=()=>sessionStorage.getItem('OpenAhoy.director.project');
  const exact=(ctx=context)=>ctx&&({project_id:ctx.project_id,work_id:ctx.work_id,scene_id:ctx.scene_id,
                                 shot_id:ctx.shot_id,revision_id:ctx.revision.id});
  const workScope=()=>({project_id:pid(),work_id:present().id});
@@ -346,13 +355,14 @@ function OADirector(tool, send, canSend, navigation){
    try{return await loadWork(options);}
    finally{readingWork--;}
  }
- async function loadWork({work,focus,scene,keep=false}){
+ async function loadWork({work,focus,scene,keep=false,overview}){
    const token=++reading, id=pid();
    if(!id){data=null;context=null;sceneID=null;render();return false;}
    const requested=work||(keep?present()?.id:preferredWorks.get(id));
-   const result=await read('overview',{project_id:id,...(requested?{work_id:requested}:{})});
+   const result=overview||await read('overview',{project_id:id,...(requested?{work_id:requested}:{})});
    if(token!==reading||!mode||pid()!==id)return false;
    if(result.project_id!==id)throw Error('DIRECTOR_PROJECT_CHANGED');
+   if(requested&&(result.work?.id!==requested||!result.works.some(row=>row.id===requested)))throw Error('DIRECTOR_WORK_NOT_FOUND');
    const active=result.work, scope=active&&{project_id:id,work_id:active.id};
    const picked=focus||(!scene&&scope&&preferredShots.get(workKey(scope)))||active?.selection;
    const sceneRow=active?.scenes.find(row=>row.id===(scene||picked?.scene_id))||active?.scenes[0];
@@ -367,7 +377,7 @@ function OADirector(tool, send, canSend, navigation){
    if(scope)preferredWorks.set(id,scope.work_id);
    if(scope&&target)preferredShots.set(workKey(scope),target);
    render();if(mode==='cards'&&cardData)renderCards();
-   if(mode==='monitor'||mode==='desk')void syncWorkspace();
+   if(!overview&&(mode==='monitor'||mode==='desk'))await syncWorkspace();
    return true;
  }
  async function selectShot(scene,shot,revision){
@@ -389,38 +399,39 @@ function OADirector(tool, send, canSend, navigation){
    const work=present(),editing=mode==='desk';
    $('directorWorkbar').hidden=false;
    $('directorWorkSettings').hidden=!editing;
-   $('directorNewWork').hidden=!editing;
-   board.hidden=!editing||!work;
-   $('directorMonitor').hidden=editing||!work;
-   $('directorEmpty').hidden=!!work;
-   optionsFor(workSelect,(data?.works||[]).map(row=>[row.id,row.title,!!row.inbox]),work?.id);
-   workSelect.disabled=!data?.works.length;
+   board.hidden=!editing;
+   $('directorMonitor').hidden=editing;
+   const works=data?.works||[];
+   optionsFor(workSelect,[[ '',works.length?'选择作品':'暂无作品'],
+     ...works.map(row=>[row.id,row.title,!!row.inbox])],work?.id||'');
+   workSelect.disabled=!works.length;
    $('directorNewWork').disabled=!pid();
+   const pending=chatRequest&&chatRequest.selection===selection;
+   $('directorStopFollowing').hidden=!pending;
+   $('directorChatWork').disabled=!!pending||!canSend();
+   OAUI.set($('directorChatWork'),pending?'等待聊天中的作品':'在 Codex 开始创作');
+   const hint=$('directorWorkHint');
+   hint.hidden=!!work&&!pending;
+   OAUI.set(hint,pending?'已保留原请求，作品就绪后会显示在这里。':
+     canSend()?'从当前聊天开始，或在「更多」手动新建。':'当前宿主无法发送聊天请求，可在「更多」手动新建。');
    const scope=work&&workScope(),cached=scope&&workspaceRows.get(workKey(scope));
    if(editing){
      canvas.render(scope?workKey(scope):'',work,context?.shot_id);
      if(cached)canvas.setDeliveries(workKey(scope),cached.cards,cached.version);
-   }else if(work)review.render({work,scope,context,cards:cached?.cards||[]});
-   else review.clear();
+   }else review.render({work,scope,context,cards:cached?.cards||[]});
    $('directorCanvasEngine').disabled=!context;
-   const inbox=!!present()?.inbox;
-   $('directorWorkSettings').disabled=!present()||inbox;
-   for(const id of ['directorCanvasNote','directorCanvasImage','directorNewScene'])$(id).disabled=inbox;
-   if(!present()){
-     const hint=$('directorEmpty');hint.replaceChildren(
-       label('h2',pid()?'创建第一部作品':'选择一个已登记的项目'),
-       label('p',pid()?'建立作品、场次和镜头后即可制作分镜。':'先在项目与 Skills 中登记你的创作目录。'),
-       button(pid()?'新建作品':'登记项目',pid()?()=>{navigation.go('desk');workDialog();}:navigation.project,'primary'));
-     return;
-   }
+   const editable=!!work&&!work.inbox;
+   $('directorWorkSettings').disabled=!editable;
+   for(const id of ['directorCanvasNote','directorCanvasImage','directorNewScene'])$(id).disabled=!editable;
    if(!editing)return;
    const scene=currentScene();
-   const scenes=present().scenes;
+   const scenes=work?.scenes||[];
    const at=scenes.indexOf(scene);
    $('directorPrevious').disabled=at<=0;$('directorNext').disabled=at<0||at>=scenes.length-1;
-   $('directorNewShot').disabled=!scene;
+   $('directorNewShot').disabled=!editable||!scene;
    OAUI.raw($('directorSceneTitle'),scene?scene.title:txt('还没有场次'));
    optionsFor($('directorSceneSelect'),scenes.map(row=>[row.id,row.title,false]),sceneID);
+   $('directorSceneSelect').disabled=!scenes.length;
    const sceneList=$('directorSceneList');sceneList.replaceChildren();
    for(const row of scenes){
      const pick=button('',()=>selectScene(row.id));pick.setAttribute('aria-pressed',String(sceneID===row.id));
@@ -460,7 +471,7 @@ function OADirector(tool, send, canSend, navigation){
    clearPreview();
    const token=++visual, snap=exact();
    if(!snap){
-     stage.append(label('p',currentScene()?'创建本场第一个镜头':'先新建场次'));
+     if(present()&&!present().inbox)stage.append(label('p',currentScene()?'创建本场第一个镜头':'先新建场次'));
      OAUI.set($('directorCaption'),'');return;
    }
    const revision=context.revision;
@@ -1113,44 +1124,128 @@ function OADirector(tool, send, canSend, navigation){
    $('directorWorkbar').hidden=!main;
    if(mode!=='desk')board.hidden=true;
    if(mode!=='monitor')$('directorMonitor').hidden=true;
-   if(!main)$('directorEmpty').hidden=true;
+   if(!main)$('directorWorkHint').hidden=true;
    if(mode==='cards')void loadCards().catch(error);
-   if(main){render();void syncWorkspace();}
+   if(main){render();void tickWorkspace();}
+ }
+ const mainView=()=>mode==='monitor'||mode==='desk';
+ function setProjectList(list,current){
+   projects=list;
+   optionsFor(project,[['',list.length?'选择项目':'暂无项目'],
+     ...list.map(row=>[row.id,row.label||row.name,false])],current||'');
+   project.disabled=!list.length;
+   project.title=list.find(row=>row.id===project.value)?.label||'';
+ }
+ async function refreshProjects(){
+   const epoch=++projectLoad,intent=selection,current=pid(),{projects:list}=await read('projects');
+   if(epoch!==projectLoad||intent!==selection||!mode)return;
+   setProjectList(list,current);
+   await readWork({keep:true});
+ }
+ function resetWork(){
+   reading++;stopWatch();engineDraft=null;engineDirty=false;data=null;context=null;sceneID=null;
  }
  async function open(target='monitor'){
    root.hidden=false;
    view(target);
-   if(!workspaceTimer)workspaceTimer=setInterval(syncWorkspace,2600);
-   const token=++reading;
+   if(!workspaceTimer)workspaceTimer=setInterval(tickWorkspace,2600);
+   try{await refreshProjects();await checkChatRequest();}
+   catch(problem){if(mode)error(problem);}
+ }
+ function startPrompt(id){
+   return '请使用 $wechat-ecosystem:video-director，在当前聊天开始或继续我正在构思的作品。原操作 operation_id='+id+
+     '。先按 DIRECTOR_DESK 核对本聊天的真实工作区绝对根路径并与 own.projects.read catalog 精确匹配，必要时用 own.projects.sync 关联该真实目录。'+
+     '根或创作意图不明确时请在当前聊天指出具体缺项。依我的明确意图复用原作品或新建。'+
+     '先查 video.director.read action=work_request 的同一 operation_id，然后用 video.director.edit action=start_work 和同一原键完成。'+
+     '用精确 project_id/work_id 读回 overview 并报告结果。不要用当前页面的下拉、缓存、同名项目、其他聊天或插件目录推断归属。'+
+     '不要因面板已发送便认定已建作品，也不要自动发起付费生成或发表。';
+ }
+ async function startChatWork(){
+   if(!mainView()||!canSend()||(chatRequest&&chatRequest.selection===selection))return;
+   const request={id:randomID(),selection};
+   chatRequest=request;render();
    try{
-     const {projects:list}=await read('projects');
-     if(token!==reading||!mode)return;
-     projects=list;
-     let stored='';
-     try{stored=projectKey()||'';}catch(_){}
-     optionsFor(project,projects.map(row=>[row.id,row.name,false]),project.value||stored);
-     project.disabled=!projects.length;
-     await readWork();
-   }catch(problem){if(mode)error(problem);}
+     await send(startPrompt(request.id));
+     if(chatRequest===request&&request.selection===selection&&mainView())say('请求已发往当前聊天。');
+   }catch(_){
+     if(chatRequest===request&&request.selection===selection&&mainView())
+       say('宿主未确认发送。请查看当前聊天，面板会继续核对原请求。',true);
+   }
+   await checkChatRequest();
+ }
+ async function checkChatRequest(){
+   const request=chatRequest;
+   if(!request||request.selection!==selection||!mainView()||readingRequest||writing)return;
+   const current=()=>chatRequest===request&&request.selection===selection&&mainView();
+   readingRequest=true;
+   try{
+     const receipt=await read('work_request',{operation_id:request.id});
+     if(!current()||receipt.state!=='READY'||receipt.operation_id!==request.id)return;
+     const {project_id,work_id}=receipt;
+     const [{projects:list},overview]=await Promise.all([read('projects'),read('overview',{project_id,work_id})]);
+     if(!current())return;
+     if(!list.some(row=>row.id===project_id)||overview.project_id!==project_id||overview.work?.id!==work_id||
+        overview.work.inbox||!overview.works.some(row=>row.id===work_id))throw Error('DIRECTOR_WORK_NOT_FOUND');
+     projectLoad++;explicitProject=project_id;
+     resetWork();setProjectList(list,project_id);
+     if(await readWork({work:work_id,overview})&&current()){
+       chatRequest=null;render();say('已读回聊天中的作品。');
+     }
+   }catch(problem){if(current())error(problem);}
+   finally{readingRequest=false;}
+ }
+ function recoverChatWork(){
+   const body=node('div','dd-form');
+   const operation=input(body,'聊天中的原操作编号','','text',{required:true,pattern:'[a-f0-9]{32}',maxLength:32});
+   dialog('找回聊天作品',body,async()=>{
+     chatRequest={id:operation.value,selection};
+     render();await checkChatRequest();
+     if(chatRequest)say('尚未读到这次请求的作品，请核对聊天中的原操作编号。');
+     return true;
+   });
+ }
+ async function followFirstWork(){
+   if(!mainView()||!explicitProject||pid()!==explicitProject||chatRequest?.selection===selection||
+      readingWork||writing||data?.project_id!==explicitProject||data.works.some(row=>!row.inbox))return;
+   const id=explicitProject,intent=selection,epoch=reading;
+   const result=await read('overview',{project_id:id});
+   if(!mainView()||intent!==selection||epoch!==reading||result.project_id!==id)return;
+   const works=result.works.filter(row=>!row.inbox);
+   if(works.length===1){
+     const work=works[0].id;
+     await readWork({work,overview:result.work?.id===work?result:undefined});
+   }else if(works.length>1){
+     data={...data,works:result.works};render();
+   }
+ }
+ async function tickWorkspace(){
+   if(!mainView()||document.hidden||ticking)return;
+   ticking=true;
+   try{
+     await checkChatRequest();
+     try{await followFirstWork();}catch(_){/* Leave the verified view available. */}
+     await syncWorkspace();
+   }finally{ticking=false;}
  }
  function close(){
    navigation.closeCharacterPicker();imageDraft=null;canvas.suspend();review.clear();
    clearInterval(workspaceTimer);workspaceTimer=null;polled.clear();engineDraft=null;engineDirty=false;
-   mode='';root.hidden=true;reading++;visual++;clearPreview();stopWatch();say('');
+   mode='';root.hidden=true;projectLoad++;reading++;visual++;clearPreview();stopWatch();say('');
    if($('directorCanvasPreview').open)$('directorCanvasPreview').close();
    if($('directorDialog').open)$('directorDialog').close();
    $('directorCopy').hidden=true;
  }
  project.onchange=()=>{
-   stopWatch();engineDraft=null;engineDirty=false;data=null;context=null;sceneID=null;render();
-   try{sessionStorage.setItem('OpenAhoy.director.project',pid());}catch(_){}
+   selection++;explicitProject=pid();
+   project.title=projects.find(row=>row.id===pid())?.label||'';
+   resetWork();render();
    void readWork().catch(error);
  };
  workSelect.onchange=()=>{
-   stopWatch();engineDraft=null;engineDirty=false;const chosen=workSelect.value;
-   if(mode==='desk'&&!data?.works.find(row=>row.id===chosen)?.inbox){
-     void write('select_work',{project_id:pid(),work_id:chosen},()=>readWork({work:chosen}),'');
-   }else void readWork({work:chosen}).catch(error);
+   const chosen=workSelect.value;
+   if(!chosen){render();return;}
+   selection++;stopWatch();engineDraft=null;engineDirty=false;
+   void readWork({work:chosen}).catch(error);
  };
  $('directorSceneSelect').onchange=()=>selectScene($('directorSceneSelect').value);
  $('directorPrevious').onclick=()=>{const scenes=present().scenes;return selectScene(scenes[scenes.indexOf(currentScene())-1]?.id);};
@@ -1186,14 +1281,19 @@ function OADirector(tool, send, canSend, navigation){
      }catch(problem){error(problem);return false;}
    });
  };
- $('directorNewWork').onclick=()=>workDialog();
+ $('directorChatWork').onclick=startChatWork;
+ $('directorRecoverWork').onclick=recoverChatWork;
+ $('directorStopFollowing').onclick=()=>{chatRequest=null;render();say('');};
+ $('directorProjectSettings').onclick=navigation.project;
+ $('directorNewWork').onclick=()=>{if(pid())workDialog();};
  $('directorWorkSettings').onclick=()=>workDialog(present());
  $('directorNewScene').onclick=()=>entityDialog('scene');
  $('directorNewShot').onclick=()=>entityDialog('shot');
  $('directorRefresh').onclick=async()=>{
    if(writing)return;
    if(mode==='desk'){stopWatch();engineDirty=false;engineDraft=null;}
-   try{await readWork({keep:true});say('');}catch(problem){error(problem);}
+   try{await refreshProjects();say('');await checkChatRequest();await syncWorkspace({poll:true});}
+   catch(problem){error(problem);}
  };
  $('directorSendText').onclick=()=>askCodex('text');
  $('directorSendImage').onclick=()=>askCodex('image');
@@ -1337,7 +1437,7 @@ function OADirector(tool, send, canSend, navigation){
    }
    return true;
  }
- async function syncWorkspace(){
+ async function syncWorkspace({poll=false}={}){
    if(!['desk','monitor'].includes(mode)||!present()||document.hidden||workspaceBusy)return;
    const scope=workScope(),key=workKey(scope),shot=exact(),readEpoch=reading;
    const current=()=>['desk','monitor'].includes(mode)&&pid()===scope.project_id&&present()?.id===scope.work_id;
@@ -1345,15 +1445,19 @@ function OADirector(tool, send, canSend, navigation){
    try{
      const payload=await read('deliveries',scope);
      if(!current()||!acceptDeliveries(scope,payload))return;
-     if(shot&&!writing&&!watch&&!readingWork&&reading===readEpoch&&context?.head_revision===shot.revision_id){
-       const observed=await read('context',shot);
-       if(current()&&!readingWork&&reading===readEpoch&&scopeKey()===JSON.stringify(shot)&&observed.head_revision!==shot.revision_id){
-         if(engineDirty){say('Codex 已更新这个镜头。刷新可查看最新修订。');}
-         else await readWork({work:scope.work_id,focus:{scene_id:shot.scene_id,shot_id:shot.shot_id,
-            revision_id:observed.head_revision}});
+     const idle=()=>current()&&!writing&&!watch&&!readingWork&&reading===readEpoch;
+     if(idle()&&payload.version>data.version){
+       let focus;
+       if(shot&&context?.head_revision===shot.revision_id){
+         const observed=await read('context',shot);
+         if(!idle()||scopeKey()!==JSON.stringify(shot))return;
+         if(engineDirty&&observed.head_revision!==shot.revision_id)
+           say('Codex 已更新这个镜头。刷新可查看最新修订。');
+         focus={scene_id:shot.scene_id,shot_id:shot.shot_id,revision_id:observed.head_revision};
        }
+       if(!engineDirty)await readWork({work:scope.work_id,focus});
      }
-     if(!current()||mode!=='desk')return;
+     if(!current()||!poll||mode!=='desk')return;
      const next=payload.cards.find(row=>row.pollable&&Date.now()-(polled.get(key+row.attempt_id)||0)>=18000);
      if(next){
        polled.set(key+next.attempt_id,Date.now());

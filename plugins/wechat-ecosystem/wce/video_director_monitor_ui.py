@@ -7,7 +7,7 @@ HTML = '''
    <div class="dm-heading-copy"><h2 id="dmScreenTitle">监看</h2><p id="dmNow"></p><span id="dmPlaybackState" class="dm-state" hidden></span></div>
    <div class="dd-actions">
     <button id="dmFilm" type="button" hidden>作品成片</button>
-    <button id="dmGoCanvas" type="button" class="primary">去画布</button>
+    <button id="dmGoCanvas" type="button">去画布</button>
    </div>
   </header>
   <label id="dmCandidateLabel" hidden>视频候选 <select id="dmCandidate"></select></label>
@@ -118,13 +118,23 @@ function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
  const choice=()=>history.get(scope);
  function closeScreen(){player?.close();player=null;screenKey='';screen.replaceChildren();}
  function render(state){
-   if(!state?.work){clear();return;}
+   if(!state?.work){
+     if(!model&&screen.dataset.kind==='empty')return;
+     clear();
+     screen.dataset.kind='empty';
+     screen.append(text('p','暂无可播放视频','dm-screen-empty'));
+     OAUI.raw($('dmShotCount'),'0');
+     shotList.append(text('p','还没有镜头'));
+     taskList.append(text('p','暂无任务'));
+     go.disabled=false;
+     return;
+   }
    const next=JSON.stringify(state.scope);
    if(next!==scope){
      scope=next;choiceEpoch++;choosing=false;thumbs=new Map();shotKey='';taskKey='';optionKey='';closeScreen();
      if(!history.has(scope))history.set(scope,{source:'auto',candidates:new Map()});
    }
-   model=state;draw();
+   $('dmTasksLink').disabled=false;model=state;draw();
  }
  function draw(){
    const {work,context,cards}=model,selection=choice();
@@ -225,7 +235,11 @@ function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
  }
  function clear(){
    closeScreen();model=null;scope='';choiceEpoch++;choosing=false;thumbs.clear();shotKey='';taskKey='';optionKey='';
-   shotList.replaceChildren();taskList.replaceChildren();go.disabled=true;
+   delete screen.dataset.kind;
+   OAUI.raw(now,'');OAUI.raw($('dmShotCount'),'');
+   $('dmPlaybackState').hidden=true;film.hidden=true;
+   $('dmCandidateLabel').hidden=true;selector.replaceChildren();
+   shotList.replaceChildren();taskList.replaceChildren();go.disabled=true;$('dmTasksLink').disabled=true;
  }
  selector.onchange=()=>{
    if(model)choice().candidates.set(selector.dataset.category,selector.value);

@@ -27,6 +27,7 @@ SCENE_ARG = WORK_ARG | {'scene_id': PROJECT}
 SHOT_ARG = SCENE_ARG | {'shot_id': PROJECT}
 TARGET = SHOT_ARG | {'revision_id': PROJECT}
 WRITE = {'operation_id': PROJECT}
+CHAT_ROOT = {'project_root': {'type': 'string', 'minLength': 1}}
 MS = {'type': 'integer', 'minimum': 0, 'maximum': 2**53 - 1}
 ORDINAL = {'type': 'integer', 'minimum': 0}
 TEXT = {'type': 'string', 'maxLength': 65536}
@@ -80,6 +81,7 @@ CANVAS_NODE = {'oneOf': [
 SPECS = {
     READ: {'oneOf': [
         action('projects', {}),
+        action('work_request', WRITE),
         action('character_library', {}),
         action('character_import_preview', PROJECT_ARG | {'source': characters.SOURCE}),
         action('overview', PROJECT_ARG, {'work_id': PROJECT}),
@@ -94,6 +96,8 @@ SPECS = {
         action('character_import_version', PROJECT_ARG | {'origin': characters.ORIGIN}),
         action('character_set_current', PROJECT_ARG | characters.SELECTOR, {'expected_current': characters.ID}),
         action('create_work', PROJECT_ARG | WRITE | {'fields': schema(NAME_FIELDS, WORK_OPTIONS)}),
+        action('start_work', PROJECT_ARG | CHAT_ROOT | WRITE | {'fields': schema(NAME_FIELDS, WORK_OPTIONS)}),
+        action('start_work', WORK_ARG | CHAT_ROOT | WRITE),
         action('edit_work', WORK_ARG | WRITE | {'expected_version': ORDINAL,
                                               'fields': schema({}, NAME_FIELDS | WORK_OPTIONS)}),
         action('select_work', WORK_ARG | WRITE),
@@ -138,8 +142,8 @@ SPECS = {
     ]},
 }
 DESCRIPTIONS = {
-    READ: 'Read project storyboards, one exact shot revision, shared model/channel options, original-work delivery status, local preflight, built-in video-director cards, or registered character reference versions. Refresh Token Hex only when explicitly requested. Preflight only validates local input and encoding; no generation.',
-    EDIT: 'Create or revise a storyboard in a registered local project. Manage canvas layout, exact shot generation bindings and work-level local MP4 delivery. Character_import records a verified project-local JSON index. Character_set_current changes one role pointer using the observed version. Adopt_video selects an exact verified take for one shot without changing its storyboard revision. Read deliveries for candidate IDs and the current adoption. Poll_delivery may query the original provider and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Use project-relative files with project_id and SHA-256.',
+    READ: 'Read project storyboards, one exact shot revision, shared model/channel options, original-work delivery status, local preflight, built-in video-director cards, a work_request by its original operation_id, or registered character reference versions. Refresh Token Hex only when explicitly requested. Preflight only validates local input and encoding; no generation.',
+    EDIT: 'Create or revise a storyboard in a registered local project. For chat starts use start_work with the original operation_id and both the current chat’s verified project_root and its matched project_id. Pass either an exact existing work_id or fields for a new work. First read work_request to recover any earlier result. Manage canvas layout, exact shot generation bindings and work-level local MP4 delivery. Character_import records a verified project-local JSON index. Character_set_current changes one role pointer using the observed version. Adopt_video selects an exact verified take for one shot without changing its storyboard revision. Read deliveries for candidate IDs and the current adoption. Poll_delivery may query the original provider and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Use project-relative files with project_id and SHA-256.',
     SUBMIT: 'Submit one expressly authorized billable video from the exact saved shot revision. Inputs and provider come from that immutable revision. Use the original project and attempt with video.ark.generation.status after any ambiguous result. The exact original attempt is linked to the Jiusera canvas before submission.',
     MEDIA: 'App-only local image import and verified storyboard image, whitebox or completed clip previews.',
 }
@@ -205,6 +209,10 @@ class DirectorRouter:
             return self.characters.pick_manifest(args['project_id'], args['path'])
         if command in ('character_thumbnail', 'character_original'):
             return self.characters.media(args)
+        if command == 'work_request':
+            return self.director.request(args['operation_id'])
+        if command == 'start_work':
+            return self.director.start_work(args, partial(validate_revision, self.jobs))
         if name == EDIT and command != 'poll_delivery':
             return self.director.edit(args, partial(validate_revision, self.jobs), self.verify_canvas_node, self.jobs)
         if command == 'projects':

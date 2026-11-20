@@ -1,7 +1,9 @@
 """Project-owned storyboards. Shot revisions are immutable; focus and adoption are pointers."""
+from collections import defaultdict
 from copy import deepcopy
 import json
 import os
+from pathlib import Path
 import secrets
 import stat
 
@@ -151,7 +153,22 @@ class Director:
         self.projects = projects
 
     def registered(self):
-        return [{'id': row['id'], 'name': row['name']} for row in self.projects.view()['projects']]
+        projects = self.projects.view()['projects']
+        parents = defaultdict(list)
+        for row in projects:
+            parents[row['name']].append(Path(row['root']).parent)
+        result = []
+        for row in projects:
+            name, parent = row['name'], Path(row['root']).parent
+            item = {'id': row['id'], 'name': name}
+            if len(parents[name]) > 1:
+                for length in range(1, len(parent.parts) + 1):
+                    suffix = parent.parts[-length:]
+                    if sum(other.parts[-length:] == suffix for other in parents[name]) == 1:
+                        item['label'] = f'{name} · {Path(*suffix)}'
+                        break
+            result.append(item)
+        return result
 
     def project(self, project_id):
         project = next((row for row in self.projects.view()['projects'] if row['id'] == project_id), None)
@@ -236,42 +253,80 @@ class Director:
             'adopted_revision': shot['adopted_revision'],
         }
 
+    def request(self, operation_id):
+        binding = self.projects.director_request(operation_id)
+        if binding is None:
+            return {'state': 'NOT_FOUND', 'operation_id': operation_id}
+        project_id, work_id = binding['project_id'], binding['work_id']
+        root, pin = self.project(project_id)
+        state = self.load(project_id, self.storage(root, pin))
+        if work_id is None:
+            operation = state['operations'].get('start:' + operation_id)
+            if operation is None:
+                return {'state': 'PENDING', 'operation_id': operation_id, 'project_id': project_id}
+            work_id = operation['receipt']['work_id']
+        lookup(state['works'], work_id, 'DIRECTOR_WORK_NOT_FOUND')
+        return {'state': 'READY', 'operation_id': operation_id, 'project_id': project_id, 'work_id': work_id}
+
+    def start_work(self, args, verify_revision):
+        project_id, operation_id = args['project_id'], args['operation_id']
+        root, _ = self.project(project_id)
+        require(root == exact_path(args['project_root']), 'DIRECTOR_PROJECT_CHANGED')
+        if 'work_id' in args:
+            self.overview(project_id, args['work_id'])
+        else:
+            self.new_work_fields(args['fields'])
+        # Reserve before the project write so the original request cannot move to another root after a crash.
+        self.projects.reserve_director_request(operation_id, project_id, args.get('work_id'), digest(args))
+        if 'fields' in args:
+            self.edit(args, verify_revision)
+        return self.request(operation_id)
+
     def edit(self, args, verify_revision, verify_canvas_node=None, jobs=None):
         project_id = args['project_id']
         root, pin = self.project(project_id)
-        location = self.storage(root, pin, create=args['action'] == 'create_work')
+        for_chat = args['action'] == 'start_work'
+        operation = ('start:' if for_chat else '') + args['operation_id']
+        location = self.storage(root, pin, create=for_chat or args['action'] == 'create_work')
         require(location.is_dir(), 'DIRECTOR_WORK_NOT_FOUND')
         location_pin = path_check(location, True)
         state_path = location / 'storyboards.json'
         with locked(location / 'writer.lock'):
             state = self.load(project_id, location)
             fingerprint = digest(args)
-            previous = state['operations'].get(args['operation_id'])
+            previous = state['operations'].get(operation)
             if previous is not None:
                 require(previous['fingerprint'] == fingerprint, 'DIRECTOR_OPERATION_CONFLICT')
                 return previous['receipt']
             receipt = self.apply(state, args, root, location, verify_revision, verify_canvas_node, jobs)
             state['version'] += 1
             receipt.update(state='SAVED', project_id=project_id, version=state['version'])
-            state['operations'][args['operation_id']] = {'fingerprint': fingerprint, 'receipt': receipt}
+            state['operations'][operation] = {'fingerprint': fingerprint, 'receipt': receipt}
             require(self.project(project_id) == (root, pin), 'DIRECTOR_PROJECT_CHANGED')
             limit = len(json.dumps(state, ensure_ascii=False).encode('utf-8')) + 1024
             atomic_write(state_path, state, maximum=limit, expected_parent=location_pin)
-            require(self.load(project_id, location)['operations'].get(args['operation_id'], {}).get('receipt')
+            require(self.load(project_id, location)['operations'].get(operation, {}).get('receipt')
                     == receipt, 'DIRECTOR_SAVE_NOT_VERIFIED')
             return receipt
 
+    @staticmethod
+    def new_work_fields(fields):
+        values = WORK_FIELDS | fields
+        values['title'] = display_name(values['title'])
+        for key in WORK_FIELDS:
+            if isinstance(values[key], str):
+                values[key] = project_text(values[key])
+        return values
+
     def apply(self, state, args, root, scratch, verify_revision, verify_canvas_node=None, jobs=None):
         action = args['action']
-        if action == 'create_work':
+        if action in ('create_work', 'start_work'):
             work_id = secrets.token_hex(16)
-            values = WORK_FIELDS | args['fields']
-            values['title'] = display_name(values['title'])
-            for key in WORK_FIELDS:
-                if isinstance(values[key], str):
-                    values[key] = project_text(values[key])
-            state['works'][work_id] = {'id': work_id, 'position': len(state['works']), **values, 'scenes': {}, 'focus': None}
-            state['selected_work'] = work_id
+            values = self.new_work_fields(args['fields'])
+            state['works'][work_id] = {'id': work_id, 'position': len(state['works']),
+                                       **values, 'scenes': {}, 'focus': None}
+            if action == 'create_work':
+                state['selected_work'] = work_id
             return {'work_id': work_id}
         work_id = args['work_id']
         work = lookup(state['works'], work_id, 'DIRECTOR_WORK_NOT_FOUND')

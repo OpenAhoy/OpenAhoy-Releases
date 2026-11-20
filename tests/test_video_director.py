@@ -140,6 +140,54 @@ class DirectorTests(unittest.TestCase):
             self.revised(self.a,{'notes':'different'},op)
         self.assertEqual(self.read('context',results[0])['revision']['number'],2)
 
+    def test_chat_start_is_scoped_to_the_exact_root_and_original_request(self):
+        first = self.root / 'first' / 'same'
+        second = self.root / 'second' / 'same'
+        first.mkdir(parents=True)
+        second.mkdir(parents=True)
+        ids = [self.jobs.projects.sync(str(root), [], 'project-' + secrets.token_hex(16), 2 + index)['project_id']
+               for index, root in enumerate((first, second))]
+        one, two = ({'project_id': pid, 'project_root': str(root), 'fields': {'title': '同名作品'}}
+                    for pid, root in zip(ids, (first, second)))
+        op = '1' * 32
+        lookup = {'operation_id': op}
+        self.assertEqual(self.read('work_request', lookup)['state'], 'NOT_FOUND')
+        wrong = one | {'project_root': str(second)}
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_PROJECT_CHANGED'):
+            self.edit('start_work', wrong, op)
+        self.assertEqual(self.read('work_request', lookup)['state'], 'NOT_FOUND')
+        self.assertFalse((first / '.openahoy-director').exists())
+        with patch.object(self.desk.director, 'edit', side_effect=OSError('interrupted before write')):
+            with self.assertRaises(OSError):
+                self.edit('start_work', one, op)
+        self.assertEqual(self.read('work_request', lookup), {
+            'project_id': ids[0], 'operation_id': op, 'state': 'PENDING'})
+        with self.assertRaisesRegex(WCEError, 'PROJECT_OPERATION_CONFLICT'):
+            self.edit('start_work', two, op)
+        with ThreadPoolExecutor(max_workers=2) as threads:
+            results = list(threads.map(lambda _: self.edit('start_work', one, op), range(2)))
+        self.assertEqual(results[0], results[1])
+        self.desk = DirectorRouter(self.inner)
+        self.assertEqual(self.read('work_request', lookup), results[0])
+        original = self.read('overview', {'project_id': ids[0], 'work_id': results[0]['work_id']})
+        self.assertEqual(len(original['works']), 1)
+        self.assertFalse((second / '.openahoy-director').exists())
+        self.assertEqual(self.jobs.projects.view()['revision'], 4)
+
+    def test_chat_reuses_exact_work_and_keeps_other_browser_selection(self):
+        old = self.read('overview', self.base)
+        root = str(self.project)
+        attached = self.edit('start_work', self.base | {'project_root': root}, '2' * 32)
+        self.assertEqual(attached['work_id'], self.work)
+        self.assertEqual(self.read('overview', self.base), old)
+        created = self.edit('start_work', {
+            'project_root': root, 'fields': {'title': old['work']['title']},
+        }, '3' * 32)
+        self.assertNotEqual(created['work_id'], attached['work_id'])
+        self.assertEqual(self.read('overview', {'project_id': self.p})['work']['id'], self.work)
+        self.assertEqual(self.read('work_request', {'operation_id': '2' * 32}), attached)
+        self.assertEqual(self.read('work_request', {'operation_id': '3' * 32}), created)
+
     def test_canvas_preserves_view_and_nodes_without_mutating_original_shots(self):
         a = self.edit('canvas_add', self.base | {'expected_canvas_version': 0,
             'node': {'kind': 'note', 'title': '字幕', 'text': '保留这行正文', 'shot_id': self.a['shot_id']},

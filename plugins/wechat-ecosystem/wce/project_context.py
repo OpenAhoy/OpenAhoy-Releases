@@ -184,9 +184,10 @@ class ProjectStore:
                 and all(type(value[k]) is dict for k in ('projects', 'bindings', 'operations')), 'PROJECT_STORE_UNAVAILABLE')
         return value
 
-    def _change(self, operation_id, payload, expected, mutate):
+    def _change(self, operation_id, payload, expected, mutate, *, director=False):
         require(type(operation_id) is str and OP.fullmatch(operation_id))
-        require(type(expected) is int and expected >= 0)
+        require(director or (type(expected) is int and expected >= 0))
+        key = 'director:' + operation_id if director else operation_id
         self.owner()
         if not os.path.lexists(self.root):
             try:
@@ -196,15 +197,16 @@ class ProjectStore:
         with locked(self.lock):
             state = self._load()
             fingerprint = digest(payload)
-            if operation_id in state['operations']:
-                receipt = state['operations'][operation_id]
+            if key in state['operations']:
+                receipt = state['operations'][key]
                 require(receipt['fingerprint'] == fingerprint, 'PROJECT_OPERATION_CONFLICT')
                 return deepcopy(receipt['result'])
-            require(state['revision'] == expected, 'PROJECT_REVISION_CONFLICT')
+            require(director or state['revision'] == expected, 'PROJECT_REVISION_CONFLICT')
             result = mutate(state)
-            state['revision'] += 1
+            if not director:
+                state['revision'] += 1
             result.update(state='SAVED', revision=state['revision'], operation_id=operation_id)
-            state['operations'][operation_id] = {'fingerprint': fingerprint, 'result': result}
+            state['operations'][key] = {'fingerprint': fingerprint, 'result': result}
             require(state['owner'] == self.owner(), 'PROJECT_OWNER_CHANGED')
             raw = json.dumps(state, ensure_ascii=False).encode('utf-8')
             # Existing atomic writer, sized to actual data, not an overall quota.
@@ -220,6 +222,20 @@ class ProjectStore:
         project['source_digest'] = digest(entries)
         return self._change(operation_id, {'sync': project}, expected_revision,
             lambda state: (state['projects'].update({pid: project}) or {'project_id': pid, 'source_digest': project['source_digest']}))
+
+    def reserve_director_request(self, operation_id, project_id, work_id, fingerprint):
+        # Keep request routing in the existing locked catalog, outside its settings revision.
+        def bind(state):
+            require(project_id in state['projects'], 'DIRECTOR_PROJECT_NOT_REGISTERED')
+            return {'project_id': project_id, 'work_id': work_id}
+
+        return self._change('project-' + operation_id, {
+            'project_id': project_id, 'work_id': work_id, 'fingerprint': fingerprint,
+        }, None, bind, director=True)
+
+    def director_request(self, operation_id):
+        row = self._load()['operations'].get('director:project-' + operation_id)
+        return deepcopy(row['result']) if row else None
 
     def view(self):
         state = self._load()

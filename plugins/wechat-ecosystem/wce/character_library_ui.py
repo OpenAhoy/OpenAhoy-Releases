@@ -27,26 +27,35 @@ STYLE = r'''
  --cl-green:light-dark(#27694d,#a6d9c2);--cl-green-bg:light-dark(#e2f3e9,#263c33);
  --cl-gray:var(--muted);--cl-gray-bg:var(--soft)
 }
-#characterLibrary{min-height:0;flex:1;overflow:auto;overscroll-behavior:contain}
+#characterLibrary{min-height:0;flex:1;overflow:hidden}
 #characterLibrary .cl-header h1{display:none}
 #characterLibrary .cl-header{justify-content:flex-end}
 #clImportChosen,#clImportBrowser{overflow-wrap:anywhere}
 #clImportBrowser{border:1px solid var(--cl-line);border-radius:8px;padding:8px;max-height:210px;overflow:auto}
 #clImportBrowser button{display:block;max-width:100%;margin-top:4px;text-align:start}
 #clImportBrowser .cl-directory::before{content:'› ';font-weight:650}
-.cl-layout{display:grid;grid-template-columns:151px minmax(0,1fr);min-height:100%;min-width:0;
+.cl-layout{display:grid;grid-template-columns:151px minmax(0,1fr);grid-template-rows:minmax(0,1fr);
+ box-sizing:border-box;height:100%;min-width:0;
  background:var(--cl-bg);border:1px solid var(--cl-line);border-radius:14px;color:var(--ink)}
 .cl-projects{display:flex;flex-direction:column;align-items:stretch;gap:5px;padding:16px 10px;
- border-right:1px solid var(--cl-line)}
-.cl-projects button{align-items:center;justify-content:space-between;gap:8px;text-align:left}
-.cl-projects .cl-series{padding-inline-start:20px;font-size:12px}
-.cl-projects button[aria-pressed=true],.cl-filters button[aria-pressed=true]{background:var(--cl-tint);color:var(--cl-accent);font-weight:680}
-.cl-main{min-width:0;padding:clamp(13px,2vw,29px)}
+ border-right:1px solid var(--cl-line);min-height:0;overflow:auto;overscroll-behavior:contain}
+:is(#videoDirectorDesk,#characterPicker) .cl-projects button{display:grid;grid-template-columns:minmax(0,1fr) auto;
+ align-items:center;flex-shrink:0;min-width:0;max-width:100%;gap:6px;text-align:start}
+.cl-project-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cl-project-count{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--muted)}
+.cl-projects button[aria-pressed=true],.cl-filters button[aria-pressed=true]{background:var(--cl-tint);color:var(--cl-accent)}
+.cl-main{min-width:0;min-height:0;padding:clamp(13px,2vw,29px);overflow:auto;
+ overscroll-behavior:contain;scrollbar-gutter:stable}
 .cl-header{display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap}
 .cl-header h1{margin:0;font-size:15px;font-weight:650;line-height:1.35}
 .cl-controls,.cl-actions,.cl-filters{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
-.oa-native .cl-controls input[type=search]{margin:0;width:clamp(175px,19vw,255px)}
+:is(#videoDirectorDesk,#characterPicker) .cl-controls input[type=search]{margin:0;width:clamp(175px,19vw,255px)}
 .cl-filters{margin:16px 0 8px}
+:is(#videoDirectorDesk,#characterPicker) .cl-series-filter{
+ display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:6px;
+ width:min(100%,235px);margin:0;color:var(--muted);font-size:12px
+}
+.cl-series-filter select{width:100%;min-width:0;text-overflow:ellipsis}
 .cl-count{margin:0 0 12px;color:var(--muted)}
 .cl-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .oa-native :is(#characterLibrary,#characterPicker) .cl-card{
@@ -70,7 +79,7 @@ STYLE = r'''
 #characterDetail{width:min(840px,94vw)}
 #characterImport{width:min(520px,94vw)}
 #characterPicker::backdrop,#characterDetail::backdrop,#characterImport::backdrop{background:#110c08a0}
-#characterPicker .cl-layout{border-radius:0;border:0}
+#characterPicker .cl-layout{height:min(76dvh,780px);border-radius:0;border:0}
 .cl-picker-head,.cl-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .cl-picker-head,.cl-detail{padding:14px}
 .cl-dialog-head h2{margin:0;font-size:20px;overflow-wrap:anywhere}
@@ -82,14 +91,14 @@ STYLE = r'''
 .cl-form p,.cl-form ul{margin:0;overflow-wrap:anywhere}
 .cl-form ul{padding-left:18px}
 @media(max-width:1269px){.cl-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media(max-width:880px){.cl-layout{grid-template-columns:minmax(0,1fr)}
- .cl-projects{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--cl-line);padding:8px}
- .cl-projects .cl-series{padding-inline-start:9px}
+@media(max-width:880px){.cl-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+ .cl-projects{flex-direction:row;flex-wrap:wrap;align-content:start;max-height:min(30dvh,180px);
+  border-right:0;border-bottom:1px solid var(--cl-line);padding:8px}
 }
 @media(max-width:635px){
  .cl-header,.cl-controls{width:100%}
  .cl-controls{display:grid;grid-template-columns:minmax(0,1fr) auto auto}
- .oa-native .cl-controls input[type=search]{width:100%;min-width:0}
+ :is(#videoDirectorDesk,#characterPicker) .cl-controls input[type=search]{width:100%;min-width:0}
  .cl-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
  .cl-main{padding:12px}
  .cl-layout button{min-height:32px}
@@ -189,7 +198,7 @@ function OACharacterLibrary(tool,openProjectSettings){
  }
  function makeView(host,picking){
    const shell=node('div','cl-layout'),side=node('nav','cl-projects'),main=node('div','cl-main');
-   OAUI.attr(side,'aria-label','按项目和系列筛选');
+   OAUI.attr(side,'aria-label','按项目筛选');
    const header=node('header','cl-header'),title=node('h1','','形象资产库'),controls=node('div','cl-controls');
    title.tabIndex=-1;
    const search=node('input');search.type='search';search.placeholder=t('搜索人物、别名或项目');
@@ -200,34 +209,77 @@ function OACharacterLibrary(tool,openProjectSettings){
    if(!picking)controls.append(button('导入索引',()=>showImport(view)));
    header.append(title,controls);
    const filters=node('div','cl-filters'),count=node('p','cl-count'),grid=node('div','cl-grid');
+   const seriesLabel=node('label','cl-series-filter'),seriesSelect=node('select');
+   seriesLabel.append(node('span','','系列'),seriesSelect);
+   filters.append(seriesLabel);
    count.setAttribute('role','status');main.append(header,filters,count,grid);shell.append(side,main);host.append(shell);
-   const view={host,side,title,search,filters,count,grid,project:'',series:'',status:'all',picking};
+   const view={side,title,search,projectButtons:new Map(),seriesSelect,statusButtons:[],count,grid,
+     project:'',series:'',status:'all',picking};
    for(const [id,label] of [['all','全部版本'],...Object.entries(stateText)]){
      const filter=button(label,()=>{view.status=id;render(view);});filter.dataset.filter=id;filters.append(filter);
+     view.statusButtons.push(filter);
    }
+   seriesSelect.onchange=()=>{view.series=seriesSelect.value;render(view);};
+   syncProjects(view);syncSeries(view);
    search.oninput=()=>render(view);return view;
  }
  const browser=makeView(page,false),selection=makeView($('clPickerLibrary'),true),views=[browser,selection];
+ function syncProjects(view){
+   const rows=new Map([['',['全部项目',projects.reduce((sum,row)=>sum+row.assets.length,0)]]]);
+   for(const {id,name,assets} of projects)rows.set(id,[name,assets.length]);
+   const focused=view.side.contains(document.activeElement)?document.activeElement:null;
+   for(const [id,el] of view.projectButtons){
+     if(rows.has(id))continue;
+     el.remove();view.projectButtons.delete(id);
+   }
+   let next=view.side.firstElementChild;
+   for(const [id,[label,count]] of rows){
+     let el=view.projectButtons.get(id);
+     if(!el){
+       el=button(undefined,()=>{
+         if(view.project===id)return;
+         view.project=id;view.series='';syncSeries(view);render(view);
+       });
+       el.append(node('span','cl-project-label'),node('span','cl-project-count'));
+       if(!id){
+         OAUI.attr(el,'title',label);OAUI.set(el.firstElementChild,label);
+       }
+       view.projectButtons.set(id,el);
+     }
+     if(id&&el.title!==label){el.title=label;OAUI.raw(el.firstElementChild,label);}
+     if(el.lastElementChild.textContent!==String(count))el.lastElementChild.textContent=String(count);
+     if(el!==next)view.side.insertBefore(el,next);
+     next=el.nextElementSibling;
+   }
+   if(focused?.isConnected&&focused!==document.activeElement)focused.focus({preventScroll:true});
+ }
+ function syncSeries(view){
+   const names=new Map();
+   const selected=projects.find(row=>row.id===view.project);
+   for(const row of selected?.assets||[]){
+     const series=row.character.series;
+     names.set(series,(names.get(series)||0)+1);
+   }
+   if(!names.has(view.series))view.series='';
+   const options=[['',t('全部系列')],...Array.from(names,([name,count])=>[name,name+' · '+count])];
+   const select=view.seriesSelect;
+   if(select.options.length!==options.length||options.some(([value,text],i)=>
+      select.options[i].value!==value||select.options[i].textContent!==text)){
+     select.replaceChildren(...options.map(([value,text])=>{
+       const option=node('option');option.value=value;
+       if(value)OAUI.raw(option,text);else OAUI.set(option,'全部系列');
+       return option;
+     }));
+   }
+   select.disabled=!names.size;
+   select.value=view.series;
+ }
  function render(view){
    if(view.picking&&!picker.open)return;
    if(!view.picking&&page.hidden)return;
-   const filter=(label,n,project,series='')=>{
-     const el=button(label,()=>{view.project=project;view.series=series;render(view);
-       Array.from(view.side.children).find(btn=>btn.getAttribute('aria-pressed')==='true')?.focus();});
-     if(series)el.className='cl-series';
-     el.append(node('span','',String(n)));
-     el.setAttribute('aria-pressed',String(view.project===project&&view.series===series));
-     return el;
-   };
-   view.side.replaceChildren(filter('全部项目',projects.reduce((sum,row)=>sum+row.assets.length,0),''));
-   for(const project of projects){
-     view.side.append(filter(project.name,project.assets.length,project.id));
-     if(view.project!==project.id)continue;
-     const names=new Map();
-     for(const row of project.assets)names.set(row.character.series,(names.get(row.character.series)||0)+1);
-     for(const [name,size] of names)view.side.append(filter(name,size,project.id,name));
-   }
-   for(const el of view.filters.children)el.setAttribute('aria-pressed',String(view.status===el.dataset.filter));
+   for(const [id,el] of view.projectButtons)el.setAttribute('aria-pressed',String(id===view.project));
+   for(const el of view.statusButtons)el.setAttribute('aria-pressed',String(view.status===el.dataset.filter));
+   OAUI.attr(view.seriesSelect,'title',view.series?'{0}':'全部系列',view.series);
    const query=view.search.value.trim().normalize('NFKC').toLocaleLowerCase();
    const rows=projects.filter(project=>!view.project||project.id===view.project).flatMap(project=>
      project.assets.filter(row=>
@@ -262,6 +314,7 @@ function OACharacterLibrary(tool,openProjectSettings){
      projects=result.projects;
      for(const view of views){
        if(!projects.some(row=>row.id===view.project)){view.project='';view.series='';}
+       syncProjects(view);syncSeries(view);
        render(view);
      }
    }catch(problem){
@@ -469,7 +522,7 @@ function OACharacterLibrary(tool,openProjectSettings){
  };
  function choose(project,accept,trigger){
    pickerSession={project,choose:accept,trigger};selection.project=project;selection.series='';selection.status='all';selection.search.value='';
-   picker.showModal();render(selection);void refresh();
+   syncSeries(selection);picker.showModal();render(selection);void refresh();
  }
  $('clPickerClose').onclick=()=>picker.close();
  picker.addEventListener('close',()=>{
