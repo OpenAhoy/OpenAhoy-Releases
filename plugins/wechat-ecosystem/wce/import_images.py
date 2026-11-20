@@ -72,7 +72,99 @@ EMPTY_IPTC_APP13=(b'Photoshop 3.0\x008BIM\x04\x04\x00\x00\x00\x00\x00\x00'
                  b'\xd4\x1d\x8c\xd9\x8f\x00\xb2\x04\xe9\x80\x09\x98\xec\xf8\x42\x7e')
 
 
-def jpeg(raw,generated=False):
+def _exif_orientation(payload):
+    tiff = payload[6:]
+    endian = {b'II': '<', b'MM': '>'}.get(tiff[:2])
+    if not endian or len(tiff) < 8:
+        raise WCEError('HTML_IMPORT_JPEG_APP1')
+    magic, offset = struct.unpack_from(endian + 'HI', tiff, 2)
+    if magic != 42 or not 8 <= offset <= len(tiff) - 6:
+        raise WCEError('HTML_IMPORT_JPEG_APP1')
+    count, = struct.unpack_from(endian + 'H', tiff, offset)
+    table = offset + 2
+    end = table + 12 * count
+    if end + 4 > len(tiff):
+        raise WCEError('HTML_IMPORT_JPEG_APP1')
+    orientation = None
+    for item in range(table, end, 12):
+        tag, kind, length = struct.unpack_from(endian + 'HHI', tiff, item)
+        if tag != 0x0112:
+            continue
+        value, = struct.unpack_from(endian + 'H', tiff, item + 8)
+        if orientation is not None or (kind, length) != (3, 1) or not 1 <= value <= 8:
+            raise WCEError('HTML_IMPORT_JPEG_APP1')
+        orientation = value
+    return orientation or 1
+
+
+def _photoshop_resources(payload):
+    prefix = b'Photoshop 3.0\x00'
+    if not payload.startswith(prefix):
+        raise WCEError('HTML_IMPORT_JPEG_APP13')
+    offset = len(prefix)
+    while offset < len(payload):
+        if payload[offset:offset + 4] != b'8BIM' or offset + 7 > len(payload):
+            raise WCEError('HTML_IMPORT_JPEG_APP13')
+        name_size = 1 + payload[offset + 6]
+        length_at = offset + 6 + name_size + (name_size % 2)
+        if length_at + 4 > len(payload):
+            raise WCEError('HTML_IMPORT_JPEG_APP13')
+        size, = struct.unpack_from('>I', payload, length_at)
+        offset = length_at + 4 + size + (size % 2)
+        if offset > len(payload):
+            raise WCEError('HTML_IMPORT_JPEG_APP13')
+
+
+def _production_jpeg_orientation(raw, segments):
+    orientation = 1
+    seen_exif = False
+    profiles = {}
+    profile_count = 0
+    for marker, start, end in segments:
+        if marker not in (0xe1, 0xe2, 0xed):
+            continue
+        while raw[start] == 255:
+            start += 1
+        payload = raw[start + 3:end]
+        if marker == 0xe1:
+            if payload.startswith(b'Exif\0\0') and not seen_exif:
+                orientation = _exif_orientation(payload)
+                seen_exif = True
+            elif not payload.startswith(b'http://ns.adobe.com/xap/1.0/\0'):
+                raise WCEError('HTML_IMPORT_JPEG_APP1')
+        elif marker == 0xed:
+            _photoshop_resources(payload)
+        else:
+            if not payload.startswith(b'ICC_PROFILE\0') or len(payload) <= 14:
+                raise WCEError('HTML_IMPORT_JPEG_APP2')
+            number, total = payload[12:14]
+            if not 1 <= number <= total or number != len(profiles) + 1 or profile_count not in (0, total):
+                raise WCEError('HTML_IMPORT_JPEG_APP2')
+            profiles[number] = payload[14:]
+            profile_count = total
+    if profiles:
+        if len(profiles) != profile_count:
+            raise WCEError('HTML_IMPORT_JPEG_APP2')
+        profile = b''.join(profiles[i] for i in range(1, profile_count + 1))
+        if (len(profile) < 132 or int.from_bytes(profile[:4], 'big') != len(profile)
+                or profile[16:20] != b'RGB ' or profile[36:40] != b'acsp'):
+            raise WCEError('HTML_IMPORT_JPEG_APP2')
+        tag_count = int.from_bytes(profile[128:132], 'big')
+        end = 132 + 12 * tag_count
+        if end > len(profile):
+            raise WCEError('HTML_IMPORT_JPEG_APP2')
+        for _, offset, size in struct.iter_unpack('>4sII', profile[132:end]):
+            if not end <= offset <= len(profile) or not 0 < size <= len(profile) - offset:
+                raise WCEError('HTML_IMPORT_JPEG_APP2')
+    return orientation
+
+
+def jpeg(raw,generated=False,*,production=False):
+    if production:
+        if len(raw) > 2097152:
+            raise WCEError('HTML_IMPORT_JPEG_LIMIT')
+        if raw.startswith(b'\xff\xd8') and not raw.endswith(b'\xff\xd9'):
+            raise WCEError('HTML_IMPORT_JPEG_TRUNCATED')
     if not 0<len(raw)<=2097152 or not raw.startswith(b'\xff\xd8') or not raw.endswith(b'\xff\xd9'):fail()
     i=2;dimensions=None;segments=[];scans=0;count=0;exif=[];empty_iptc=False
     while i<len(raw):
@@ -100,9 +192,15 @@ def jpeg(raw,generated=False):
         if marker in (0xc0,0xc2):
             if dimensions or len(payload)!=15 or payload[0]!=8 or payload[5]!=3:fail()
             h,w=struct.unpack_from('>HH',payload,1);dimensions=(w,h)
-            if not 0<w<=4096 or not 0<h<=4096 or w*h>4194304:fail()
+            if not 0<w<=4096 or not 0<h<=4096 or w*h>4194304:
+                if production and w and h:
+                    raise WCEError('HTML_IMPORT_JPEG_LIMIT')
+                fail()
         elif marker==0xe0:
             if size!=16 or payload[:5]!=b'JFIF\x00' or payload[-2:]!=b'\x00\x00':fail()
+        elif production and marker in (0xe1, 0xe2, 0xed):
+            if scans:
+                fail()
         elif marker==0xe1:exif.append(payload)
         elif marker==0xed:
             if empty_iptc or scans or payload!=EMPTY_IPTC_APP13:fail()
@@ -111,7 +209,11 @@ def jpeg(raw,generated=False):
         segments.append((marker,start,end))
         i=end
         if marker==0xda:
+            if production and (not dimensions or not payload or not 1 <= payload[0] <= 3
+                               or len(payload) != 4 + 2 * payload[0]):
+                fail()
             scans+=1
+            scan_start = i
             # Entropy bytes are opaque, but byte stuffing/restarts/EOI are parsed.
             while i<len(raw):
                 if type(raw) is bytes:
@@ -127,6 +229,8 @@ def jpeg(raw,generated=False):
                 if j==len(raw):fail()
                 if raw[j]==0 or 0xd0<=raw[j]<=0xd7:i=j+1;continue
                 break
+            if production and i == scan_start:
+                raise WCEError('HTML_IMPORT_JPEG_TRUNCATED')
     fail()
 
 
@@ -169,11 +273,13 @@ def run(args):
     if result.returncode:fail()
 
 
-def decode(raw,mime,scratch,*,_generated=False):
+def decode(raw,mime,scratch,*,_generated=False,production=False):
     if mime=='image/png':
         return decode_import_png(raw)
     if mime!='image/jpeg':fail()
-    size,_=jpeg(raw,_generated)
+    size,segments=jpeg(raw,_generated,production=production)
+    if production and _production_jpeg_orientation(raw, segments) in (5, 6, 7, 8):
+        size = size[::-1]
     FileSource(scratch)  # Reject symlink roots/components before producing files.
     with tempfile.TemporaryDirectory(prefix='decode-',dir=scratch) as temp:
         root=Path(temp);source=root/'source.jpg';source.write_bytes(raw);source.chmod(0o600)

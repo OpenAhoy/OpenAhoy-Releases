@@ -1,14 +1,24 @@
 """Director desk in the native OpenAhoy media workspace."""
 from .video_director_canvas_ui import HTML as CANVAS_HTML
+from .character_library_ui import PAGE as CHARACTER_PAGE
+from .media_monitor_ui import HTML as ASSET_MEDIA
+from .video_director_monitor_ui import HTML as MONITOR_HTML
 
 HTML = '''
 <section id="videoDirectorDesk" aria-labelledby="directorTitle" hidden>
  <header class="dd-toolbar">
   <h1 id="directorTitle" tabindex="-1">导演台</h1>
-  <nav id="directorViews" aria-label="Jiusera工具">
-   <button type="button" data-view="desk">分镜</button><button type="button" data-view="cards">提示词库</button>
-   <button type="button" id="directorLibrary">任务与资产</button><button type="button" id="directorSettings">供应商设置</button>
-  </nav>
+  <div class="dd-actions">
+   <button id="directorSound" type="button" aria-label="预览声音" aria-pressed="false">声音关</button>
+   <button id="directorToolBack" type="button" hidden>返回</button>
+   <button id="directorAssetBack" type="button" hidden>回到画布</button>
+   <details id="directorMore" class="dd-more"><summary>更多</summary>
+    <div class="dd-more-menu">
+     <button type="button" id="directorCardsLink">提示词库</button>
+     <button type="button" id="directorSettings">供应商设置</button>
+    </div>
+   </details>
+  </div>
  </header>
  <div class="dd-workbar" id="directorWorkbar">
   <div class="dd-projects">
@@ -18,9 +28,10 @@ HTML = '''
   </div>
   <div class="dd-actions">
    <button type="button" id="directorWorkSettings">作品约定</button>
-   <button type="button" id="directorRefresh">刷新分镜</button>
+   <button type="button" id="directorRefresh">刷新</button>
   </div>
  </div>
+ ''' + MONITOR_HTML + '''
  <div id="directorBoard" class="dd-board" hidden>
   <aside class="dd-panel dd-scenes" aria-label="场次">
    <div class="dd-heading"><h2>场次</h2><button id="directorNewScene" type="button">新建场次</button></div>
@@ -61,6 +72,13 @@ HTML = '''
   </div>
   <div class="dd-card-grid"><div id="directorCardList"></div><article id="directorCardDetail" class="dd-panel"></article></div>
  </section>
+ <nav id="directorAssetKinds" aria-label="资产类型" hidden>
+  <button type="button" data-asset-kind="characters" aria-controls="characterLibrary">形象资产</button>
+  <button type="button" data-asset-kind="video" aria-controls="mediaMonitor">视频</button>
+  <button type="button" data-asset-kind="gif" aria-controls="mediaMonitor">动图</button>
+  <button type="button" data-asset-kind="audio" aria-controls="mediaMonitor">音频</button>
+ </nav>
+ ''' + CHARACTER_PAGE + ASSET_MEDIA + '''
  <footer class="dd-footer">
   <p id="directorStatus" role="status" aria-live="polite"></p>
   <textarea id="directorCopy" rows="3" aria-label="可复制内容" readonly hidden></textarea>
@@ -81,6 +99,22 @@ STYLE = '''
 #videoDirectorDesk h2{font-size:15px;font-weight:650}
 #videoDirectorDesk h3{font-size:13px}
 #videoDirectorDesk :is(input,textarea,select){width:100%;min-width:0;margin:0}
+.dd-more{position:relative}
+.dd-more summary{display:flex;align-items:center;gap:6px;cursor:pointer;min-height:32px;padding:3px 8px;
+ border:1px solid var(--line);border-radius:7px;background:var(--surface);list-style:none}
+.dd-more summary::after{content:'⌄';color:var(--muted)}
+.dd-more summary::-webkit-details-marker{display:none}
+.dd-more-menu{position:absolute;z-index:5;inset-inline-end:0;top:calc(100% + 4px);display:grid;min-width:max-content;
+ gap:4px;padding:5px;border-radius:8px;border:1px solid var(--line);background:var(--surface);box-shadow:var(--raised)}
+.dd-canvas-edit .dd-more-menu{inset-inline:0 auto}
+#directorAssetKinds{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+#directorSound[aria-pressed=true],#directorAssetKinds button[aria-pressed=true]{background:var(--oa-selection,var(--tint));border-color:var(--line)}
+#videoDirectorDesk #mediaMonitor{flex:1 0 auto}
+#videoDirectorDesk #monitorSearch{width:auto}
+@media(max-width:690px){
+ #videoDirectorDesk .mm-columns{min-height:320px}
+ #videoDirectorDesk #monitorList,#videoDirectorDesk #monitorDetail{max-height:none;height:auto}
+}
 #videoDirectorDesk :is(input,select,textarea,button){font-size:12px}
 #videoDirectorDesk :is(button,select,input){min-height:30px}
 #videoDirectorDesk textarea{resize:vertical}
@@ -181,7 +215,8 @@ function OADirector(tool, send, canSend, navigation){
      if(!awaitReadback)pendingWrites.delete(key);
      return result;
    }catch(problem){
-     if(!/^HOST_/.test(problem?.message||''))pendingWrites.delete(key);
+     if(!/^HOST_/.test(problem?.message||'')&&!(awaitReadback&&problem?.message==='DIRECTOR_SAVE_NOT_VERIFIED'))
+       pendingWrites.delete(key);
      throw problem;
    }
  }
@@ -229,7 +264,8 @@ function OADirector(tool, send, canSend, navigation){
  };
  let mode='',tab='text',data=null,context=null,sceneID=null,projects=[],modelData=null,cardData=null,cardID='';
  let engineDraft=null,engineDirty=false,workspaceTimer=null,workspaceBusy=false;
- const polled=new Map();
+ const polled=new Map(),workspaceRows=new Map(),preferredWorks=new Map(),preferredShots=new Map();
+ const workKey=scope=>scope.project_id+':'+scope.work_id;
  const engineModes={...modeLabels,subject:'主体参考',workflow:'多图多音频工作流'};
  const engineChannel={...providers,relay:'AutoDL'};
  const engineName=engine=>engine.model+' · '+txt(engineChannel[engine.provider]||engine.provider||'渠道未记录');
@@ -304,25 +340,35 @@ function OADirector(tool, send, canSend, navigation){
    }catch(problem){if(mode&&pid()===args.project_id)error(problem);return false;}
    finally{writing=false;}
  }
- async function readWork({work,focus,scene,keep=false}={}){
+ let readingWork=0;
+ async function readWork(options={}){
+   readingWork++;
+   try{return await loadWork(options);}
+   finally{readingWork--;}
+ }
+ async function loadWork({work,focus,scene,keep=false}){
    const token=++reading, id=pid();
-   if(!id){data=null;context=null;sceneID=null;render();return;}
-   const requested=work||(keep?present()?.id:undefined);
+   if(!id){data=null;context=null;sceneID=null;render();return false;}
+   const requested=work||(keep?present()?.id:preferredWorks.get(id));
    const result=await read('overview',{project_id:id,...(requested?{work_id:requested}:{})});
-   if(token!==reading||!mode||pid()!==id)return;
+   if(token!==reading||!mode||pid()!==id)return false;
    if(result.project_id!==id)throw Error('DIRECTOR_PROJECT_CHANGED');
-   const active=result.work;
-   const picked=focus||active?.selection;
+   const active=result.work, scope=active&&{project_id:id,work_id:active.id};
+   const picked=focus||(!scene&&scope&&preferredShots.get(workKey(scope)))||active?.selection;
    const sceneRow=active?.scenes.find(row=>row.id===(scene||picked?.scene_id))||active?.scenes[0];
    const target=picked?.shot_id&&picked.scene_id===sceneRow?.id?picked:preferred(sceneRow);
    let view=null;
    if(active&&target)view=await read('context',{project_id:id,work_id:active.id,...target});
-   if(token!==reading||!mode||pid()!==id)return;
+   if(token!==reading||!mode||pid()!==id)return false;
    if(view&&(view.project_id!==id||view.work_id!==active.id||view.scene_id!==target.scene_id||
              view.shot_id!==target.shot_id||view.revision.id!==target.revision_id))
       throw Error('DIRECTOR_REVISION_NOT_FOUND');
    data=result;sceneID=sceneRow?.id||null;context=view;
+   if(scope)preferredWorks.set(id,scope.work_id);
+   if(scope&&target)preferredShots.set(workKey(scope),target);
    render();if(mode==='cards'&&cardData)renderCards();
+   if(mode==='monitor'||mode==='desk')void syncWorkspace();
+   return true;
  }
  async function selectShot(scene,shot,revision){
    if(!scene||!shot||!revision||!present())return;
@@ -339,22 +385,35 @@ function OADirector(tool, send, canSend, navigation){
    await write('select_scene',{...workScope(),scene_id:id},()=>readWork({keep:true,scene:id}),'');
  }
  function render(){
-   if(mode!=='desk')return;
+   if(mode!=='desk'&&mode!=='monitor')return;
+   const work=present(),editing=mode==='desk';
    $('directorWorkbar').hidden=false;
-   board.hidden=!present();$('directorEmpty').hidden=!!present();
-   canvas.render(present()?pid()+':'+present().id:'',present(),context?.shot_id);
-   optionsFor(workSelect,(data?.works||[]).map(row=>[row.id,row.title,false]),present()?.id);
+   $('directorWorkSettings').hidden=!editing;
+   $('directorNewWork').hidden=!editing;
+   board.hidden=!editing||!work;
+   $('directorMonitor').hidden=editing||!work;
+   $('directorEmpty').hidden=!!work;
+   optionsFor(workSelect,(data?.works||[]).map(row=>[row.id,row.title,!!row.inbox]),work?.id);
    workSelect.disabled=!data?.works.length;
    $('directorNewWork').disabled=!pid();
+   const scope=work&&workScope(),cached=scope&&workspaceRows.get(workKey(scope));
+   if(editing){
+     canvas.render(scope?workKey(scope):'',work,context?.shot_id);
+     if(cached)canvas.setDeliveries(workKey(scope),cached.cards,cached.version);
+   }else if(work)review.render({work,scope,context,cards:cached?.cards||[]});
+   else review.clear();
    $('directorCanvasEngine').disabled=!context;
-   $('directorWorkSettings').disabled=!present();
+   const inbox=!!present()?.inbox;
+   $('directorWorkSettings').disabled=!present()||inbox;
+   for(const id of ['directorCanvasNote','directorCanvasImage','directorNewScene'])$(id).disabled=inbox;
    if(!present()){
      const hint=$('directorEmpty');hint.replaceChildren(
        label('h2',pid()?'创建第一部作品':'选择一个已登记的项目'),
        label('p',pid()?'建立作品、场次和镜头后即可制作分镜。':'先在项目与 Skills 中登记你的创作目录。'),
-       button(pid()?'新建作品':'登记项目',pid()?()=>workDialog():navigation.project,'primary'));
+       button(pid()?'新建作品':'登记项目',pid()?()=>{navigation.go('desk');workDialog();}:navigation.project,'primary'));
      return;
    }
+   if(!editing)return;
    const scene=currentScene();
    const scenes=present().scenes;
    const at=scenes.indexOf(scene);
@@ -856,14 +915,10 @@ function OADirector(tool, send, canSend, navigation){
    try{
      const result=await read('preflight',target);
      if(!visible(key))return;
-     const route={ark:'video.ark.generation.submit',cn:'video.minimax.generation.submit',
-       global:'video.minimax.generation.submit',relay:'video.relay.generation.submit',tokenhex:'video.tokenhex.generation.submit'}[result.request.provider];
-     const instruction='为这个精确镜头使用已保存的视频引擎。镜头定位 '+JSON.stringify(target)+
-       '。先用 video.director.read 的 preflight 读取此修订，核对当前视频生成授权，选择稳定且唯一的 generation_attempt_id。'+
-       '用 video.director.edit action=track_generation，传同一个 attempt_id、精确镜头定位和新的 operation_id。'+
-       '保持所选型号和渠道，经 '+route+' 提交一次。'
-       +(result.request.provider==='tokenhex'?'遵循现有 Token Hex 工具域，使用项目相对 paths 及 audio 配置，省略原生配置不接收的 ratio。':'')+
-       '查询原状态，保留聊天内原成片播放交付。'+
+     if(result.state!=='PREFLIGHT_VALID')throw Error('DIRECTOR_PREVIEW_UNAVAILABLE');
+     const instruction='为这个精确镜头生成视频。镜头定位 '+JSON.stringify(target)+
+       '。按用户本次授权，用 video.director.generation.submit 传该定位和稳定唯一的 generation_attempt_id。'+
+       '提交后使用同一项目和 attempt 查询原状态。保留聊天内原成片播放交付和 Jiusera 作品中的原候选。'+
        '若另有已完成的本地剪辑 MP4，用 register_work_video 登记到准确作品，勿用整片覆盖镜头原片。';
      if(canSend()){await send(instruction);if(visible(key))say('已发送镜头与原引擎到当前 Codex。');}
      else await copy(instruction);
@@ -1038,23 +1093,34 @@ function OADirector(tool, send, canSend, navigation){
    detail.append(actions);
  }
  function view(target){
-   mode=target;
-   for(const pick of $('directorViews').querySelectorAll('[data-view]'))
-     pick.setAttribute('aria-pressed',String(pick.dataset.view===mode));
-   $('directorCardPage').hidden=mode!=='cards';
-   $('directorWorkbar').hidden=mode!=='desk';
-   if(mode==='cards'){
-     canvas.suspend();board.hidden=true;$('directorEmpty').hidden=true;clearPreview();stopWatch();
-     void loadCards().catch(error);
-   }else{
-     render();
+   if(mode===target)return;
+   if(mode==='desk'){
+     canvas.suspend();clearPreview();stopWatch();visual++;
+     if($('directorCanvasPreview').open)$('directorCanvasPreview').close();
+     if($('directorDialog').open)$('directorDialog').close();
    }
+   if(mode==='monitor')review.clear();
+   mode=target;root.scrollTop=0;
+   const main=mode==='desk'||mode==='monitor';
+   OAUI.set($('directorTitle'),({monitor:'导演台',desk:'工作画布',assets:'资产库',cards:'提示词库',
+     tasks:'任务详情',providers:'供应商设置'})[mode]);
+   $('directorMore').open=false;
+   $('directorMore').hidden=!main&&mode!=='assets';
+   $('directorToolBack').hidden=!['cards','tasks','providers'].includes(mode);
+   $('directorAssetKinds').hidden=mode!=='assets';
+   $('directorAssetBack').hidden=mode!=='assets';
+   $('directorCardPage').hidden=mode!=='cards';
+   $('directorWorkbar').hidden=!main;
+   if(mode!=='desk')board.hidden=true;
+   if(mode!=='monitor')$('directorMonitor').hidden=true;
+   if(!main)$('directorEmpty').hidden=true;
+   if(mode==='cards')void loadCards().catch(error);
+   if(main){render();void syncWorkspace();}
  }
- async function open(target='desk'){
+ async function open(target='monitor'){
    root.hidden=false;
    view(target);
    if(!workspaceTimer)workspaceTimer=setInterval(syncWorkspace,2600);
-   $('directorTitle').focus();
    const token=++reading;
    try{
      const {projects:list}=await read('projects');
@@ -1068,7 +1134,7 @@ function OADirector(tool, send, canSend, navigation){
    }catch(problem){if(mode)error(problem);}
  }
  function close(){
-   navigation.closeCharacterPicker();imageDraft=null;canvas.suspend();
+   navigation.closeCharacterPicker();imageDraft=null;canvas.suspend();review.clear();
    clearInterval(workspaceTimer);workspaceTimer=null;polled.clear();engineDraft=null;engineDirty=false;
    mode='';root.hidden=true;reading++;visual++;clearPreview();stopWatch();say('');
    if($('directorCanvasPreview').open)$('directorCanvasPreview').close();
@@ -1082,7 +1148,9 @@ function OADirector(tool, send, canSend, navigation){
  };
  workSelect.onchange=()=>{
    stopWatch();engineDraft=null;engineDirty=false;const chosen=workSelect.value;
-   void write('select_work',{project_id:pid(),work_id:chosen},()=>readWork({work:chosen}),'');
+   if(mode==='desk'&&!data?.works.find(row=>row.id===chosen)?.inbox){
+     void write('select_work',{project_id:pid(),work_id:chosen},()=>readWork({work:chosen}),'');
+   }else void readWork({work:chosen}).catch(error);
  };
  $('directorSceneSelect').onchange=()=>selectScene($('directorSceneSelect').value);
  $('directorPrevious').onclick=()=>{const scenes=present().scenes;return selectScene(scenes[scenes.indexOf(currentScene())-1]?.id);};
@@ -1122,46 +1190,90 @@ function OADirector(tool, send, canSend, navigation){
  $('directorWorkSettings').onclick=()=>workDialog(present());
  $('directorNewScene').onclick=()=>entityDialog('scene');
  $('directorNewShot').onclick=()=>entityDialog('shot');
- $('directorRefresh').onclick=async()=>{if(writing)return;stopWatch();engineDirty=false;engineDraft=null;try{await readWork({keep:true});say('已刷新分镜。');}catch(problem){error(problem);}};
+ $('directorRefresh').onclick=async()=>{
+   if(writing)return;
+   if(mode==='desk'){stopWatch();engineDirty=false;engineDraft=null;}
+   try{await readWork({keep:true});say('');}catch(problem){error(problem);}
+ };
  $('directorSendText').onclick=()=>askCodex('text');
  $('directorSendImage').onclick=()=>askCodex('image');
  $('directorCopyContext').onclick=()=>askCodex('text',true);
- $('directorLibrary').onclick=navigation.library;
- $('directorSettings').onclick=navigation.settings;
- $('directorViews').querySelectorAll('[data-view]').forEach(pick=>pick.onclick=()=>view(pick.dataset.view));
+ $('directorSettings').onclick=()=>navigation.go('providers');
+ $('directorCardsLink').onclick=()=>navigation.go('cards');
+ $('directorToolBack').onclick=navigation.back;
  $('directorTabs').querySelectorAll('button').forEach(pick=>pick.onclick=()=>{tab=pick.dataset.tab;renderInspector();});
  for(const id of ['directorCardQuery','directorCardCategory','directorCardSubjects','directorCardModel'])$(id).oninput=renderCards;
  function shotLink(){return context?.shot_id?{shot_id:context.shot_id}:{};}
- function canAttach(row){return mode==='desk'&&!!present()&&row.project===pid()&&!!row.asset?.sha256;}
+ function canAttach(row){return mode==='assets'&&!!present()&&!present().inbox&&row.project===pid()&&!!row.asset?.sha256;}
  async function attach(row){
    if(!canAttach(row))return false;
-   const result=await canvas.add({kind:'asset',title:row.title.slice(0,240),...shotLink(),
-      asset:{family:row.family,media_kind:row.kind,project_id:row.project,attempt_id:row.attempt,sha256:row.asset.sha256}});
-   if(result)navigation.closeLibrary();
-   return result;
+   const node={kind:'asset',title:row.title.slice(0,240),...shotLink(),
+     asset:{family:row.family,media_kind:row.kind,project_id:row.project,attempt_id:row.attempt,sha256:row.asset.sha256}};
+   navigation.go('desk');
+   const saved=await canvas.add(node);
+   if(!saved&&mode==='desk')navigation.asset({family:row.family,kind:row.kind,project:row.project,
+     attempt:row.attempt,sha256:row.asset.sha256});
+   return saved;
  }
  async function canvasCommit(action,args,saved){
    const [project_id,work_id]=saved.key.split(':');
+   const target={project_id,work_id};
    const current=()=>!!mode&&pid()===project_id&&data?.project_id===project_id&&present()?.id===work_id;
-   try{
-     const result=await edit(action,{project_id,work_id,expected_canvas_version:saved.version,...args});
+   const send=async version=>{
+     const request={...target,expected_canvas_version:version,...args};
+     const result=await edit(action,request,action==='canvas_view');
      if(result.state!=='SAVED'||result.project_id!==project_id||result.work_id!==work_id||
-        result.canvas_version!==saved.version+1)throw Error('DIRECTOR_SAVE_NOT_VERIFIED');
-     saved.version=result.canvas_version;
-     if(current()){
-       const value=exact();
-       const focus=value&&{scene_id:value.scene_id,shot_id:value.shot_id,revision_id:value.revision_id};
-       await readWork({work:work_id,focus});
-       say(action==='canvas_view'?'画布视图已保存。':'画布已保存。');
+        result.canvas_version!==version+1)throw Error('DIRECTOR_SAVE_NOT_VERIFIED');
+     saved.version=Math.max(saved.version,result.canvas_version);
+     pendingWrites.delete(intentKey(action,request));
+     return result.canvas_version;
+   };
+   if(action==='canvas_view'){
+     const waitForOriginal=async()=>{
+       const result=await read('overview',target);
+       if(result.project_id!==project_id||result.work?.id!==work_id)throw Error('DIRECTOR_SAVE_NOT_VERIFIED');
+       const latest=result.work.canvas;
+       saved.version=Math.max(saved.version,latest.version);
+       const view=latest.viewport;
+       const matched=['x','y','scale'].every(name=>view[name]===args.viewport[name]);
+       return {matched,version:latest.version};
+     };
+     const version=saved.version;
+     if(saved.inbox)return {state:'saved',version};
+     try{return {state:'saved',version:await send(version)};}
+     catch(problem){
+       const conflict=problem.message==='DIRECTOR_CANVAS_CHANGED';
+       const unknown=/^HOST_|^DIRECTOR_SAVE_NOT_VERIFIED$/.test(problem.message||'');
+       if(!conflict&&!unknown)return {state:'unsaved'};
+       try{
+         const latest=await waitForOriginal();
+         if(latest.matched&&latest.version>=version)return {state:'saved',version:latest.version};
+         if(conflict&&current()&&latest.version>version&&saved.viewport===args.viewport){
+           try{return {state:'saved',version:await send(latest.version)};}
+           catch(second){
+             if(!/^HOST_|^DIRECTOR_SAVE_NOT_VERIFIED$/.test(second.message||''))return {state:'unsaved'};
+             const previous=await waitForOriginal();
+             if(previous.matched&&previous.version>latest.version)return {state:'saved',version:previous.version};
+             return {state:'unknown'};
+           }
+         }
+       }catch(_){return {state:conflict?'unsaved':'unknown'};}
+       return {state:conflict?'unsaved':'unknown'};
      }
-     return true;
+   }
+   try{
+     await send(saved.version);
    }catch(problem){
-     if(current()){
-       error(problem);
-       await readWork({work:work_id}).catch(()=>{});
-     }
+     if(current()){error(problem);await readWork({work:work_id}).catch(()=>{});}
      return false;
    }
+   if(current()){
+     const value=exact();
+     const focus=value&&{scene_id:value.scene_id,shot_id:value.shot_id,revision_id:value.revision_id};
+     try{await readWork({work:work_id,focus});if(current())say('画布已保存。');}
+     catch(problem){if(current())error(problem);}
+   }
+   return true;
  }
  async function canvasPicture(row){
    const response=row.kind==='shot'?await media('image',{...workScope(),scene_id:row.scene,
@@ -1169,16 +1281,16 @@ function OADirector(tool, send, canSend, navigation){
        await media('canvas_image',{...workScope(),node_id:row.id,thumbnail:true});
    const slot=node('div');attachImage(slot,response,true);return slot.firstChild;
  }
- function playCanvasVideo(slot,row){
-   const args={...workScope(),delivery_id:row.id,sha256:(row.asset||row).sha256};
+ function playCanvasVideo(slot,row,scope=workScope()){
+   const args={...scope,delivery_id:row.id,sha256:(row.asset||row).sha256};
    return OAVideoPreview(slot,row.asset||row,{
-     lazy:true,
+     lazy:true,sound:navigation.sound,
      chunk:offset=>media('canvas_video_chunk',{...args,offset}),
      frames:start=>media('canvas_video_frames',{...args,start}),
    });
  }
  async function adoptCanvasVideo(row){
-   const scope=workScope(),key=scope.project_id+':'+scope.work_id;
+   const scope=workScope();
    const args={...scope,scene_id:row.scene_id,shot_id:row.shot_id,candidate_id:row.id,sha256:row.asset.sha256};
    if(row.adopted_candidate_id)args.expected_candidate_id=row.adopted_candidate_id;
    return write('adopt_video',args,async result=>{
@@ -1187,7 +1299,7 @@ function OADirector(tool, send, canSend, navigation){
      const payload=await read('deliveries',scope);
      if(payload.project_id!==scope.project_id||payload.work_id!==scope.work_id||
           !payload.cards.some(item=>item.id===row.id&&item.adopted))throw Error('DIRECTOR_SAVE_NOT_VERIFIED');
-     canvas.setDeliveries(key,payload.cards,payload.version);
+     acceptDeliveries(scope,payload);
    },'已采用此视频。');
  }
  async function selectCanvasNode(row){
@@ -1197,7 +1309,7 @@ function OADirector(tool, send, canSend, navigation){
  async function showCanvasNode(row){
    if(row.kind==='asset'){
      const asset=row.asset;
-     navigation.asset({family:asset.family,project:asset.project_id,attempt:asset.attempt_id,sha256:asset.sha256});
+     navigation.asset({family:asset.family,kind:asset.media_kind||asset.family,project:asset.project_id,attempt:asset.attempt_id,sha256:asset.sha256});
      return;
    }
    const preview=$('directorCanvasPreview'),body=$('directorCanvasPreviewBody');
@@ -1214,36 +1326,73 @@ function OADirector(tool, send, canSend, navigation){
      }catch(problem){if(preview.open){body.replaceChildren(label('p','当前图片不可用'));error(problem);}}
    }
  }
+ function acceptDeliveries(scope,payload){
+   if(payload.project_id!==scope.project_id||payload.work_id!==scope.work_id||!Array.isArray(payload.cards))return false;
+   const key=workKey(scope),old=workspaceRows.get(key);
+   if(old&&payload.version<old.version)return false;
+   workspaceRows.set(key,payload);
+   if(pid()===scope.project_id&&present()?.id===scope.work_id){
+     if(mode==='desk')canvas.setDeliveries(key,payload.cards,payload.version);
+     if(mode==='monitor')review.render({work:present(),scope,context,cards:payload.cards});
+   }
+   return true;
+ }
  async function syncWorkspace(){
-   if(mode!=='desk'||!present()||document.hidden||workspaceBusy)return;
-   const scope=workScope(),key=scope.project_id+':'+scope.work_id,shot=exact();
-   const current=()=>mode==='desk'&&pid()===scope.project_id&&present()?.id===scope.work_id;
+   if(!['desk','monitor'].includes(mode)||!present()||document.hidden||workspaceBusy)return;
+   const scope=workScope(),key=workKey(scope),shot=exact(),readEpoch=reading;
+   const current=()=>['desk','monitor'].includes(mode)&&pid()===scope.project_id&&present()?.id===scope.work_id;
    workspaceBusy=true;
    try{
      const payload=await read('deliveries',scope);
-     if(!current()||payload.project_id!==scope.project_id||payload.work_id!==scope.work_id)return;
-     canvas.setDeliveries(key,payload.cards,payload.version);
-     if(shot&&!writing&&!watch&&context?.head_revision===shot.revision_id){
+     if(!current()||!acceptDeliveries(scope,payload))return;
+     if(shot&&!writing&&!watch&&!readingWork&&reading===readEpoch&&context?.head_revision===shot.revision_id){
        const observed=await read('context',shot);
-       if(current()&&scopeKey()===JSON.stringify(shot)&&observed.head_revision!==shot.revision_id){
+       if(current()&&!readingWork&&reading===readEpoch&&scopeKey()===JSON.stringify(shot)&&observed.head_revision!==shot.revision_id){
          if(engineDirty){say('Codex 已更新这个镜头。刷新可查看最新修订。');}
          else await readWork({work:scope.work_id,focus:{scene_id:shot.scene_id,shot_id:shot.shot_id,
             revision_id:observed.head_revision}});
        }
      }
-     if(!current())return;
+     if(!current()||mode!=='desk')return;
      const next=payload.cards.find(row=>row.pollable&&Date.now()-(polled.get(key+row.attempt_id)||0)>=18000);
      if(next){
        polled.set(key+next.attempt_id,Date.now());
        const updated=await tool('video.director.edit',{action:'poll_delivery',...scope,attempt_id:next.attempt_id});
-       if(current()&&updated.project_id===scope.project_id&&updated.work_id===scope.work_id)
-         canvas.setDeliveries(key,updated.cards,updated.version);
+       if(current())acceptDeliveries(scope,updated);
      }
    }catch(_){/* Keep the last verified visible cards across a temporary read failure. */}
    finally{workspaceBusy=false;}
  }
  const canvas=OADirectorCanvas(canvasCommit,selectCanvasNode,showCanvasNode,canvasPicture,engineName,
    playCanvasVideo,adoptCanvasVideo);
- return {open,close,canAttach,attach};
+ const review=OADirectorMonitor({
+   chooseShot:async(scene_id,shot_id,revision_id)=>{
+     const scope=workScope(),key=workKey(scope),focus={scene_id,shot_id,revision_id};
+     const previous=preferredShots.get(key);
+     // The row comes from this work's verified overview. Keep the local choice
+     // even if project navigation supersedes its asynchronous context read.
+     preferredShots.set(key,focus);
+     try{return await readWork({work:scope.work_id,focus});}
+     catch(problem){
+       if(preferredShots.get(key)===focus){
+         if(previous)preferredShots.set(key,previous);
+         else preferredShots.delete(key);
+       }
+       if(mode==='monitor'&&pid()===scope.project_id&&present()?.id===scope.work_id)error(problem);
+       return false;
+     }
+   },
+   goCanvas:()=>{
+     navigation.go('desk');
+     canvas.focusShot(context?.shot_id);
+   },
+   openTasks:()=>navigation.go('tasks'),
+   picture:async(target,thumbnail=false)=>{
+     const response=await media('image',{...target,thumbnail});
+     const slot=node('div');attachImage(slot,response,thumbnail);return slot.firstChild;
+   },
+   play:playCanvasVideo,
+ });
+ return {open,close,view,canAttach,attach};
 }
 '''

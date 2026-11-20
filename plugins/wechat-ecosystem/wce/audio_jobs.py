@@ -17,7 +17,7 @@ from .contracts import WCEError
 from .own_bootstrap_security import path_check
 from .own_configuration_export import _directory
 from .own_connection_policy import atomic_write, locked, read_optional
-from .video_jobs import ATTEMPT, PLAYBACK_CHUNK, image
+from .video_jobs import ATTEMPT, PLAYBACK_CHUNK, image, probe
 
 AAC_FORMAT = ('mov,mp4,m4a,3gp,3g2,mj2', 'mov')
 FORMATS = {'.wav': ('wav', 'wav', 'audio/wav'), '.mp3': ('mp3', 'mp3', 'audio/mpeg'),
@@ -346,6 +346,19 @@ class AudioJobs:
                 return self.record_asset(row, staged, project,
                                          {'seconds':seconds, 'mime':'video/mp4', 'demuxer':'mov'}, '.mp4')
 
+    def preview_video(self, attempt, project_id, start, checksum):
+        row = self.read(attempt, project_id)
+        if row['mime'] != 'video/mp4' or row['sha256'] != checksum:
+            raise WCEError('AUDIO_ASSET_CHANGED')
+        if not 0 <= start < row['seconds'] * 8:
+            raise WCEError('VIDEO_ASSET_OFFSET_INVALID')
+        source, path = self.file(row)
+        pin = self.pin(source, row)
+        frames = probe('frames', str(path), str(start), error='VIDEO_PREVIEW_UNAVAILABLE')
+        if self.pin(source, row) != pin:
+            raise WCEError('AUDIO_ASSET_CHANGED')
+        return {'start': start, **frames}
+
     def chunk(self, attempt, project_id, offset):
         row=self.read(attempt,project_id)
         source,_=self.file(row)
@@ -356,7 +369,7 @@ class AudioJobs:
         raw=b''.join(source.iter_html(row['file'],expected_state=state,offset=offset,length=end-offset))
         if len(raw)!=end-offset:
             raise WCEError('AUDIO_ASSET_CHANGED')
-        return {'data':b64encode(raw).decode('ascii'),'next':end,'total':row['bytes']}
+        return {'data':b64encode(raw).decode('ascii'),'next':end,'total':row['bytes'],'sha256':row['sha256']}
 
     def export(self, attempt, project_id, destination=None):
         row=self.read(attempt,project_id)

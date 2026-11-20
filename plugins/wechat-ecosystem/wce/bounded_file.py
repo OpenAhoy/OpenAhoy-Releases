@@ -1,4 +1,5 @@
 """Trusted local regular-file acquisition; no URL, decoding or model entry point."""
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import stat
@@ -71,6 +72,27 @@ class FileSource:
         for name in self.root.parts[1:]:
             fd = self._directory(fd, name, descriptors, chain)
         return fd
+
+    @contextmanager
+    def open_directory(self, parts):
+        """Pin a project directory for read-only enumeration by its descriptor."""
+        if len(parts) > MAX_COMPONENTS or any(p in {'', '.', '..'} or '/' in p for p in parts):
+            raise WCEError('INVALID_LOCAL_FILE')
+        descriptors, chain = [], []
+        try:
+            fd = self._root(descriptors, chain)
+            if identity(os.fstat(fd)) != self.root_identity:
+                raise WCEError('LOCAL_FILE_CHANGED')
+            for name in parts:
+                fd = self._directory(fd, name, descriptors, chain)
+            if os.fstat(fd).st_uid != os.getuid():
+                raise WCEError('INVALID_LOCAL_FILE')
+            yield fd
+            self._check_chain(chain)
+        except OSError:
+            raise WCEError('INVALID_LOCAL_FILE') from None
+        finally:
+            self._close(descriptors)
 
     def read(self, relative_path):
         return self._read(relative_path, MAX_ASSET_BYTES)

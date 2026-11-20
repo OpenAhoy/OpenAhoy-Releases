@@ -1,39 +1,39 @@
 """Character reference browser and exact-version storyboard picker."""
 
+PAGE = '<section id="characterLibrary" aria-label="形象资产库" hidden></section>'
+
 HTML = r'''
-<section id="characterLibrary" aria-label="形象资产库" hidden></section>
 <dialog id="characterPicker" aria-label="从形象库选择"><div class="cl-picker-head"><strong>从形象库选择</strong><button type="button" id="clPickerClose">关闭</button></div><section id="clPickerLibrary" aria-label="镜头参考图库"></section></dialog>
 <dialog id="characterDetail" aria-labelledby="clDetailTitle"><div id="clDetailContent"></div></dialog>
 <dialog id="characterImport" aria-labelledby="clImportTitle"><div id="clImportFields" class="cl-form">
  <div class="cl-dialog-head"><h2 id="clImportTitle">导入形象索引</h2><button type="button" id="clImportClose">关闭</button></div>
  <label>所属项目<select id="clImportProject" required></select></label>
- <label>项目内的索引文件<input id="clImportFile" type="file" accept=".json,application/json" required></label>
- <label>索引的项目相对路径<input id="clImportPath" required placeholder="例如 references/characters.json"></label>
- <div class="cl-actions"><button type="button" id="clImportReview">预览导入</button><button type="button" id="clImportApply" class="primary" disabled>登记索引</button></div>
+ <div class="cl-actions"><button type="button" id="clImportBrowse">从项目目录选择</button><output id="clImportChosen"></output></div>
+ <section id="clImportBrowser" aria-label="项目目录" hidden></section>
+ <details><summary>手动指定索引文件和路径</summary>
+  <label>项目内的索引文件<input id="clImportFile" type="file" accept=".json,application/json" required></label>
+  <label>索引的项目相对路径<input id="clImportPath" required placeholder="例如 references/characters.json"></label>
+  <button type="button" id="clImportReview">预览导入</button>
+ </details>
+ <div class="cl-actions"><button type="button" id="clImportApply" class="primary" disabled>登记索引</button></div>
  <p role="status" id="clImportStatus"></p><ul id="clImportRows"></ul>
 </div></dialog>
 '''
 
 STYLE = r'''
-.oa-native{
- --cl-bg:#f8f5f2;--cl-card:#fffdfb;--cl-frame:#eee9e3;--cl-line:#e4d8ce;
- --cl-accent:#963f19;--cl-tint:#f5e3d6;--cl-green:#316452;--cl-green-bg:#dfefe6;
- --cl-gray:#655b54;--cl-gray-bg:#efe9e3
+#characterLibrary,#characterPicker,#characterDetail,#characterImport{
+ --cl-bg:var(--bg);--cl-card:var(--surface);--cl-frame:var(--soft);--cl-line:var(--line);
+ --cl-accent:var(--accent);--cl-tint:var(--oa-selection,var(--tint));
+ --cl-green:light-dark(#27694d,#a6d9c2);--cl-green-bg:light-dark(#e2f3e9,#263c33);
+ --cl-gray:var(--muted);--cl-gray-bg:var(--soft)
 }
-.oa-native[data-color-scheme=dark]{
- --cl-bg:#211d1a;--cl-card:#2a2521;--cl-frame:#3a322c;--cl-line:#4b4036;
- --cl-accent:#ffc09a;--cl-tint:#513424;--cl-green:#a6d9c2;--cl-green-bg:#263c33;
- --cl-gray:#c5b8ad;--cl-gray-bg:#403831
-}
-@media(prefers-color-scheme:dark){
- .oa-native:not([data-color-scheme=light]){
-  --cl-bg:#211d1a;--cl-card:#2a2521;--cl-frame:#3a322c;--cl-line:#4b4036;
-  --cl-accent:#ffc09a;--cl-tint:#513424;--cl-green:#a6d9c2;--cl-green-bg:#263c33;
-  --cl-gray:#c5b8ad;--cl-gray-bg:#403831
- }
-}
-.oa-native #openCharacterLibrary[aria-current=page]{background:var(--cl-tint);color:var(--cl-accent);font-weight:650}
 #characterLibrary{min-height:0;flex:1;overflow:auto;overscroll-behavior:contain}
+#characterLibrary .cl-header h1{display:none}
+#characterLibrary .cl-header{justify-content:flex-end}
+#clImportChosen,#clImportBrowser{overflow-wrap:anywhere}
+#clImportBrowser{border:1px solid var(--cl-line);border-radius:8px;padding:8px;max-height:210px;overflow:auto}
+#clImportBrowser button{display:block;max-width:100%;margin-top:4px;text-align:start}
+#clImportBrowser .cl-directory::before{content:'› ';font-weight:650}
 .cl-layout{display:grid;grid-template-columns:151px minmax(0,1fr);min-height:100%;min-width:0;
  background:var(--cl-bg);border:1px solid var(--cl-line);border-radius:14px;color:var(--ink)}
 .cl-projects{display:flex;flex-direction:column;align-items:stretch;gap:5px;padding:16px 10px;
@@ -43,8 +43,7 @@ STYLE = r'''
 .cl-projects button[aria-pressed=true],.cl-filters button[aria-pressed=true]{background:var(--cl-tint);color:var(--cl-accent);font-weight:680}
 .cl-main{min-width:0;padding:clamp(13px,2vw,29px)}
 .cl-header{display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap}
-.cl-header h1{margin:0;letter-spacing:-.03em;font:720 clamp(24px,3vw,39px)/1.15 Georgia,"Songti SC",serif}
-.cl-header h1::after{display:block;content:"";width:43px;height:3px;margin-top:12px;background:var(--cl-accent);border-radius:2px}
+.cl-header h1{margin:0;font-size:15px;font-weight:650;line-height:1.35}
 .cl-controls,.cl-actions,.cl-filters{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
 .oa-native .cl-controls input[type=search]{margin:0;width:clamp(175px,19vw,255px)}
 .cl-filters{margin:16px 0 8px}
@@ -117,10 +116,11 @@ SCRIPT = r'''
 function OACharacterLibrary(tool,openProjectSettings){
  const $=id=>document.getElementById(id);
  const page=$('characterLibrary'),picker=$('characterPicker'),detail=$('characterDetail'),importer=$('characterImport');
- const useText={full_body:'标准全身',face:'人脸',expression:'表情',pose:'动作'};
+ const useText={full_body:'标准全身',face:'人脸',expression:'表情',pose:'动作',style:'风格／质感'};
  const stateText={current:'当前参考',candidate:'待确认',historical:'历史'};
  const action=(name,args={})=>tool('video.director.read',{action:name,...args});
  const edit=(name,args)=>tool('video.director.edit',{action:name,...args});
+ const projectMedia=(name,args)=>tool('wce.ui.video.director.media',{action:name,...args});
  const media=(name,row,extra={})=>tool('wce.ui.video.director.media',{
    action:name,project_id:row.file.project_id,version_id:row.id,sha256:row.file.sha256,...extra});
  const t=(text,...values)=>OAUI.format(text,values);
@@ -141,6 +141,9 @@ function OACharacterLibrary(tool,openProjectSettings){
    DIRECTOR_CHARACTER_VERSION_CONFLICT:'这个版本标识已登记给其他内容，请使用新的版本标识。',
    DIRECTOR_CHARACTER_CURRENT_CONFLICT:'当前参考已变化，请刷新后重试。',
    DIRECTOR_CHARACTER_STALE_INDEX:'索引已有更新，请重新预览。',
+   DIRECTOR_CHARACTER_REFERENCE_MISMATCH:'登记版本或原图指纹已变化，请重新选择。',
+   DIRECTOR_ASSET_CHANGED:'原图的内容与登记版本不一致，请恢复原文件或登记新版本。',
+   BOOTSTRAP_UNSAFE_PATH:'文件无法读取，请核对原项目路径与文件。',
    DIRECTOR_CHARACTER_ORIGINAL_MISSING:'找不到原图。请核对原项目路径。',
    DIRECTOR_CHARACTER_ORIGINAL_UNAVAILABLE:'原图不可用。请检查原文件或登记新版本。',
    DIRECTOR_PROJECT_NOT_REGISTERED:'项目登记已变化，请检查项目设置。',
@@ -149,6 +152,14 @@ function OACharacterLibrary(tool,openProjectSettings){
    INVALID_LOCAL_FILE:'文件无法读取，请核对原项目路径与文件。',
  };
  const error=problem=>messages[problem?.message]||'无法读取形象资产，请核对项目登记和原图。';
+ function importError(problem){
+   const diagnostic=problem?.diagnostic;
+   if(!diagnostic?.manifest_field)return t(error(problem));
+   const field=diagnostic.manifest_field,position=diagnostic.manifest_position;
+   if(field==='use'&&position)return t('第 {0} 项的 use 无效。允许值：{1}',position,(diagnostic.allowed_values||Object.keys(useText)).join(', '));
+   return position?t('第 {0} 项的 {1} 有误。{2}',position,field,t(error(problem))):
+     t('索引的 {0} 有误。{1}',field,t(error(problem)));
+ }
  let projects=[],refreshID=0,pickerSession=null,detailResource=null,detailEpoch=0,detailTrigger=null,importPlan=null,importEpoch=0;
  const jobs=[];let running=0;
  function drain(){
@@ -221,7 +232,7 @@ function OACharacterLibrary(tool,openProjectSettings){
    const rows=projects.filter(project=>!view.project||project.id===view.project).flatMap(project=>
      project.assets.filter(row=>
        (!view.series||row.character.series===view.series)&&(view.status==='all'||row.status===view.status)
-       &&[row.character.name,row.character.series,project.name,row.label,...row.character.aliases]
+       &&[row.character.name,row.character.series,project.name,row.label,row.use,t(useText[row.use]),...row.character.aliases]
          .some(field=>field.normalize('NFKC').toLocaleLowerCase().includes(query)))
        .map(row=>({...row,projectName:project.name})));
    const rank={current:0,candidate:1,historical:2};rows.sort((a,b)=>rank[a.status]-rank[b.status]);
@@ -300,6 +311,8 @@ function OACharacterLibrary(tool,openProjectSettings){
    const frame=node('div','cl-picture','正在核对原图…'),fields=node('dl','cl-detail-fields'),actions=node('div','cl-actions');
    for(const [label,value] of [['项目',row.projectName],['系列',row.character.series],['版本',row.label+' · '+row.id],
      ['用途',useText[row.use]],['状态',stateText[row.status]],['来源',row.source||'未注明'],['原图路径',row.file.path],
+     ...(row.origin?[['来源版本', [projects.find(project=>project.id===row.origin.project_id)?.name||row.origin.project_id,
+                                 row.origin.version_id].join(' · ')]]:[]),
      ...(row.description?[['说明',row.description]]:[])]){
      fields.append(node('dt','',label),node('dd','',value));
    }
@@ -317,13 +330,20 @@ function OACharacterLibrary(tool,openProjectSettings){
      }catch(problem){if(alive()){feedback.textContent=t(error(problem));original.disabled=false;}}
    });original.disabled=true;actions.append(original);
    const session=pickerSession;
-   const permitted=!view.picking||session?.project===row.file.project_id;
-   const execute=view.picking?button('用作镜头参考',async()=>{
+   const crossProject=view.picking&&session?.project!==row.file.project_id;
+   const execute=view.picking?button(crossProject?'引入本项目':'用作镜头参考',async()=>{
      execute.disabled=true;
      try{
-       await media('character_thumbnail',row);
+       let selected=row;
+       if(crossProject){
+         const imported=await edit('character_import_version',{project_id:session.project,
+           origin:{project_id:row.file.project_id,version_id:row.id,sha256:row.file.sha256}});
+         if(imported.file?.project_id!==session.project||imported.file.sha256!==row.file.sha256||!imported.version_id)
+           throw Error('DIRECTOR_CHARACTER_REFERENCE_MISMATCH');
+         selected={...row,id:imported.version_id,file:imported.file};
+       }else await media('character_thumbnail',row);
        if(!alive()||pickerSession!==session)return;
-       session.choose(row);session.closing=true;closeDetail();picker.close();
+       session.choose(selected);session.closing=true;closeDetail();picker.close();
      }catch(problem){if(alive())feedback.textContent=t(error(problem));}
      finally{if(alive())execute.disabled=false;}
    }):row.status!=='current'?button('设为此用途的当前参考',async()=>{
@@ -338,7 +358,8 @@ function OACharacterLibrary(tool,openProjectSettings){
      finally{if(alive())execute.disabled=false;}
    }):null;
    if(execute){execute.disabled=true;actions.append(execute);}
-   if(!permitted)feedback.textContent=t('这个版本属于其他项目，当前镜头仅支持本项目的参考图。');
+   if(crossProject)feedback.textContent=t('复制此版本的原图到「{0}」，并加入镜头参考。',
+     projects.find(project=>project.id===session.project)?.name||t('本项目'));
    const projectSettings=button('查看项目设置',()=>{
      closeDetail();if(picker.open)picker.close();void openProjectSettings();
    });projectSettings.hidden=true;actions.append(projectSettings);
@@ -347,33 +368,82 @@ function OACharacterLibrary(tool,openProjectSettings){
    media('character_thumbnail',row).then(value=>{
      if(!alive()||value.sha256!==row.file.sha256||!value.data?.startsWith('/9j/'))return;
      const img=node('img');img.alt=row.character.name;img.src='data:image/jpeg;base64,'+value.data;
-     frame.replaceChildren(img);original.disabled=false;if(execute)execute.disabled=!permitted;
+     frame.replaceChildren(img);original.disabled=false;if(execute)execute.disabled=false;
    }).catch(problem=>{
      if(alive()){frame.textContent=t(error(problem));projectSettings.hidden=false;}
    });
  }
  const importProject=$('clImportProject'),importFile=$('clImportFile'),importPath=$('clImportPath'),
-   importStatus=$('clImportStatus'),importRows=$('clImportRows'),apply=$('clImportApply'),review=$('clImportReview');
+   importStatus=$('clImportStatus'),importRows=$('clImportRows'),apply=$('clImportApply'),review=$('clImportReview'),
+   browse=$('clImportBrowse'),fileBrowser=$('clImportBrowser'),chosen=$('clImportChosen');
  function resetImport(){
    importEpoch++;importPlan=null;apply.disabled=true;review.disabled=false;
-   importRows.replaceChildren();importStatus.textContent='';
+   importRows.replaceChildren();importStatus.textContent='';chosen.textContent='';
  }
  function showImport(view){
-   resetImport();importFile.value='';importPath.value='';
+   resetImport();importFile.value='';importPath.value='';fileBrowser.hidden=true;
    importProject.replaceChildren(...projects.filter(row=>!row.unavailable).map(row=>{
      const item=node('option','',row.name);item.value=row.id;return item;
    }));
-   if(view.project)importProject.value=view.project;
-   review.disabled=!importProject.options.length;
+   if(view.project&&projects.some(row=>row.id===view.project&&!row.unavailable))importProject.value=view.project;
+   browse.disabled=review.disabled=!importProject.options.length;
    if(review.disabled)importStatus.textContent=t('请先在项目与 Skills 中登记项目。');
    importer.showModal();
  }
- importProject.onchange=resetImport;importPath.oninput=resetImport;
- importFile.onchange=()=>{if(!importPath.value)importPath.value=importFile.files[0]?.name||'';resetImport();};
+ function acceptPlan(project_id,source,plan){
+   importPlan={project_id,source,expected_revision:plan.revision};
+   chosen.textContent=source.path;
+   const available={available:'原图可用',missing:'缺少原图',unavailable:'原图校验失败'},
+     entry={new:'新版本',existing:'已登记',conflict:'版本冲突'};
+   importRows.replaceChildren(...plan.assets.map(row=>node('li','',
+     [row.name,row.id,t(stateText[row.status]),t(available[row.availability]),t(entry[row.entry])].join(' · '))));
+   apply.disabled=plan.assets.some(row=>row.entry==='conflict'||(row.status==='current'&&row.entry==='new'&&row.availability!=='available'));
+   importStatus.textContent=t(apply.disabled?'请先处理冲突或不可用的当前版本。':'索引预览已就绪。');
+ }
+ async function browseFolder(directory=''){
+   resetImport();
+   const token=importEpoch,project_id=importProject.value;
+   fileBrowser.hidden=false;
+   fileBrowser.replaceChildren(node('p','','正在读取项目目录…'));
+   try{
+     const result=await projectMedia('character_manifest_files',{project_id,...(directory?{directory}:{})});
+     if(token!==importEpoch||!importer.open)return;
+     const relative=name=>directory?directory+'/'+name:name;
+     const parent=directory.split('/').slice(0,-1).join('/');
+     const caption=node('strong');caption.textContent=directory||t('项目根目录');
+     const items=[caption];
+     if(directory)items.push(button('返回上一级',()=>void browseFolder(parent)));
+     for(const name of result.folders){
+       const folder=button(name,()=>void browseFolder(relative(name)));
+       folder.className='cl-directory';folder.textContent=name;folder.setAttribute('aria-label',name);items.push(folder);
+     }
+     for(const name of result.files){
+       const file=button('',()=>void pickManifest(project_id,relative(name)));
+       file.textContent=name;items.push(file);
+     }
+     if(!result.folders.length&&!result.files.length)items.push(node('p','','此目录没有可选的索引。'));
+     fileBrowser.replaceChildren(...items);
+   }catch(problem){
+     if(token===importEpoch)fileBrowser.replaceChildren(node('p','',importError(problem)));
+   }
+ }
+ async function pickManifest(project_id,path){
+   resetImport();const token=importEpoch;chosen.textContent=path;
+   try{
+     const plan=await projectMedia('character_manifest_pick',{project_id,path});
+     if(token!==importEpoch||!importer.open)return;
+     if(plan.source?.path!==path)throw Error('DIRECTOR_CHARACTER_MANIFEST_CHANGED');
+     fileBrowser.hidden=true;acceptPlan(project_id,plan.source,plan);
+   }catch(problem){if(token===importEpoch)importStatus.textContent=importError(problem);}
+ }
+ browse.onclick=()=>fileBrowser.hidden?void browseFolder():(fileBrowser.hidden=true,resetImport());
+ importProject.onchange=()=>{fileBrowser.hidden=true;importFile.value='';importPath.value='';resetImport();};
+ importPath.oninput=resetImport;
+ importFile.onchange=resetImport;
  $('clImportClose').onclick=()=>importer.close();importer.addEventListener('close',resetImport);
  review.onclick=async()=>{
    if(![importProject,importFile,importPath].every(field=>field.reportValidity()))return;
-   resetImport();const token=importEpoch;review.disabled=true;
+   resetImport();const token=importEpoch;review.disabled=true;fileBrowser.hidden=true;
    const project_id=importProject.value,path=importPath.value.trim(),file=importFile.files[0];
    try{
      if(!file||!crypto.subtle)throw Error('DIRECTOR_CHARACTER_MANIFEST_INVALID');
@@ -381,14 +451,8 @@ function OACharacterLibrary(tool,openProjectSettings){
      const sha256=Array.from(new Uint8Array(hash),v=>v.toString(16).padStart(2,'0')).join('');
      const source={path,sha256};const plan=await action('character_import_preview',{project_id,source});
      if(token!==importEpoch||!importer.open)return;
-     importPlan={project_id,source,expected_revision:plan.revision};
-     const available={available:'原图可用',missing:'缺少原图',unavailable:'原图校验失败'},
-       entry={new:'新版本',existing:'已登记',conflict:'版本冲突'};
-     importRows.replaceChildren(...plan.assets.map(row=>node('li','',
-       [row.name,row.id,t(stateText[row.status]),t(available[row.availability]),t(entry[row.entry])].join(' · '))));
-     apply.disabled=plan.assets.some(row=>row.entry==='conflict'||(row.status==='current'&&row.entry==='new'&&row.availability!=='available'));
-     importStatus.textContent=t(apply.disabled?'请先处理冲突或不可用的当前版本。':'索引预览已就绪。');
-   }catch(problem){if(token===importEpoch)importStatus.textContent=t(error(problem));}
+     acceptPlan(project_id,source,plan);
+   }catch(problem){if(token===importEpoch)importStatus.textContent=importError(problem);}
    finally{if(token===importEpoch)review.disabled=false;}
  };
  importPath.addEventListener('keydown',event=>{
@@ -401,7 +465,7 @@ function OACharacterLibrary(tool,openProjectSettings){
      if(token!==importEpoch)return;
      importStatus.textContent=t(result.state==='UNCHANGED'?'这些版本已登记。':'登记完成。');
      await refresh();
-   }catch(problem){if(token===importEpoch){importStatus.textContent=t(error(problem));apply.disabled=false;}}
+   }catch(problem){if(token===importEpoch){importStatus.textContent=importError(problem);apply.disabled=false;}}
  };
  function choose(project,accept,trigger){
    pickerSession={project,choose:accept,trigger};selection.project=project;selection.series='';selection.status='all';selection.search.value='';

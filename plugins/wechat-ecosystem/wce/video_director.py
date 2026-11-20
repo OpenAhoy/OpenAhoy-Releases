@@ -209,9 +209,11 @@ class Director:
         shot = lookup(scene['shots'], args['shot_id'], 'DIRECTOR_SHOT_NOT_FOUND')
         return work, scene, shot
 
-    def overview(self, project_id, work_id=None):
-        root, pin = self.project(project_id)
-        data = self.load(project_id, self.storage(root, pin))
+    def overview(self, project_id, work_id=None, *, state=None):
+        if state is None:
+            root, pin = self.project(project_id)
+            state = self.load(project_id, self.storage(root, pin))
+        data = state
         selected = work_id or data['selected_work'] or next((work['id'] for work in in_order(data['works'])), None)
         current = lookup(data['works'], selected, 'DIRECTOR_WORK_NOT_FOUND') if selected else None
         return {

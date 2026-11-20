@@ -8,7 +8,7 @@ import tempfile
 from .contracts import WCEError
 from .prepared_contracts import strict_validate
 from .tools import schema
-from .video_director import Director, canvas_state, lookup, require
+from .video_director import Director, WORK_FIELDS, canvas_state, lookup, require, work_view
 from . import video_director_delivery as delivery
 from . import character_library as characters
 from .video_director_media import (CATALOG, IMAGE_CHUNK, IMAGE_ROLES, compute_request, import_image_chunk, models, preview_image,
@@ -20,6 +20,7 @@ from .video_jobs import FRAME_LIMIT
 READ = 'video.director.read'
 EDIT = 'video.director.edit'
 MEDIA = 'wce.ui.video.director.media'
+SUBMIT = 'video.director.generation.submit'
 PROJECT_ARG = {'project_id': PROJECT}
 WORK_ARG = PROJECT_ARG | {'work_id': PROJECT}
 SCENE_ARG = WORK_ARG | {'scene_id': PROJECT}
@@ -90,6 +91,7 @@ SPECS = {
     ]},
     EDIT: {'oneOf': [
         action('character_import', PROJECT_ARG | {'source': characters.SOURCE, 'expected_revision': ORDINAL}),
+        action('character_import_version', PROJECT_ARG | {'origin': characters.ORIGIN}),
         action('character_set_current', PROJECT_ARG | characters.SELECTOR, {'expected_current': characters.ID}),
         action('create_work', PROJECT_ARG | WRITE | {'fields': schema(NAME_FIELDS, WORK_OPTIONS)}),
         action('edit_work', WORK_ARG | WRITE | {'expected_version': ORDINAL,
@@ -113,7 +115,10 @@ SPECS = {
         action('select_revision', TARGET | WRITE),
         action('adopt', TARGET | WRITE | {'base_revision': PROJECT}, {'expected_adopted': PROJECT}),
     ]},
+    SUBMIT: schema(TARGET | {'generation_attempt_id': ATTEMPT}),
     MEDIA: {'oneOf': [
+        action('character_manifest_files', PROJECT_ARG, {'directory': characters.PATH}),
+        action('character_manifest_pick', PROJECT_ARG | {'path': characters.PATH}),
         action('character_thumbnail', PROJECT_ARG | characters.SELECTOR | {'sha256': HANDLE}),
         action('character_original', PROJECT_ARG | characters.SELECTOR | {'sha256': HANDLE, 'offset': ORDINAL}),
         action('work_video_chunk', WORK_ARG | {'delivery_id': PROJECT, 'offset': MS}),
@@ -135,6 +140,7 @@ SPECS = {
 DESCRIPTIONS = {
     READ: 'Read project storyboards, one exact shot revision, shared model/channel options, original-work delivery status, local preflight, built-in video-director cards, or registered character reference versions. Refresh Token Hex only when explicitly requested. Preflight only validates local input and encoding; no generation.',
     EDIT: 'Create or revise a storyboard in a registered local project. Manage canvas layout, exact shot generation bindings and work-level local MP4 delivery. Character_import records a verified project-local JSON index. Character_set_current changes one role pointer using the observed version. Adopt_video selects an exact verified take for one shot without changing its storyboard revision. Read deliveries for candidate IDs and the current adoption. Poll_delivery may query the original provider and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Use project-relative files with project_id and SHA-256.',
+    SUBMIT: 'Submit one expressly authorized billable video from the exact saved shot revision. Inputs and provider come from that immutable revision. Use the original project and attempt with video.ark.generation.status after any ambiguous result. The exact original attempt is linked to the Jiusera canvas before submission.',
     MEDIA: 'App-only local image import and verified storyboard image, whitebox or completed clip previews.',
 }
 
@@ -167,7 +173,9 @@ class DirectorRouter:
         for name, spec in SPECS.items():
             row = {'name': name, 'description': DESCRIPTIONS[name], 'inputSchema': deepcopy(spec),
                    'annotations': {'readOnlyHint': name == READ, 'destructiveHint': False,
-                                   'idempotentHint': True, 'openWorldHint': name in (READ, EDIT)}}
+                                   'idempotentHint': True, 'openWorldHint': name in (READ, EDIT, SUBMIT)}}
+            if name == SUBMIT:
+                row['_meta'] = {'ui': {'visibility': ['model']}}
             if name == MEDIA:
                 row['_meta'] = {'ui': {'visibility': ['app']}}
             descriptions.append(row)
@@ -177,13 +185,24 @@ class DirectorRouter:
         if name not in SPECS:
             return self.inner.call(name, args)
         strict_validate(args, SPECS[name])
+        if name == SUBMIT:
+            from .video_director_generation import submit
+
+            row = submit(self, args)
+            return {key: val for key, val in row.items()
+                    if key not in {'recipe', 'project_video_root', 'project_video_copy',
+                                   'relay_connection', 'tokenhex_connection'}}
         command = args['action']
         if command == 'character_library':
             return self.characters.list()
         if command == 'character_import_preview':
             return self.characters.preview(args['project_id'], args['source'])
-        if command in ('character_import', 'character_set_current'):
+        if command in ('character_import', 'character_import_version', 'character_set_current'):
             return self.characters.edit(args)
+        if command == 'character_manifest_files':
+            return self.characters.manifest_files(args['project_id'], args.get('directory', ''))
+        if command == 'character_manifest_pick':
+            return self.characters.pick_manifest(args['project_id'], args['path'])
         if command in ('character_thumbnail', 'character_original'):
             return self.characters.media(args)
         if name == EDIT and command != 'poll_delivery':
@@ -191,7 +210,22 @@ class DirectorRouter:
         if command == 'projects':
             return {'projects': self.director.registered()}
         if command == 'overview':
-            return self.director.overview(args['project_id'], args.get('work_id'))
+            project = args['project_id']
+            work_id = args.get('work_id')
+            inbox = delivery.inbox_id(project)
+            root, pin = self.director.project(project)
+            state = self.director.load(project, self.director.storage(root, pin))
+            result = self.director.overview(project, None if work_id == inbox else work_id, state=state)
+            try:
+                incoming = delivery.inbox_rows(self.jobs, project, pin, state['works'])
+            except (OSError, WCEError, KeyError):
+                incoming = {}
+            if incoming or work_id == inbox:
+                item = {'id': inbox, 'title': '待归位', 'inbox': True}
+                result['works'].append(item)
+                if work_id == inbox or result['work'] is None:
+                    result['work'] = work_view(WORK_FIELDS | item | {'scenes': {}, 'focus': None})
+            return result
         if command == 'cards':
             catalog = prompt_cards()
             if 'card_id' not in args:
@@ -215,6 +249,13 @@ class DirectorRouter:
             project = args['project_id']
             root, pin = self.director.project(project)
             state = self.director.load(project, self.director.storage(root, pin))
+            if args['work_id'] == delivery.inbox_id(project):
+                rows = delivery.inbox_rows(self.jobs, project, pin, state['works'])
+                if command in ('canvas_video_chunk', 'canvas_video_frames'):
+                    return delivery.inbox_playback(rows, self.jobs, args)
+                require(command == 'deliveries', 'DIRECTOR_WORK_NOT_FOUND')
+                return {'project_id': project, 'work_id': args['work_id'], 'version': state['version'],
+                        'cards': delivery.inbox_cards(rows, self.jobs, project)}
             work = lookup(state['works'], args['work_id'], 'DIRECTOR_WORK_NOT_FOUND')
             if command == 'work_video_chunk':
                 return delivery.chunk(root, work, args)

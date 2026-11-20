@@ -13,17 +13,17 @@
 
 在画布选择精确型号和渠道，保存镜头配置。使用 `video.director.read` 的 `models` 查看同一目录，并以镜头 `context` 核对实际修订。Token Hex 的账号可见目录通过 `refresh_tokenhex: true` 明确读取，镜头配置和已有连接选择各自保存。AutoDL 使用工作流的有序公开图片、音频链接，MiniMax S2V-01 使用一个公开主体图链接。
 
-- 有实际生成委托时先对准确镜头修订执行 `preflight`，为这个已授权任务确定原 attempt。用 `video.director.edit action=track_generation` 绑定该 attempt 和同一 project/work/scene/shot/revision 后，沿原渠道提交并查询原单。画布根据原回执显示可取得的阶段，保留聊天里的原播放交付。没有既有镜头关系的历史视频，可在镜头版本中用「关联已有成片」明确选定原视频。
+- 有实际生成委托时先保存在正确项目的图像分镜。形象参考用已登记版本和原图摘要，生成前用 preflight 核对适配器实际读取的角色和顺序。用 video.director.generation.submit 传精确 project/work/scene/shot/revision 和稳定 generation_attempt_id。工具从已锁修订构建请求，将尝试绑定原画布后沿原供应商提交一次。提交结果未知时通过 video.ark.generation.status 查询原项目和尝试。仅有项目定位的新尝试在该项目的「待归位」显示。没有原镜头关系的历史视频可用「关联已有成片」明确选择。
 - 已有项目本地剪辑 MP4 用 `video.director.edit action=register_work_video` 登记作品成片，提供准确 project/work 与同项目相对路径、原文件 SHA-256。用 `video.director.read action=deliveries` 读回作品节点。继续使用回执中的 `chat_path` 展示同一份本地成片。作品成片与镜头原片各自保留。
 - `deliveries` 返回镜头的已关联候选和采用状态。同一镜头的候选可在画布节点播放、暂停和拖进度，切换预览仅改变当前观看内容。「采用此视频」保存该镜头的精确候选。Codex 代用户采用时，使用 `adopt_video`，提供同一 project/work/scene/shot、`candidate_id`、`sha256`，以及读到的 `expected_candidate_id`（已有采用时）。采用视频不修改剧本修订或历史。
 
 ### 形象资产库
 
-在「形象资产库」按项目、系列和用途查找已登记的形象。分镜的「图片」中可选本项目的准确版本。Codex 用 `video.director.read action=character_library` 读项目和资产版本。将返回的 `id` 作为修订图片条目的 `asset_version`，并保留同一行返回的 `file`。使用 `context` 读回。后续设为当前的版本供新选择使用，已有镜头沿用其原版。
+在「形象资产库」按项目、系列和用途查找已登记的形象。分镜的「图片」中可选本项目的准确版本。选择其他已登记项目的版本时，点击「引入本项目」将原图按 SHA-256 复制到目标项目，再保存分镜。目标库保留来源项目、版本与摘要。Codex 在用户明确要引入该版本时，用 `video.director.edit action=character_import_version` 传目标 `project_id` 和来源 `origin`（`project_id`、`version_id`、`sha256`）。把回执中的 `version_id` 和 `file` 写入目标分镜。Codex 用 `video.director.read action=character_library` 读项目和资产版本。将返回的 `id` 作为修订图片条目的 `asset_version`，并保留同一行返回的 `file`。使用 `context` 读回。后续设为当前的版本供新选择使用，已有镜头沿用其原版。
 
-用户提供项目索引时，先确认原文件和版本状态。将索引 JSON 放在已登记项目内，使用页面「导入索引」或 `character_import_preview`。调用提供项目 ID 和 `source` 对象，含索引的项目相对路径 `path` 及 `sha256`。确认预览中的缺图、版本冲突和确认状态后，用同一 `source`、`project_id` 和预览的 `revision` 作为 `expected_revision` 调用 `character_import`。返回 `UNCHANGED` 表示相同版本已登记。设置当前参考用 `character_set_current`，传 `project_id`、`version_id` 和现有指针 `expected_current`，原用途未设当前时省略 `expected_current`。
+用户提供项目索引时，先确认原文件和版本状态。将索引 JSON 放在已登记项目内，使用页面「导入索引 → 从项目目录选择」或 `character_import_preview`。在页面选中子目录的索引后，会自动保留项目相对路径并预览。索引中的图片路径仍相对于项目根。调用提供项目 ID 和 `source` 对象，含索引的项目相对路径 `path` 及 `sha256`。确认预览中的缺图、版本冲突和确认状态后，用同一 `source`、`project_id` 和预览的 `revision` 作为 `expected_revision` 调用 `character_import`。返回 `UNCHANGED` 表示相同版本已登记。设置当前参考用 `character_set_current`，传 `project_id`、`version_id` 和现有指针 `expected_current`，原用途未设当前时省略 `expected_current`。
 
-索引示例。将示例文件名、角色 ID、用途、版本和摘要替换为原项目实际值。用途支持 `full_body`、`face`、`expression`、`pose`。已明确采用的来源可标 `current`，待确认用 `candidate`，已有历史用 `historical`。每个角色的每种用途分别维护当前指针。
+索引示例。将示例文件名、角色 ID、用途、版本和摘要替换为原项目实际值。用途支持 `full_body`、`face`、`expression`、`pose`、`style`（风格／质感）。已明确采用的来源可标 `current`，待确认用 `candidate`，已有历史用 `historical`。每个角色的每种用途分别维护当前指针。
 
 ```json
 {

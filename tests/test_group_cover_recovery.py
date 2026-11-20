@@ -19,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'plugins/wechat-eco
 
 from wce import own_cover_authority as auth
 from wce.contracts import Secret, WCEError
+from wce.document_errors import location
+from wce.import_images import decode, jpeg
 from wce.draft_revision_guard import identity_binding
 from wce.draft_revision_store import RevisionStore
 from wce.http_transport import HTTPResponse, HTTPSender
@@ -254,6 +256,58 @@ class GroupCoverRecoveryTests(unittest.TestCase):
         self.assertFalse(list(self.root.glob('reconciliation-*.json')))
 
     @unittest.skipUnless(Path('/usr/bin/sips').is_file(), 'JPEG HTML preparation uses macOS sips')
+    def test_production_jpeg_metadata_preserves_original_cover_and_body(self):
+        original = self.root / 'sample.png'
+        original.write_bytes(png(170))
+        target = self.root / 'sample.jpg'
+        subprocess.run(['/usr/bin/sips', '-s', 'format', 'jpeg', str(original), '-o', str(target)],
+                       check=True, capture_output=True)
+
+        def app(marker, content):
+            return bytes((0xff, marker)) + struct.pack('>H', len(content) + 2) + content
+
+        base = target.read_bytes()
+        _, segments = jpeg(base, production=True)
+        for marker, start, end in reversed(segments):
+            if marker in (0xe1, 0xe2, 0xed):
+                base = base[:start] + base[end:]
+        exif = b'Exif\0\0MM' + struct.pack('>HIHHHIHHI', 42, 8, 1, 0x112, 3, 1, 6, 0, 0)
+        profile = Path('/System/Library/ColorSync/Profiles/Display P3.icc').read_bytes()
+        resources = b'Photoshop 3.0\0' + b'8BIM\x04\x04\0\0' + struct.pack('>I', 9)
+        resources += b'\x1c\x02x\0\x04demo\0'
+        metadata = app(0xe1, exif) + app(0xe2, b'ICC_PROFILE\0\x01\x01' + profile) + app(0xed, resources)
+        raw = base[:2] + metadata + base[2:]
+        raster = decode(raw, 'image/jpeg', self.root, production=True)
+        self.assertEqual((raster.width, raster.height), (4, 5))
+        with self.assertRaisesRegex(WCEError, 'HTML_IMPORT_IMAGE_UNSUPPORTED'):
+            decode(raw, 'image/jpeg', self.root)
+        selector = self.prepare('metadata', [('sample','JPEG metadata','image/jpeg',raw)])
+        doc = self.call('own.articles.read', bundle_id=selector['bundle_id'], version=selector['version'])
+        self.assertEqual(doc['content_digest'], selector['content_digest'])
+        with self.service.workflow.db.transaction() as db:
+            rows = db.execute('SELECT role, sha256, data FROM own_assets ORDER BY role').fetchall()
+        self.assertEqual([tuple(row) for row in rows], [(role, sha256(raw).hexdigest(), raw) for role in ('body', 'cover')])
+        self.assertEqual((self.root / 'metadata-sample.html').read_bytes(), source('JPEG metadata', 'image/jpeg', raw))
+        for reason, rejected, code in [
+            ('exif', base[:2] + app(0xe1, b'Exif\0\0MM') + base[2:], 'HTML_IMPORT_JPEG_APP1'),
+            ('icc', base[:2] + app(0xe2, b'ICC_PROFILE\0\x01\x02' + profile) + base[2:], 'HTML_IMPORT_JPEG_APP2'),
+            ('iptc', base[:2] + app(0xed, resources[:-2]) + base[2:], 'HTML_IMPORT_JPEG_APP13'),
+            ('truncated', raw[:-3], 'HTML_IMPORT_JPEG_TRUNCATED'),
+            ('size', b'\xff\xd8' + b'\0' * 1000000 + b'\xff\xd9', 'HTMLQA_WCE_WIRE_BYTE_UNITS'),
+        ]:
+            with self.subTest(reason=reason):
+                with self.assertRaisesRegex(WCEError, code) as raised:
+                    self.prepare(reason, [('good','Good','image/png',png(12)),('bad','Bad','image/jpeg',rejected)])
+                diagnostic = location(raised.exception)
+                self.assertEqual((diagnostic['article_position'], diagnostic['image_position']), (2, 1))
+                with self.assertRaisesRegex(WCEError, 'OWN_INPUT_NOT_FOUND'):
+                    self.call('own.articles.status', request_key=reason)
+        with self.service.workflow.db.transaction() as db:
+            counts = tuple(db.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0]
+                           for table in ('own_assets', 'own_inputs', 'own_articles', 'own_steps'))
+        self.assertEqual(counts, (2, 3, 1, 0))
+        self.sender.assert_not_called()
+
     def test_jpeg_uses_exact_transport_bytes_and_cold_proof(self):
         png_file, jpeg_file = self.root / 'sample.png', self.root / 'sample.jpg'
         png_file.write_bytes(png(22))

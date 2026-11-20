@@ -218,7 +218,7 @@ class PersonalStdioServer(OperatorStdioServer):
         from .support_protocol import refreshes_director_catalog
         from .video_director_protocol import MEDIA as DIRECTOR_MEDIA
         from .video_protocol import AUDIO_VIDEO, WORKSPACE
-        if name == DIRECTOR_MEDIA or (name == WORKSPACE and arguments.get('action') in {'playback', 'preview_frames', 'intro_frames', 'audio_chunk'}):
+        if name == DIRECTOR_MEDIA or (name == WORKSPACE and arguments.get('action') in {'playback', 'preview_frames', 'intro_frames', 'audio_chunk', 'audio_preview_frames'}):
             value = self.router.call(name, arguments)
             return {'content': [], 'structuredContent': value, 'isError': False}
         if name == AUDIO_VIDEO and 'frame_start' in arguments:

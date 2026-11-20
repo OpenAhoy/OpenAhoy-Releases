@@ -222,6 +222,71 @@ def track(jobs, state, work, args):
     return {'work_id': work['id'], **{k: v for k, v in spec.items() if k != 'witness'}}
 
 
+def inbox_id(project):
+    return digest(['director_inbox', project])[:32]
+
+
+def inbox_rows(jobs, project, project_pin, works):
+    related = {}
+    for work in works.values():
+        for spec in delivery_rows(work).values():
+            related.setdefault(spec['attempt_id'], []).append(spec)
+
+    incoming = {}
+    for row in jobs.receipts():
+        if (row.get('director_binding') != {'kind': 'project_inbox', 'project_id': project}
+                or row.get('project_video_root') != list(project_pin)
+                or row['request']['project_id'] != project):
+            continue
+        attempt = row['generation_attempt_id']
+        linked = False
+        for spec in related.get(attempt, ()):
+            try:
+                if 'provider' in spec:
+                    generation_scope(row, spec)
+                elif row.get('asset', {}).get('sha256') != spec.get('sha256'):
+                    continue
+                linked = True
+                break
+            except (KeyError, WCEError):
+                continue
+        if not linked:
+            incoming[digest(['director_inbox_take', project, attempt])[:32]] = row
+    return incoming
+
+
+def inbox_cards(rows, jobs, project):
+    cards = []
+    for identifier, row in sorted(rows.items(), key=lambda item: (item[1]['created_at'], item[0]), reverse=True):
+        attempt = row['generation_attempt_id']
+        request = row['request']
+        card = {'id': identifier, 'kind': 'inbox_video', 'title': attempt, 'attempt_id': attempt,
+                'state': row['state'] if row['state'] in OBSERVED else 'UNKNOWN',
+                'engine': {'provider': channel(request), 'model': request['model']}}
+        if row['state'] == 'ASSET_READY':
+            try:
+                _, asset, _ = jobs._playable(attempt, project)
+                card['asset'] = {'family': 'video', 'project_id': project, 'attempt_id': attempt,
+                                 **{key: asset[key] for key in ('sha256', 'bytes', 'seconds')},
+                                 'audio_tracks': asset.get('audio_tracks', 0)}
+            except (OSError, WCEError, KeyError):
+                card['state'] = 'UNAVAILABLE'
+        cards.append(card)
+    return cards
+
+
+def inbox_playback(rows, jobs, args):
+    row = lookup(rows, args['delivery_id'], 'DIRECTOR_RESULT_UNAVAILABLE')
+    attempt, project = row['generation_attempt_id'], args['project_id']
+    _, asset, _ = jobs._playable(attempt, project)
+    require(asset['sha256'] == args['sha256'], 'DIRECTOR_ASSET_CHANGED')
+    if 'offset' in args:
+        result = jobs.playback(attempt, project, args['offset'])
+        require(result['sha256'] == args['sha256'], 'DIRECTOR_ASSET_CHANGED')
+        return result
+    return jobs.preview_frames(args['start'], attempt, project)
+
+
 def register_work_video(root, work, args):
     file = args['file']
     require(file['project_id'] == args['project_id'], 'DIRECTOR_ASSET_WRONG_PROJECT')
@@ -265,6 +330,12 @@ def collect(jobs, root, project, work, *, poll_attempt=None):
                 request = row['request']
                 card.update(state=row['state'] if row['state'] in OBSERVED else 'UNKNOWN',
                             engine={'provider': channel(request), 'model': request['model']})
+                binding = row.get('director_binding') or {}
+                if (binding.get('kind') == 'shot' and binding.get('work_id') == work['id']
+                        and binding.get('project_id') == project
+                        and all(binding.get(key) == spec.get(key) for key in ('scene_id', 'shot_id', 'revision_id'))):
+                    card['input_verification'] = binding['verification']
+                    card['character_inputs'] = binding['characters']
                 if 'provider' in spec and row['state'] in ACTIVE and row.get('provider_task_id'):
                     card['pollable'] = True
                 if row.get('query_error'):

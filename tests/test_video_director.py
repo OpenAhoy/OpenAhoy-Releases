@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'plugins/wechat-ecosystem'))
 
 from wce.contracts import WCEError
-from wce.video_director_protocol import DirectorRouter, EDIT, MEDIA, READ, prompt_cards
+from wce.document_errors import location
+from wce.video_director_protocol import DirectorRouter, EDIT, MEDIA, READ, SUBMIT, prompt_cards
 from wce.video_jobs import Jobs, PROMO_DIR
 from wce.own_connection_policy import atomic_write
 from wce.video_director_media import models
@@ -390,6 +391,64 @@ class DirectorTests(unittest.TestCase):
         with self.assertRaisesRegex(WCEError, 'DIRECTOR_CHARACTER_VERSION_NOT_FOUND'):
             self.desk.call(MEDIA, media | {'project_id': self.q})
 
+    def test_character_nested_style_index_and_explicit_cross_project_copy(self):
+        nested = self.project / 'references' / 'faces'
+        nested.mkdir(parents=True)
+        style = self.character_entry('style-v1', self.image1, use='style')
+        (nested / 'good.json').write_text(json.dumps({'schema': 1, 'assets': [style]}))
+        (nested / 'bad.json').write_text(json.dumps({'schema': 1, 'assets': [style, style | {'use': 'unknown'}]}))
+        (nested / 'escape').symlink_to(self.other, target_is_directory=True)
+
+        def media(action, **fields):
+            return self.desk.call(MEDIA, {'action': action, 'project_id': self.p} | fields)
+
+        self.assertEqual(media('character_manifest_files', directory='references/faces'),
+                         {'directory': 'references/faces', 'folders': [], 'files': ['bad.json', 'good.json']})
+        for path in ('references/faces/escape', '../other'):
+            with self.assertRaises(WCEError):
+                media('character_manifest_files', directory=path)
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_CHARACTER_MANIFEST_INVALID') as error:
+            media('character_manifest_pick', path='references/faces/bad.json')
+        self.assertEqual(location(error.exception), {'manifest_position': 2, 'manifest_field': 'use',
+            'allowed_values': ['full_body', 'face', 'expression', 'pose', 'style']})
+        plan = media('character_manifest_pick', path='references/faces/good.json')
+        self.assertEqual(plan['source']['path'], 'references/faces/good.json')
+        self.edit('character_import', {'source': plan['source'], 'expected_revision': plan['revision']})
+        index = self.project / '.openahoy-director/character-library.json'
+        original_index = index.read_bytes()
+        original_asset = (self.project / style['path']).read_bytes()
+        origin = {'project_id': self.p, 'version_id': style['id'], 'sha256': style['sha256']}
+        args = {'project_id': self.q, 'origin': origin}
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_PROJECT_NOT_REGISTERED'):
+            self.edit('character_import_version', args | {'origin': origin | {'project_id': 'b' * 32}})
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_CHARACTER_REFERENCE_MISMATCH'):
+            self.edit('character_import_version', args | {'origin': origin | {'sha256': '0' * 64}})
+        target_work = self.edit('create_work', {'project_id': self.q, 'fields': {'title': 'Target'}})['work_id']
+        scope = {'project_id': self.q, 'work_id': target_work}
+        scene = self.edit('create_scene', scope | {'title':'Scene','start_ms':0,'end_ms':1000})['scene_id']
+        target = self.edit('create_shot', scope | {'scene_id': scene, 'title': 'Target shot'})
+        target = {key: target[key] for key in ('project_id','work_id','scene_id','shot_id','revision_id')}
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_ASSET_WRONG_PROJECT'):
+            self.revised(target, {'images': [{'role':'reference','file':self.image1,'asset_version':style['id']}]})
+        imported = self.edit('character_import_version', args)
+        self.assertEqual((imported['state'], imported['origin']), ('IMPORTED', origin))
+        before = (self.other / imported['file']['path']).read_bytes()
+        self.assertEqual(before, original_asset)
+        same = self.edit('character_import_version', args)
+        self.assertEqual(same, imported | {'state': 'UNCHANGED'})
+        pinned = {'role':'reference','file':imported['file'],'asset_version':imported['version_id']}
+        saved = self.revised(target, {'images':[pinned]})
+        self.assertEqual(index.read_bytes(), original_index)
+        self.assertEqual((self.project / style['path']).read_bytes(), original_asset)
+        make_png(self.project / style['path'], (8, 7, 6))
+        with self.assertRaisesRegex(WCEError, 'VIDEO_FRAME_CHANGED'):
+            self.edit('character_import_version', args)
+        self.desk = DirectorRouter(self.inner)
+        self.assertEqual(self.read('context', saved)['revision']['images'], [pinned])
+        listing = self.read('character_library')['projects']
+        copied, = next(row['assets'] for row in listing if row['id'] == self.q)
+        self.assertEqual((copied['origin'], copied['use']), (origin, 'style'))
+
     def test_character_current_competing_writers_cannot_replace_each_other(self):
         a = self.character_entry('aria-v1', self.image1, 'current')
         b = self.character_entry('aria-v2', self.image2)
@@ -404,6 +463,121 @@ class DirectorTests(unittest.TestCase):
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             self.assertCountEqual(pool.map(select, (b, c)), ['SAVED', 'DIRECTOR_CHARACTER_CURRENT_CONFLICT'])
+
+    def test_default_submit_pins_exact_input_and_original_result(self):
+        old = self.character_entry('aria-v1', self.image1, 'current')
+        new = self.character_entry('aria-v2', self.image2)
+        manifest = self.character_manifest(old, new)
+        self.edit('character_import', {'source': manifest, 'expected_revision': 0})
+        config = {'provider':'ark','model':MODEL,'mode':'frames','duration':5,'resolution':'720p','ratio':'16:9'}
+        target = self.revised(self.a, {'prompt': 'Slow push towards the door.',
+            'images': [{'role':'last','file':self.image2}, {'role':'first','file':self.image1,'asset_version':old['id']}],
+            'configuration': config})
+        self.edit('character_set_current', {'version_id': new['id'], 'expected_current': old['id']})
+        job = {'generation_attempt_id':'exact-original', **target}
+        attempt = job['generation_attempt_id']
+        receipt, artifact = self.jobs._paths(attempt)
+        original = b'fixture-original-video-bytes'
+        self.jobs.inspect = lambda path: {'width':640,'height':360,'seconds':5,'audio_tracks':0}
+
+        def accept(key, body):
+            guard = json.loads(receipt.read_text())
+            self.assertEqual(guard['state'], 'SUBMIT_UNKNOWN')
+            self.assertEqual(guard['request_sha256'], sha256(body).hexdigest())
+            self.assertTrue(all(guard['director_binding'][key] == value for key, value in target.items()))
+            self.assertEqual(guard['request']['frames'], [self.image1['sha256'],self.image2['sha256']])
+            cards = self.read('deliveries', self.base)['cards']
+            self.assertEqual([(card['attempt_id'],card['state']) for card in cards], [(attempt,'SUBMIT_UNKNOWN')])
+            return 'upstream-original'
+
+        self.jobs.api.submit.side_effect = accept
+        tool = next(row for row in self.desk.list_tools() if row['name'] == SUBMIT)
+        self.assertEqual(tool['_meta']['ui']['visibility'], ['model'])
+        self.assertEqual(self.desk.call(SUBMIT, job)['provider_task_id'], 'upstream-original')
+        submitted = self.read('deliveries', self.base)['cards'][0]
+        self.assertEqual(submitted['state'], 'SUBMITTED')
+        self.assertEqual(submitted['character_inputs'], [{'position':1,'role':'first','version_id':old['id'],
+                                                           'sha256':self.image1['sha256']}])
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_GENERATION_SCOPE_CHANGED'):
+            self.desk.call(SUBMIT, self.b | {'generation_attempt_id': attempt})
+        with self.assertRaises(WCEError):
+            self.desk.call(SUBMIT, job | {'project_id': self.q})
+        self.assertEqual(self.desk.call(SUBMIT, job)['state'], 'SUBMITTED')
+        self.jobs.api.submit.assert_called_once()
+        artifact.write_bytes(original)
+        artifact.chmod(0o600)
+        value = json.loads(receipt.read_text())
+        atomic_write(receipt, dict(value,state='SAVE_PENDING',download_sha256=sha256(original).hexdigest()))
+        latest = self.jobs.status(attempt, self.p, poll=False)
+        self.assertEqual(latest['state'], 'ASSET_READY')
+        card = self.read('deliveries', self.base)['cards'][0]
+        self.assertEqual(card['asset']['sha256'], latest['asset']['sha256'])
+        data = self.desk.call(MEDIA, self.base | {'action':'canvas_video_chunk', 'delivery_id':card['id'],
+                             'sha256':card['asset']['sha256'],'offset':0})
+        self.assertEqual(b64decode(data['bytes']), original)
+        self.assertEqual(self.read('context', target)['revision']['images'][1]['asset_version'], old['id'])
+
+    def test_default_submit_keeps_unknown_attempt_and_rejects_changed_bytes(self):
+        config = {'provider':'ark','model':MODEL,'mode':'first','duration':5,'resolution':'720p','ratio':'16:9'}
+        target = self.revised(self.a, {'prompt':'Approach the gate.',
+            'images':[{'role':'first','file':self.image1}], 'configuration':config})
+        args = target | {'generation_attempt_id':'unknown-original'}
+        self.jobs.api.submit.side_effect = WCEError('VIDEO_NETWORK_ERROR')
+        self.assertEqual(self.desk.call(SUBMIT, args)['state'], 'SUBMIT_UNKNOWN')
+        make_png(self.project / self.image1['path'], (11,23,31))
+        self.assertEqual(self.desk.call(SUBMIT, args)['state'], 'SUBMIT_UNKNOWN')
+        with self.assertRaisesRegex(WCEError, 'VIDEO_FRAME_CHANGED'):
+            self.desk.call(SUBMIT, args | {'generation_attempt_id':'different-request'})
+        self.jobs.api.submit.assert_called_once()
+        self.assertEqual([item['attempt_id'] for item in self.read('deliveries', self.base)['cards']], ['unknown-original'])
+
+    def test_exact_submit_reuses_minimax_and_relay_adapters_with_honest_url_provenance(self):
+        from wce.video_minimax import H3, SUBJECT_MODEL
+        from wce.video_relay import RELAY_MODEL
+        minimax, relay = Mock(), Mock()
+        minimax.submit.return_value = 'minimax-fixture'
+        relay.submit.return_value = 'relay-fixture'
+        self.jobs.minimax = lambda site:minimax
+        self.jobs.minimax_credential = lambda **_: 'fixture'
+        self.jobs.relay = lambda origin:relay
+        self.jobs.relay_credential = lambda: ('https://relay.example.com','fixture-connection','fixture')
+        original = 'https://media.example.com/reference.png'
+        test_cases = [
+            (self.a, {'provider':'cn','model':H3,'mode':'first',
+                      'duration':4,'resolution':'768P','ratio':'adaptive'}, 'direct-h3','LOCAL_INPUTS'),
+            (self.b, {'provider':'global','model':SUBJECT_MODEL,'mode':'subject',
+                      'subject_image_url':original}, 'subject-h3','URL_UNVERIFIED'),
+            (self.c, {'provider':'relay','model':RELAY_MODEL,'mode':'workflow',
+                      'reference_images':[original]}, 'relay-h3','URL_UNVERIFIED'),
+        ]
+        for shot, config, attempt, verification in test_cases:
+            with self.subTest(attempt=attempt):
+                target = self.revised(shot, {'prompt':'Camera tracks across the harbor.',
+                    'images':[{'role':'first','file':self.image1}], 'configuration':config})
+                accepted = self.desk.call(SUBMIT, target | {'generation_attempt_id':attempt})
+                self.assertEqual(accepted['state'], 'SUBMITTED')
+                self.assertEqual(accepted['director_binding']['verification'], verification)
+                self.assertEqual(accepted['director_binding']['characters'], [])
+        self.assertEqual(minimax.submit.call_count, 2)
+        relay.submit.assert_called_once()
+
+    def test_project_only_receipts_stay_in_their_project_inbox(self):
+        workspace = {'mode':'text','paths':[],'duration':5,'resolution':'720p','ratio':'16:9','audio':False}
+        self.jobs.api.submit.side_effect = ('task-a','task-b')
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            values = list(pool.map(lambda item:self.jobs.submit(item[0],item[1],None,None,'Plan from the harbor.',
+                            model=MODEL,workspace=workspace), [('unplaced-a',self.p),('unplaced-b',self.q)]))
+        self.assertEqual({row['state'] for row in values}, {'SUBMITTED'})
+        for project, attempt in [(self.p, 'unplaced-a'), (self.q,'unplaced-b')]:
+            overview = self.read('overview', {'project_id':project})
+            inbox = next(row['id'] for row in overview['works'] if row.get('inbox'))
+            selected = self.read('overview', {'project_id':project,'work_id':inbox})
+            self.assertTrue(selected['work']['inbox'])
+            results = self.read('deliveries', {'project_id':project,'work_id':inbox})
+            self.assertEqual([row['attempt_id'] for row in results['cards']],[attempt])
+            self.assertEqual(results['cards'][0]['kind'], 'inbox_video')
+        self.assertEqual(self.read('deliveries', self.base)['cards'],[])
+        self.assertEqual(self.jobs.api.submit.call_count,2)
 
     def test_provider_preflight_does_not_use_credentials_or_submit(self):
         config = {'provider':'ark','model':MODEL,'mode':'frames','duration':5,'resolution':'720p','ratio':'16:9'}

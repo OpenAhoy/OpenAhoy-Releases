@@ -558,7 +558,7 @@ class Jobs:
                          dict(selection, verified_attempt=row['generation_attempt_id']))
 
     def submit(self, attempt, project_id, first, last, prompt, *, model=MODEL, duration=5,
-               reference_images=None, workspace=None, tokenhex=False):
+               reference_images=None, workspace=None, tokenhex=False, director_bind=None):
         is_minimax = model in MINIMAX_MODELS
         if not is_minimax:
             validate_model(model)
@@ -690,9 +690,18 @@ class Jobs:
                 row['recipe'] = {'mode': params.get('mode', 'frames'), 'duration': duration, 'resolution': '720p',
                                  'audio': False, 'prompt': prompt,
                                  'paths': [str(Path(frame['path']).relative_to(root)) for frame in frame_specs]}
-            return self._dispatch(receipt, row, api, key, body)
+            return self._dispatch(receipt, row, api, key, body, director_bind)
 
-    def _dispatch(self, receipt, row, api, key, body):
+    def _dispatch(self, receipt, row, api, key, body, director_bind=None):
+        project = row['request']['project_id']
+        directory = next((item for item in self.projects.view()['projects'] if item['id'] == project), None)
+        if directory is None:
+            raise WCEError('VIDEO_PROJECT_NOT_REGISTERED')
+        root = Path(directory['root'])
+        info = root.lstat()
+        if not stat.S_ISDIR(info.st_mode) or row['project_video_root'] != [info.st_dev, info.st_ino]:
+            raise WCEError('VIDEO_PROJECT_ROOT_CHANGED')
+        row['director_binding'] = director_bind(row) if director_bind else {'kind': 'project_inbox', 'project_id': project}
         atomic_write(receipt, row, maximum=RECEIPT_MAX)
         try:
             task = api.submit(key, body)
@@ -713,7 +722,7 @@ class Jobs:
         atomic_write(receipt, row, maximum=RECEIPT_MAX)
         return row
 
-    def submit_subject(self, attempt, project_id, site, prompt, image_url):
+    def submit_subject(self, attempt, project_id, site, prompt, image_url, *, director_bind=None):
         if site not in SITES:
             raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
         body = subject_body(prompt, image_url)
@@ -734,9 +743,9 @@ class Jobs:
             row = {'generation_attempt_id': attempt, 'state': 'SUBMIT_UNKNOWN', 'request': identity,
                    'request_sha256': request_hash, 'created_at': int(time.time()),
                    'project_video_root': [info.st_dev, info.st_ino]}
-            return self._dispatch(receipt, row, self.minimax(site), self._key(site), body)
+            return self._dispatch(receipt, row, self.minimax(site), self._key(site), body, director_bind)
 
-    def submit_relay(self, attempt, project_id, inputs):
+    def submit_relay(self, attempt, project_id, inputs, *, director_bind=None):
         receipt, _ = self._paths(attempt)
         body = workflow_body(inputs)
         request_hash = sha256(body).hexdigest()
@@ -759,7 +768,7 @@ class Jobs:
             row = {'generation_attempt_id': attempt, 'state': 'SUBMIT_UNKNOWN', 'request': identity,
                    'relay_connection': connection, 'request_sha256': request_hash,
                    'created_at': int(time.time()), 'project_video_root': [info.st_dev, info.st_ino]}
-            return self._dispatch(receipt, row, self.relay(origin), key, body)
+            return self._dispatch(receipt, row, self.relay(origin), key, body, director_bind)
 
     def _relay_connection(self):
         configured = self.relay_credential()

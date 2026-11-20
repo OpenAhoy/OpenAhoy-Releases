@@ -48,7 +48,13 @@ SCRIPT = r'''
    ['x','管理 X 账号、创作规则和开发者应用。'],
    ['xiaohongshu','绑定小红书账号并管理笔记发布。']
  ]);
- function route(value){return value==='home'||value==='characters'||value==='media'||value==='video'||value==='gif'||value==='audio'||platformNames.has(value)?value:'';}
+ const studioRoutes=new Map([
+   ['jiusera-monitor',{section:'monitor'}],['jiusera-canvas',{section:'desk'}],['jiusera-assets',{section:'assets'}],
+   ['media',{section:'monitor'}],['characters',{section:'assets',kind:'characters'}],
+   ...['video','gif','audio'].map(kind=>[kind,{section:'assets',kind}])
+ ]);
+ const studioURLs={monitor:'jiusera-monitor',desk:'jiusera-canvas',assets:'jiusera-assets'};
+ function route(value){return value==='home'||studioRoutes.has(value)||platformNames.has(value)?value:'';}
  function routeFromURL(){
    const query=new URLSearchParams(location.search),fragment=new URLSearchParams(location.hash.slice(1));
    return route(query.get('view')||query.get('platform')||fragment.get('view')||fragment.get('platform'));
@@ -128,7 +134,7 @@ SCRIPT = r'''
   }
  })]));
  function applyHostTheme(context){if(context?.theme==='light'||context?.theme==='dark')document.body.dataset.colorScheme=context.theme;}
- function dispose(){characters.close();homeIntro?.close();closeStudioMedia();director.close();video.dispose();binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
+ function dispose(){homeIntro?.close();showMedia('');studioSound.close();video.dispose();binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
    for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('VIEW_CLOSED'));}pending.clear();
    for(const el of document.querySelectorAll('button,input,select,textarea'))el.disabled=true;
  }
@@ -201,7 +207,7 @@ SCRIPT = r'''
    return supported;
  }
  async function selectPlatform(id,{focus,user}){
-   characters.close();showMedia('');const intent=++platformEpoch;selectEpoch++;selectionIntent++;navigationEpoch++;
+   showMedia('');const intent=++platformEpoch;selectEpoch++;selectionIntent++;navigationEpoch++;
    closeXTools();activePlatform=id;
    accountsExpanded=user||!compactAccounts.matches;
    paintAccountHeader();
@@ -402,7 +408,7 @@ SCRIPT = r'''
  const compactUpdates=matchMedia('(max-width:799px), (max-height:740px)');
  const updateToggle=$('wechatCompactUpdates'),updateSlot=$('softwareUpdateSlot');
  function syncPlatformUpdates(){
-   const compact=(view==='platform'||view==='characters')&&compactUpdates.matches&&typeof updateSlot.showPopover==='function';
+   const compact=(view==='platform'||view==='studio')&&compactUpdates.matches&&typeof updateSlot.showPopover==='function';
    updateToggle.hidden=!compact;
    const sidebar=updateSlot.parentElement,support=sidebar.querySelector('.oa-support-links');
    if(compact&&!updateSlot.hasAttribute('popover')){
@@ -838,7 +844,11 @@ SCRIPT = r'''
  const video = OAVideoCredential((name,args)=>tool(name,args).then(content),()=>ready&&!closed);
  const mediaTool=async(name,args)=>{
    const result=await tool(name,args);
-   if(result?.isError)throw new Error(result.structuredContent?.error||result.content?.[0]?.text||'VIDEO_TOOL_FAILED');
+   if(result?.isError){
+     const problem=new Error(result.structuredContent?.error||result.content?.[0]?.text||'VIDEO_TOOL_FAILED');
+     problem.diagnostic=result.structuredContent;
+     throw problem;
+   }
    return content(result);
  };
  OAVideoProviders(sendChatRequest,openXLink,()=>!!hostCapabilities.message?.text);
@@ -850,7 +860,6 @@ SCRIPT = r'''
  function showMediaProvider(mode){
    if(providerMode&&providerMode!=='audio')video.setOpen(false,providerMode);
    providerMode=mode;
-   $('mediaMonitor').hidden=!!mode;
    $('monitorProviders').hidden=!mode;
    $('monitorVideoSettings').hidden=mode!=='video';
    $('monitorGifSettings').hidden=mode!=='gif';
@@ -870,21 +879,28 @@ SCRIPT = r'''
  $('monitorVideoProvider').onclick=()=>showMediaProvider('video');
  $('monitorGifProvider').onclick=()=>showMediaProvider('gif');
  $('monitorAudioProvider').onclick=()=>showMediaProvider('audio');
- const assetDialog=$('directorMediaDialog');
- const monitor=OAMediaMonitor((action,args)=>mediaTool('wce.ui.video.workspace',{action,...args}),
-   sendChatRequest,open=>{showMediaProvider(open?'video':'');if(open)$('monitorSettingsTitle').focus();},
-   ()=>{}, {canAttach:row=>director.canAttach(row),attach:row=>director.attach(row)});
- function openStudioMedia({asset=null,settings=false}={}){
-   if(!assetDialog.open)assetDialog.showModal();
-   monitor.open('media',asset);
-   if(settings)showMediaProvider('video');
+ const studioEntries=$('jiuseraEntries'), studioParent=$('openMediaStudio'), assetKinds=$('directorAssetKinds');
+ const studioSound=OAStudioPreviewSound($('directorSound'));
+ let studioExpanded=false,mediaView='',mainStudio='monitor',assetKind='characters';
+ const paintAssetKind=kind=>{
+   assetKind=kind;
+   for(const button of assetKinds.querySelectorAll('[data-asset-kind]'))
+     button.setAttribute('aria-pressed',String(button.dataset.assetKind===kind));
+ };
+ const monitor=OAMediaMonitor((action,args)=>mediaTool('wce.ui.video.workspace',{action,...args}),sendChatRequest,
+   {sound:studioSound,canAttach:row=>director.canAttach(row),attach:row=>director.attach(row),
+    typeChanged:kind=>{if(mediaView==='assets')paintAssetKind(kind);}});
+ function showAssetKind(kind,asset=null){
+   paintAssetKind(kind);
+   if(kind==='characters'){
+     monitor.close();characters.open();
+   }else{
+     characters.close();monitor.open(kind,asset);
+   }
  }
- function closeStudioMedia(){
-   if(assetDialog.open)assetDialog.close();
-   monitor.close();
- }
- $('directorMediaClose').onclick=closeStudioMedia;
- assetDialog.addEventListener('close',()=>{if(!assetDialog.open)monitor.close();});
+ for(const button of assetKinds.querySelectorAll('[data-asset-kind]'))
+   button.onclick=()=>showAssetKind(button.dataset.assetKind);
+ $('directorAssetBack').onclick=()=>enterStudio('desk',{user:true,focus:true});
  async function openProjectSettings(){
    await openView(activePlatform||'wechat_official_account',{focus:true});
    setWechatPage('settings');
@@ -892,9 +908,11 @@ SCRIPT = r'''
  }
  const characters=OACharacterLibrary(mediaTool,openProjectSettings);
  const director=OADirector(mediaTool,sendChatRequest,()=>!!hostCapabilities.message?.text,{
-    chooseCharacter:characters.choose,closeCharacterPicker:characters.closePicker,
-    library:()=>openStudioMedia(),settings:()=>openStudioMedia({settings:true}),
-    asset:asset=>openStudioMedia({asset}),closeLibrary:closeStudioMedia,
+    sound:studioSound,chooseCharacter:characters.choose,closeCharacterPicker:characters.closePicker,
+    go:section=>enterStudio(section,{user:true,focus:true}),
+    back:()=>enterStudio(mainStudio,{user:true,focus:true}),
+    library:()=>enterStudio('assets',{kind:'video',user:true,focus:true}),
+    asset:asset=>enterStudio('assets',{kind:asset.kind||asset.family,asset,user:true,focus:true}),
     source:url=>{
       const target=new URL(url);
       if(target.protocol!=='https:'||!['www.douyin.com','deepmind.google'].includes(target.hostname))
@@ -927,52 +945,84 @@ SCRIPT = r'''
    reduceMotion.addEventListener('change',()=>{introPreference=null;syncIntro();});
    document.addEventListener('visibilitychange',syncIntro);
  }
- let mediaView='';
- function showMedia(target){
-   if(target===mediaView)return;
-   navigationEpoch++;
-   mediaView=target;
-   $('mediaStudio').hidden=!target;
-   document.body.classList.toggle('oa-video-open',!!target);
-   if(target){
-     closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();
-     void director.open();
-     if(target!=='media')openStudioMedia();
+ function showMedia(section,{kind,asset}={}){
+   const before=mediaView;
+   if(!before&&!section)return;
+   if(before!==section){
+     navigationEpoch++;
+     if(before==='assets'){characters.close();monitor.close();}
+     if(before==='tasks')monitor.close();
+     if(before==='providers')showMediaProvider('');
    }
-   else{closeStudioMedia();director.close();}
+   mediaView=section;
+   $('mediaStudio').hidden=!section;
+   document.body.classList.toggle('oa-video-open',!!section);
+   if(!section){director.close();return;}
+   if(!before){
+     closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();
+     void director.open(section);
+   }else director.view(section);
+   if(section==='assets'&&(before!==section||kind||asset))showAssetKind(kind||assetKind,asset);
+   if(section==='tasks'&&before!==section)monitor.open('all');
+   if(section==='providers'&&before!==section)showMediaProvider('video');
+ }
+ function paintStudioNavigation(){
+   studioParent.setAttribute('aria-expanded',String(studioExpanded));
+   studioEntries.hidden=!studioExpanded;
+   for(const button of studioEntries.querySelectorAll('[data-studio-page]'))
+     button.setAttribute('aria-current',mediaView&&mainStudio===button.dataset.studioPage?'page':'false');
+ }
+ function enterStudio(section,{kind,asset,user=false,focus=false}={}){
+   if(closed||!ready||!$('inlineBinding').hidden)return;
+   if(view!=='studio'){
+     platformEpoch++;selectionIntent++;selectEpoch++;
+     closeFloatingMenus();notice('');view='studio';
+   }
+   studioExpanded=true;
+   if(section in studioURLs)mainStudio=section;
+   if(user){explicitNavigation=true;rememberView(studioURLs[mainStudio]);}
+   showMedia(section,{kind,asset});renderView();renderPlatforms();
+   if(focus&&!asset)$('directorTitle').focus({preventScroll:true});
  }
  function renderView(){
    document.body.classList.toggle('oa-platform-view',view==='platform');
-   document.body.classList.toggle('oa-character-view',view==='characters');
    syncPlatformUpdates();
    renderWechatWorkspace();
    syncIntro();
    $('openAhoyHome').hidden=view!=='home';
    $('nativeWorkspace').hidden=view!=='platform'||!$('inlineBinding').hidden;
    $('openHome').setAttribute('aria-current',view==='home'?'page':'false');
-   $('openCharacterLibrary').setAttribute('aria-current',view==='characters'?'page':'false');
-   $('openMediaStudio').setAttribute('aria-current',mediaView?'page':'false');
+   paintStudioNavigation();
  }
  async function openView(target,{user=false,focus=false}={}){
    closeFloatingMenus();
    if(closed||!ready||!$('inlineBinding').hidden)return;
+   if(studioRoutes.has(target)){
+     const {section,kind}=studioRoutes.get(target);
+     enterStudio(section,{kind,user,focus});
+     return;
+   }
    if(activePlatform!==target||view!=='platform')notice('');
    if(user){explicitNavigation=true;rememberView(target);}
-   if(target==='home'||target==='characters'||target==='media'||target==='video'||target==='gif'||target==='audio'){
+   if(target==='home'){
      platformEpoch++;selectionIntent++;selectEpoch++;navigationEpoch++;
-     if(target==='home'||target==='characters'){closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();}
-     view=target;showMedia(target==='home'||target==='characters'?'':target);renderView();renderPlatforms();
-     if(target==='characters'){characters.open();if(focus)characters.focus();}
-     else{characters.close();if(focus)$(target==='home'?'homeTitle':'directorTitle').focus();}
+     closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();
+     view=target;showMedia('');renderView();renderPlatforms();
+     if(focus)$('homeTitle').focus();
      return;
    }
    if(view==='platform'&&activePlatform===target)return;
    view='platform';
    await selectPlatform(target,{focus,user});
  }
- $('openCharacterLibrary').onclick=()=>openView('characters',{user:true,focus:true});
  $('openHome').onclick=()=>openView('home',{user:true,focus:true});
- for(const id of ['openMediaStudio','homeMediaStudio'])$(id).onclick=()=>openView('media',{user:true,focus:true});
+ studioParent.onclick=()=>{
+   if(mediaView){studioExpanded=!studioExpanded;paintStudioNavigation();return;}
+   void openView('media',{user:true,focus:true});
+ };
+ for(const button of studioEntries.querySelectorAll('[data-studio-page]'))
+   button.onclick=()=>enterStudio(button.dataset.studioPage,{user:true,focus:true});
+ $('homeMediaStudio').onclick=()=>openView('media',{user:true,focus:true});
  $('refresh').addEventListener('click',()=>void refresh());$('showAdd').addEventListener('click',secure);
  $('accountCreate').addEventListener('click',async()=>{
    const row=current(),original=selected,editor=row&&editors.get(row.platform_id);if(!editor||!platform(row.platform_id)?.settings_supported)return;
@@ -1045,6 +1095,7 @@ def resource():
     from .media_monitor_ui import STYLE as monitor_style, SCRIPT as monitor_script
     from .video_director_canvas_ui import STYLE as canvas_style, SCRIPT as canvas_script
     from .video_director_ui import STYLE as director_style, SCRIPT as director_script
+    from .video_director_monitor_ui import STYLE as review_style, SCRIPT as review_script
     from .character_library_ui import STYLE as characters_style, SCRIPT as characters_script
     from .video_frame_player import STYLE as frame_style, SCRIPT as frame_script
     from .x_management_ui import HTML as x_html, SCRIPT as x_script
@@ -1057,9 +1108,9 @@ def resource():
     html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>OpenAhoy · Platform management</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + PLATFORM_ACCOUNT_NAV_STYLE + '</style>'
+        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + review_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + PLATFORM_ACCOUNT_NAV_STYLE + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
-        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + director_script + characters_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + SCRIPT + '</script></body></html>')
+        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + characters_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
         '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://cdn1.suno.ai',
                                                                  'https://cdn2.suno.ai', 'https://suno-data-uploads.s3.amazonaws.com', 'https://acemusic.ai'], 'frameDomains': []}},

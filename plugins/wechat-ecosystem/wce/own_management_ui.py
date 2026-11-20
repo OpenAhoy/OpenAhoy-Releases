@@ -64,6 +64,17 @@ def icon(name):
     return '<svg class="oa-icon" viewBox="0 0 24 24" aria-hidden="true">'+paths[name]+'</svg>'
 
 
+def jiusera_sidebar():
+    return ('<nav id="jiuseraNav" class="oa-nav" aria-label="Jiusera">'
+            '<button id="openMediaStudio" type="button" aria-expanded="false" aria-controls="jiuseraEntries">'
+            + icon('video') + '<span>Jiusera</span><span class="oa-jiusera-chevron" aria-hidden="true">›</span></button>'
+            '<div id="jiuseraEntries" hidden>'
+            '<button type="button" data-studio-page="monitor" aria-controls="directorMonitor">导演台</button>'
+            '<button type="button" data-studio-page="desk" aria-controls="directorBoard">工作画布</button>'
+            '<button type="button" data-studio-page="assets" aria-controls="directorAssetKinds">资产库</button>'
+            '</div></nav>')
+
+
 def platform_sidebar(logo, navigation, *, localized=False):
     brand = brand_header(logo)
     if localized:
@@ -76,9 +87,7 @@ def platform_sidebar(logo, navigation, *, localized=False):
         )
     return '<aside class="oa-sidebar"><div class="oa-brand">'+brand+'''</div>
 <div id="softwareUpdateSlot"></div>'''+('<button id="wechatCompactUpdates" type="button" aria-controls="softwareUpdateSlot" aria-expanded="false" hidden>版本与帮助</button>' if localized else '')+'''
-<div>'''+('<nav class="oa-nav"><button id="openMediaStudio" type="button" aria-label="Jiusera" aria-controls="mediaStudio">' +icon('video')+'<span>Jiusera</span></button>'
-    '<button id="openCharacterLibrary" type="button" aria-label="形象资产库" aria-controls="characterLibrary">'
-    +icon('image')+'<span>形象资产库</span></button></nav>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
+<div>'''+(jiusera_sidebar() if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
 
 
 def minimax_mark():
@@ -111,7 +120,6 @@ def minimax_cards():
 def native_page_body(logo, platform_settings):
     """Single native workspace; secret input has its own view in this resource."""
     from .own_inline_binding_ui import HTML as binding_html
-    from .media_monitor_ui import HTML as monitor_html
     from .video_director_ui import HTML as director_html
     from .character_library_ui import HTML as characters_html
     from .openai_gif_ui import SETTINGS_HTML as gif_settings
@@ -215,11 +223,26 @@ def native_page_body(logo, platform_settings):
 <p id="accountRecoveryStatus" role="status"></p>
 </dialog>
 <footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div><section id="mediaStudio" aria-label="Jiusera" hidden>
-'''+director_html+'''<dialog id="directorMediaDialog" aria-label="媒体资产"><header class="mm-toolbar">
-<button type="button" id="directorMediaClose">回到画布</button></header>'''+monitor_html+'''</dialog><div id="monitorComponents" hidden>'''+credential+gif_settings+audio_html+'''</div></section>'''+characters_html+binding_html+'''</main></div>'''
+'''+director_html+'''<div id="monitorComponents" hidden>'''+credential+gif_settings+audio_html+'''</div></section>'''+characters_html+binding_html+'''</main></div>'''
 
 
 HOME_STYLE = '''
+#jiuseraNav{margin-block-end:6px}
+#jiuseraEntries[hidden]{display:none!important}
+#jiuseraEntries{display:grid;gap:3px;padding-inline-start:19px;min-width:0}
+.oa-management .oa-sidebar #jiuseraEntries button{min-height:33px;font-size:12px;gap:4px;padding:5px 8px;
+ box-shadow:none;border-color:transparent;background:transparent}
+.oa-management .oa-sidebar #jiuseraEntries button[aria-current=page]{
+ background:var(--oa-selection,var(--tint));color:var(--accent)}
+.oa-management .oa-sidebar #jiuseraEntries button:hover{background:var(--oa-fill,var(--soft))}
+.oa-jiusera-chevron{margin-inline-start:auto;color:var(--muted)}
+#openMediaStudio[aria-expanded=true] .oa-jiusera-chevron{transform:rotate(90deg)}
+@media(max-width:799px),(max-height:599px){
+ #jiuseraNav{align-items:center;margin:0}
+ #jiuseraEntries{display:flex;flex-wrap:wrap;padding-inline-start:3px;gap:3px}
+ .oa-management .oa-sidebar #jiuseraEntries button{min-height:28px;font-size:12px;padding:3px 6px}
+}
+
 .oa-management #openHome{width:fit-content;min-height:32px;padding:0;background:transparent;border:0;box-shadow:none}
 .oa-management #openHome .oa-brand-logo{display:block}
 .oa-management #openHome:hover:not(:disabled){background:transparent;opacity:.8}

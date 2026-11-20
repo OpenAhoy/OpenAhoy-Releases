@@ -107,6 +107,7 @@ WORKSPACE_SPECS = {'oneOf': [
     action('audio_history', {}, {'project_id': PROJECT}),
     action('audio_chunk', AUDIO_SCOPE | {'offset': {'type':'integer','minimum':0}}),
     action('audio_export', AUDIO_SCOPE),
+    action('audio_preview_frames', AUDIO_SCOPE | {'start': FRAME_INDEX, 'sha256': HANDLE}),
     action('history', {}, {'project_id': PROJECT}),
     action('select', {'project_id': PROJECT, 'primary': ATTEMPT}, {'compare': ATTEMPT}),
     action('playback', JOB | {'offset': {'type': 'integer', 'minimum': 0}}),
@@ -399,6 +400,8 @@ class VideoRouter:
             return self.audio_jobs.history(project)
         if command == 'audio_chunk':
             return self.audio_jobs.chunk(arguments['attempt_id'],project,arguments['offset'])
+        if command == 'audio_preview_frames':
+            return self.audio_jobs.preview_video(arguments['attempt_id'],project,arguments['start'],arguments['sha256'])
         if command == 'audio_export':
             return self.audio_jobs.export(arguments['attempt_id'],project)
         if command == 'provider_catalog':

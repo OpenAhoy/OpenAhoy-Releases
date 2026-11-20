@@ -57,7 +57,10 @@ class Extractor:
         if base64.b64encode(data).decode()!=block:fail('HTML_IMPORT_IMAGE')
         self.padded='=' in block
         item=self.image;item['size']+=len(data)
-        if item['size']>MAX_ASSET_BYTES:fail('HTML_IMPORT_IMAGE')
+        if item['size']>MAX_ASSET_BYTES:
+            error = WCEError('HTML_IMPORT_JPEG_LIMIT' if item['mime']=='image/jpeg' else 'HTML_IMPORT_IMAGE')
+            error.image_position = len(self.images) + 1
+            raise error
         item['sha'].update(data)
         view=memoryview(data)
         while view:
@@ -133,12 +136,18 @@ def acquire(root, relative_html, expected_sha256, scratch, *, metadata_title=Non
         if fingerprint.hexdigest()!=expected_sha256:fail('HTML_IMPORT_SOURCE_CHANGED')
         skeleton=extractor.finish()
         from .import_images import decode
-        for image in extractor.images:
+        for position, image in enumerate(extractor.images, 1):
             guard();data=FileSource(Path(image['path']).parent).read(Path(image['path']).name)
             if sha256(data).hexdigest()!=image['sha256']:fail('HTML_IMPORT_SOURCE_CHANGED')
-            image['decode']=decode(data,image['mime'],scratch).fingerprint()
-            from .html_technical_standard import validate_upload
-            validate_upload('article_body', image['mime'], data)
+            try:
+                from .html_technical_standard import validate_upload
+                validate_upload('article_body', image['mime'], data)
+                image['decode']=decode(data,image['mime'],scratch,production=True).fingerprint()
+            except WCEError as error:
+                if image['mime'] == 'image/jpeg' and error.code == 'HTML_IMPORT_IMAGE_UNSUPPORTED':
+                    error = WCEError('HTML_IMPORT_JPEG_INVALID')
+                error.image_position = position
+                raise error from None
             del data
         return convert(skeleton,extractor.images,expected_sha256,metadata_title=metadata_title,
                        layout_profile=layout_profile,guard=guard)

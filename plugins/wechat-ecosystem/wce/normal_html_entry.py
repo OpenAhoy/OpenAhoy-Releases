@@ -54,8 +54,13 @@ def prepare(policy, arguments, send, scratch_root=None):
             policy.check();path=Path(source['absolute_path'])
             if not path.is_absolute() or '..' in path.parts:raise WCEError('INVALID_LOCAL_FILE')
             scratch=root/str(index);scratch.mkdir(mode=0o700)
-            prepared.append(acquire(path.parent,path.name,source['expected_sha256'],scratch,
-                metadata_title=source.get('metadata_title'),guard=policy.check))
+            try:
+                prepared.append(acquire(path.parent,path.name,source['expected_sha256'],scratch,
+                    metadata_title=source.get('metadata_title'),guard=policy.check))
+            except WCEError as error:
+                if hasattr(error, 'image_position'):
+                    error.article_position = index + 1
+                raise
         # Complete pure field checks for every member before any local receive.
         from .html_technical_standard import validate_metadata
         for index,(source,result) in enumerate(zip(arguments['html_sources'],prepared)):
