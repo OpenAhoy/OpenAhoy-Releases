@@ -27,6 +27,8 @@ SCRIPT = r'''
 
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
  let view='home',initialView='',explicitNavigation=false;
+ let wechatPage='monitor';
+ const isWechat=()=>view==='platform'&&activePlatform==='wechat_official_account';
  const notice=(text,error=false,...values)=>{OAUI.set($('notice'),text,...values);$('notice').className='notice'+(error?' error':'');};
  const key=row=>JSON.stringify([row.platform_id,row.connection_id]);
  const platform=id=>directory.find(p=>p.id===id);
@@ -192,7 +194,9 @@ SCRIPT = r'''
    return supported;
  }
  async function selectPlatform(id,focus=false){
-   showMedia('');const intent=++platformEpoch;navigationEpoch++;closeXTools();activePlatform=id;renderView();renderPlatforms();await renderAccounts();if(closed||intent!==platformEpoch||view!=='platform'||activePlatform!==id)return;showSettings(id);
+   showMedia('');const intent=++platformEpoch;navigationEpoch++;closeXTools();activePlatform=id;
+   if(isWechat())wechatPage='monitor';
+   renderView();renderPlatforms();await renderAccounts();if(closed||intent!==platformEpoch||view!=='platform'||activePlatform!==id)return;showSettings(id);
    if(id==='x'&&ready&&!contextOpen)xManagement.activate();else xManagement.deactivate();
    if(id==='xiaohongshu'&&ready&&!contextOpen)xhsManagement.activate();else xhsManagement.deactivate();
    $('xCapabilities').hidden=id!=='x';
@@ -344,8 +348,55 @@ SCRIPT = r'''
      };
      actions.append(edit);
    }
-   actions.append(rebind,remove);menu.append(toggle,actions);return menu;
+   actions.append(rebind,remove);menu.append(toggle,actions);
+   if(row.platform_id==='wechat_official_account')bindWechatPopover(menu);
+   return menu;
  }
+ function placeWechatPopover(anchor,popup){
+   const box=anchor.getBoundingClientRect(),root=document.documentElement;
+   const width=Math.min(224,root.clientWidth-16);
+   const left=Math.max(8,Math.min(root.clientWidth-width-8,box.right-width));
+   const below=root.clientHeight-box.bottom-12,above=box.top-12;
+   const down=below>=Math.min(popup.scrollHeight,180)||below>=above;
+   Object.assign(popup.style,{width:width+'px',left:left+'px',maxHeight:Math.max(48,down?below:above)+'px',
+     top:down?box.bottom+4+'px':'auto',bottom:down?'auto':root.clientHeight-box.top+4+'px'});
+ }
+ function unmountWechatPopover(popup){
+   if(!popup.hasAttribute('popover'))return;
+   if(popup.matches(':popover-open'))popup.hidePopover();
+   popup.removeAttribute('popover');popup.classList.remove('oa-wechat-popover');
+   for(const property of ['width','left','max-height','top','bottom'])popup.style.removeProperty(property);
+ }
+ function bindWechatPopover(details){
+   const anchor=details.querySelector(':scope > summary'),popup=details.querySelector(':scope > div');
+   details.addEventListener('toggle',()=>{
+     if(details.open&&isWechat()&&typeof popup.showPopover==='function'){
+       popup.setAttribute('popover','manual');
+       popup.classList.add('oa-wechat-popover');
+       if(!popup.matches(':popover-open'))popup.showPopover();
+       placeWechatPopover(anchor,popup);
+     }else unmountWechatPopover(popup);
+   });
+ }
+ bindWechatPopover(document.querySelector('#accountPanel details.oa-more-settings'));
+ addEventListener('resize',()=>{if(isWechat())closeFloatingMenus();});
+ const compactWechat=matchMedia('(max-width:560px)');
+ const updateToggle=$('wechatCompactUpdates'),updateSlot=$('softwareUpdateSlot');
+ function syncWechatUpdates(){
+   const compact=isWechat()&&$('inlineBinding').hidden&&compactWechat.matches&&typeof updateSlot.showPopover==='function';
+   updateToggle.hidden=!compact;
+   const sidebar=updateSlot.parentElement,support=sidebar.querySelector('.oa-support-links');
+   if(compact&&!updateSlot.hasAttribute('popover')){
+     updateSlot.setAttribute('popover','auto');updateSlot.classList.add('oa-wechat-popover');
+   }else if(!compact)unmountWechatPopover(updateSlot);
+   if(support&&support.parentElement!==(compact?updateSlot:sidebar))(compact?updateSlot:sidebar).append(support);
+ }
+ compactWechat.addEventListener('change',syncWechatUpdates);
+ updateToggle.onclick=()=>{
+   if(updateSlot.matches(':popover-open'))updateSlot.hidePopover();
+   else{updateSlot.showPopover();placeWechatPopover(updateToggle,updateSlot);}
+ };
+ updateSlot.addEventListener('toggle',()=>updateToggle.setAttribute('aria-expanded',String(updateSlot.matches(':popover-open'))));
  $('accountRemoveCancel').onclick=()=>removalDialog.close();
  removalDialog.addEventListener('close',()=>{removalTarget=null;});
  $('accountRemoveConfirm').onclick=async event=>{
@@ -460,9 +511,33 @@ SCRIPT = r'''
  }
  function targetAnalytics(){
    const row=current();
-   const valid=view==='platform'&&activePlatform==='wechat_official_account'&&
+   const valid=isWechat()&&wechatPage==='monitor'&&$('inlineBinding').hidden&&
      row?.platform_id===activePlatform&&['BOUND','BOUND_IDLE','CONNECTED','BUSY'].includes(row.state);
    analytics?.target(valid?row:null,valid?name(row):'');
+ }
+ function renderWechatWorkspace(){
+   const shown=isWechat()&&$('inlineBinding').hidden;
+   const monitor=shown&&wechatPage==='monitor';
+   document.body.classList.toggle('oa-wechat-view',shown);
+   syncWechatUpdates();
+   $('wechatWorkspaceNavigation').hidden=!shown;
+   $('wechatMonitorTab').setAttribute('aria-pressed',String(monitor));
+   $('wechatConfigTab').setAttribute('aria-pressed',String(shown&&!monitor));
+   $('wechatAnalytics').hidden=!monitor;
+   $('settingsPanel').hidden=monitor;
+   targetAnalytics();
+ }
+ function setWechatPage(page,{rules=false}={}){
+   if(!isWechat())return;
+   closeFloatingMenus();
+   wechatPage=page;
+   if(rules){contextOpen=false;projectContext.deactivate();showSettings(activePlatform);}
+   renderWechatWorkspace();
+ }
+ $('wechatMonitorTab').onclick=()=>setWechatPage('monitor');
+ $('wechatConfigTab').onclick=()=>setWechatPage('settings');
+ function revealAccountConfiguration(row){
+   if(row.platform_id==='wechat_official_account')setWechatPage('settings',{rules:true});
  }
  function paintSelection(){
    targetAnalytics();
@@ -730,6 +805,7 @@ SCRIPT = r'''
     },
     project:async()=>{
       await openView(activePlatform||'wechat_official_account',{focus:true});
+      setWechatPage('settings');
       $('contextSettingsTab').click();
     },
  });
@@ -772,7 +848,7 @@ SCRIPT = r'''
    else{closeStudioMedia();director.close();}
  }
  function renderView(){
-   targetAnalytics();
+   renderWechatWorkspace();
    syncIntro();
    $('openAhoyHome').hidden=view!=='home';
    $('nativeWorkspace').hidden=view!=='platform'||!$('inlineBinding').hidden;
@@ -799,11 +875,12 @@ SCRIPT = r'''
  $('refresh').addEventListener('click',()=>void refresh());$('showAdd').addEventListener('click',secure);
  $('accountCreate').addEventListener('click',async()=>{
    const row=current(),original=selected,editor=row&&editors.get(row.platform_id);if(!editor||!platform(row.platform_id)?.settings_supported)return;
+   revealAccountConfiguration(row);
    const epoch=++navigationEpoch;
    const isCurrent=()=>!closed&&selected===original&&activePlatform===row.platform_id&&navigationEpoch===epoch&&
      current()?.binding_revision===row.binding_revision&&current()?.account_id===row.account_id;
    const ok=await editor.openCreator(row.connection_id,name(row),isCurrent);
-   if(ok&&isCurrent()){editor.showCreator();$('settingsPanel').scrollIntoView({block:'start'});}
+   if(ok&&isCurrent()){editor.showCreator();if(!isWechat())$('settingsPanel').scrollIntoView({block:'start'});}
  });
  $('accountBackend').addEventListener('click',async()=>{
    const row=current(),editor=row&&editors.get(row.platform_id);if(!ready||backendOpening||!editor?.openBackend)return;
@@ -815,18 +892,22 @@ SCRIPT = r'''
  $('accountImport').addEventListener('click',()=>{
    const row=current(),original=selected,epoch=navigationEpoch,editor=row&&editors.get(row.platform_id);
    if(!editor||!platform(row.platform_id)?.settings_supported)return;
-   editor.showRules();$('settingsPanel').scrollIntoView({block:'start'});
+   revealAccountConfiguration(row);editor.showRules();
+   if(!isWechat())$('settingsPanel').scrollIntoView({block:'start'});
    editor.chooseConfiguration(row.connection_id,name(row),()=>!closed&&selected===original&&activePlatform===row.platform_id&&
      navigationEpoch===epoch&&current()?.binding_revision===row.binding_revision&&current()?.account_id===row.account_id);
  });
  $('accountRules').addEventListener('click',async()=>{
    const row=current(),original=selected,editor=row&&editors.get(row.platform_id);if(!editor||!platform(row.platform_id)?.settings_supported)return;
+   revealAccountConfiguration(row);
    const intent=++navigationEpoch;
    const isCurrent=()=>!closed&&selected===original&&navigationEpoch===intent&&
      current()?.binding_revision===row.binding_revision&&current()?.account_id===row.account_id;
    const ok=await editor.selectScope(row.connection_id,{isCurrent});if(!isCurrent())return;
    if(ok===false){notice('规则正在处理或结果待确认，请在原规则范围接续。',true);return;}
-   if(activePlatform===row.platform_id&&showSettings(row.platform_id)){editor.showRules();$('settingsPanel').scrollIntoView({block:'start'});}
+   if(activePlatform===row.platform_id&&showSettings(row.platform_id)){
+     editor.showRules();if(!isWechat())$('settingsPanel').scrollIntoView({block:'start'});
+   }
  });
  addEventListener('pagehide',event=>{if(!event.persisted)dispose();});buttons();
  rpc('ui/initialize',{appInfo:{name:'openahoy-management',version:'3.0.0'},protocolVersion:'2026-01-26',appCapabilities:{availableDisplayModes:['inline','fullscreen']}})
@@ -856,6 +937,7 @@ def resource():
     from .video_inline_ui import SCRIPT as video_script
     from .audio_workspace_ui import STYLE as audio_style, SCRIPT as audio_script
     from .wechat_analytics_ui import STYLE as stats_style, SCRIPT as stats_script
+    from .wechat_workspace_ui import STYLE as wechat_workspace_style
     from .video_provider_ui import STYLE as provider_style, SCRIPT as provider_script
     from .openai_gif_ui import STYLE as gif_style
     from .video_workspace_ui import STYLE as video_style
@@ -873,7 +955,7 @@ def resource():
     html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>OpenAhoy · Platform management</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + canvas_style + interaction_style + '</style>'
+        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + canvas_style + interaction_style + wechat_workspace_style + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
         + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + director_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,

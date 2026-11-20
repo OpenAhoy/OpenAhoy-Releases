@@ -8,6 +8,7 @@ HTML = """
   <button type="button" id="wxStats30" aria-pressed="false">近 30 天</button><button type="button" id="wxStatsRefresh">刷新数据</button></div>
  </header>
  <p id="wxStatsStatus" role="status" aria-live="polite"></p>
+ <p id="wxStatsEmpty" class="empty">绑定并选择公众号后可查看统计。</p>
  <div id="wxStatsResult" hidden>
   <div id="wxStatsTotals" class="wx-stats-totals"></div>
   <div class="wx-stats-trends"><section><h3>关注趋势</h3><div id="wxStatsFans"></div></section>
@@ -19,44 +20,46 @@ HTML = """
 
 STYLE = """
 #wechatAnalytics[hidden],#wechatAnalytics [hidden]{display:none!important}
-#wechatAnalytics{display:grid;flex:none;gap:10px;margin:12px 0 18px;min-width:0}
+#wechatAnalytics{display:flex;flex:1;flex-direction:column;gap:7px;min-width:0;min-height:0}
 #wechatAnalytics h2,#wechatAnalytics h3,#wechatAnalytics p{margin:0}
 #wechatAnalytics h2{font-size:18px}#wechatAnalytics h3{font-size:13px}
-.wx-stats-header,.wx-stats-article-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+.wx-stats-header,.wx-stats-article-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
+.wx-stats-header,#wxStatsStatus{flex:none}
+.wx-stats-header>.actions{margin:0;gap:4px}
+.wx-stats-header button{min-height:32px;padding:4px 8px}
 #wxStatsAccount,#wxStatsStatus,#wxStatsArticleStatus,#wechatAnalytics small{font-size:12px;color:var(--muted)}
 #wxStatsStatus:empty,#wxStatsArticleStatus:empty{display:none}
 #wechatAnalytics button[aria-pressed=true]{background:var(--tint);color:var(--accent)}
-#wxStatsResult{display:grid;gap:8px}
+#wxStatsResult{display:grid;align-content:start;gap:7px;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 2px 8px}
 .wx-stats-totals,.wx-stats-trends{display:grid;gap:8px}
 .wx-stats-totals{grid-template-columns:repeat(4,minmax(0,1fr))}
 .wx-stats-trends{grid-template-columns:repeat(2,minmax(0,1fr))}
-.wx-stats-totals>div,.wx-stats-trends>section,.wx-stats-articles{border:1px solid var(--line);border-radius:10px;background:var(--surface);min-width:0;padding:9px 10px}
+.wx-stats-totals>div,.wx-stats-trends>section,.wx-stats-articles{border:1px solid var(--line);border-radius:10px;background:var(--surface);min-width:0;padding:7px 9px}
+.wx-stats-totals>div{line-height:1.35}
 .wx-stats-totals strong{display:block;font-size:19px;font-variant-numeric:tabular-nums}
 .wx-stats-totals span{color:var(--muted);font-size:12px}
-.wx-stats-trends [data-chart]{height:62px;display:flex;gap:2px;align-items:end;margin:6px 0 3px}
+.wx-stats-trends [data-chart]{height:46px;display:flex;gap:2px;align-items:end;margin:5px 0 3px}
 .wx-stats-trends [data-chart]>span{display:flex;flex:1 1 0;min-width:0;height:100%;align-items:end;gap:1px}
 .wx-stats-trends i{flex:1;border-radius:2px 2px 0 0;background:var(--accent);min-width:1px}
 .wx-stats-trends i:nth-child(2){background:#bd677e}
 .wx-stats-trends i:nth-child(3){background:#4b9e8c}
-.wx-stats-trends table{width:100%;border-collapse:collapse;text-align:end;font-size:11px;margin-top:5px}
+.wx-stats-trends table{width:100%;border-collapse:collapse;text-align:end;font-size:12px;margin-top:5px;overflow-wrap:anywhere}
 .wx-stats-trends td,.wx-stats-trends th{padding:2px 3px}
 .wx-stats-trends th:first-child,.wx-stats-trends td:first-child{text-align:start}
 .wx-stats-trends details{margin-top:5px}
 .wx-stats-trends summary,#wxStatsArticles summary{font-size:12px;cursor:pointer}
 .wx-stats-articles>p{margin-top:5px!important}
-#wxStatsArticles>article{border-top:1px solid var(--line);margin-top:6px;padding-top:6px;min-width:0}
+#wxStatsArticles>article{border-top:1px solid var(--line);margin-top:5px;padding-top:5px;min-width:0}
+.wx-stats-article-head button{min-height:27px;padding:3px 7px;font-size:12px}
+#wxStatsArticles details{margin:2px 0 0;padding:0}
 .wx-stats-article-head strong{overflow-wrap:anywhere}
 #wxStatsArticles details div{display:flex;gap:4px 12px;flex-wrap:wrap;font-size:12px;padding-top:5px}
-@media(min-width:800px) and (min-height:600px){
- .oa-management #nativeWorkspace:has(#wechatAnalytics:not([hidden])){overflow-y:auto}
- .oa-management #nativeWorkspace:has(#wechatAnalytics:not([hidden])) #settingsPanel{flex:none;min-height:520px}
-}
-@media(max-width:650px){.wx-stats-totals{grid-template-columns:repeat(2,minmax(0,1fr))}.wx-stats-trends{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:520px){.wx-stats-totals{grid-template-columns:repeat(2,minmax(0,1fr))}.wx-stats-trends{grid-template-columns:minmax(0,1fr)}}
 """
 
 SCRIPT = r'''
 const OAWechatAnalytics=(invoke,openLink)=>{
- const $=id=>document.getElementById(id), root=$('wechatAnalytics'),out=$('wxStatsResult');
+ const $=id=>document.getElementById(id),out=$('wxStatsResult');
  const f=(value)=>Number.isFinite(value)?new Intl.NumberFormat().format(value):'—';
  const states={PERMISSION:'接口权限不足',DELAYED:'微信数据尚未就绪',TIMEOUT:'微信接口响应超时',UNAVAILABLE:'暂时无法读取',EMPTY:'暂无统计记录'};
  const accounts=new Map();
@@ -203,7 +206,9 @@ const OAWechatAnalytics=(invoke,openLink)=>{
  return {target(row,label){
    const id=row?.connection_id||'';
    const identity=id?JSON.stringify([row.account_id,row.binding_revision]):'';
-   root.hidden=!id;
+   $('wxStatsEmpty').hidden=!!id;
+   $('wxStats7').disabled=$('wxStats30').disabled=!id;
+   $('wxStatsRefresh').disabled=!id||busy;
    if(id===target&&identity===binding){if(id)OAUI.raw($('wxStatsAccount'),label);return;}
    const prior=target, previousBinding=binding;
    target=id;binding=identity;revision=id?row.binding_revision||'':'';++epoch;busy=false;reset();OAUI.set($('wxStatsStatus'),'');
