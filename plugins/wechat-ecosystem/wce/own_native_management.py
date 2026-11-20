@@ -663,7 +663,10 @@ SCRIPT = r'''
  async function secure(){if(!ready||!bindingPlatform()?.binding_supported)return;if(activePlatform==='xiaohongshu'){await xhsManagement.begin();return;}if(activePlatform==='x'){await openXAuthorization(false);return;}await binding.open();}
  const analytics=OAWechatAnalytics(async args=>{
    const result=await tool('wce.ui.wechat.analytics',args);
-   if(result?.isError)throw new Error('WECHAT_ANALYTICS_UNAVAILABLE');
+   if(result?.isError){
+     const code=result.structuredContent?.error||result.content?.[0]?.text;
+     throw new Error(typeof code==='string'&&/^[A-Z0-9_]{1,96}$/.test(code)?code:'WECHAT_ANALYTICS_UNAVAILABLE');
+   }
    return content(result);
  },openXLink);
  const video = OAVideoCredential((name,args)=>tool(name,args).then(content),()=>ready&&!closed);

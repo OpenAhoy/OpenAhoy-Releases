@@ -16,7 +16,7 @@ from pathlib import Path
 from .own_bootstrap_security import path_check
 from .contracts import WCEError
 from .own_connection_policy import atomic_write
-from .publication_contract import binding, digest, exact, fail
+from .publication_contract import binding, digest, exact, fail, legacy_projection_claims
 from .publication_store import PublicationStore, read_file, sync_directory
 
 MAX_LEDGER = 1024 * 1024
@@ -82,7 +82,6 @@ def _bounded_names(directory):
 
 
 def _successor_row(old, link):
-    from .current_publication_service import content_claims
     if type(old) is not dict or type(link) is not dict or type(link.get('effect')) is not dict:
         fail('CURRENT_REVISION_SUCCESSOR_CORRUPT')
     effect=link['effect'];projection=effect.get('projection')
@@ -95,7 +94,8 @@ def _successor_row(old, link):
     result=deepcopy(old)
     result.update(intent_handle=link['successor_handle'],revision_successor_of=link['original_intent'],
         projection_sha256=effect['projection_sha256'],response_sha256=effect['response_sha256'],
-        article_count=len(rows),titles=[item['title'] for item in rows],content_claims=[list(item) for item in content_claims(projection)])
+        article_count=len(rows),titles=[item['title'] for item in rows],
+        content_claims=[list(item) for item in legacy_projection_claims(projection)])
     return result
 
 

@@ -10,7 +10,7 @@ from .own_connection_input import stage
 from .own_connection_broker import call, ensure_started, stale_endpoint, SOCKET, RUNTIME
 from .prepared_contracts import ID, MIME, ROLE, strict_validate
 from .tools import schema
-from .wechat_analytics import TOOL as ANALYTICS
+from .wechat_analytics import BoundAnalytics, TOOL as ANALYTICS
 
 SPECS = deepcopy(LEGACY | DOCUMENT_SPECS)
 from .normal_html_entry import ARGUMENTS as HTML_ARGUMENTS
@@ -37,7 +37,8 @@ SPECS.update({
         'preferences': EDITOR_VALUES}),
     'own.connections.list': schema({}),
     ANALYTICS: schema({'connection_id': ID, 'days': {'type': 'integer', 'enum': [7, 30]}},
-                      {'refresh': {'type': 'boolean'}}),
+                      {'refresh': {'type': 'boolean'},
+                       'binding_revision': {'type': 'string', 'pattern': '^[a-f0-9]{64}$'}}),
     'own.connections.status': schema({'connection_id': ID}),
     'own.connections.connect': schema({'connection_id': ID}),
     'own.connections.disconnect': schema({'connection_id': ID}),
@@ -104,6 +105,7 @@ class ConnectionRouter:
     def __init__(self, launcher=None, registry=None):
         self.launcher = launcher or Path(__file__).resolve().parents[1] / 'scripts' / 'wce_connection.py'
         self.registry = registry
+        self.analytics = BoundAnalytics(registry)
 
     def evidence(self):
         return {'runtime': 'personal_account_connection', 'platform_ready': False, 'platform_verified': False}
@@ -139,6 +141,8 @@ class ConnectionRouter:
         if name == 'own.preflight' and 'connection_id' not in arguments:
             return self.evidence() | self.call('own.connections.list', {})
         cid = arguments['connection_id']
+        if name == ANALYTICS:
+            return self.analytics.read(arguments)
         if name in {'own.connections.status', 'own.preflight'}:
             return status(cid, self.registry)
         if name == 'own.connections.disconnect':

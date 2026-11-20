@@ -7,6 +7,11 @@ import re
 import stat
 from zipfile import ZipFile, ZipInfo, ZIP_STORED
 
+if __package__:
+    from .check_relative_imports import check_relative_imports
+else:
+    from check_relative_imports import check_relative_imports
+
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = 'wechat-ecosystem'
 MANIFEST = 'package-manifest.json'
@@ -31,6 +36,7 @@ def sources(checkout=ROOT):
     metadata = json.loads(entries['plugin.json'][0])
     if metadata['name'] != PLUGIN or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', metadata['version']):
         raise ValueError('Invalid OpenAhoy release identity')
+    check_relative_imports(entries)
     return package, metadata['version'], entries
 
 

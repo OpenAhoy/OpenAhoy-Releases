@@ -33,7 +33,12 @@ CHAT_DESCRIPTIONS = {
 }
 # readOnlyHint does not exclude refresh-token rotation or metadata writes.
 LOCAL_ONLY_TOOLS=frozenset({PREVIEW,STATUS,'own.connections.list','x.connections.list','own.drafts.current.read','own.drafts.current.status','wce.ui.management.overview'})
-LOCAL_ONLY_TOOLS = LOCAL_ONLY_TOOLS | {'image.openai.gif.status', 'image.openai.gif.configuration.status', 'audio.project.history', 'audio.project.video.inspect', 'audio.music.provider.read', 'wce.ui.wechat.analytics', 'video.director.read'}
+LOCAL_ONLY_TOOLS = LOCAL_ONLY_TOOLS | {'image.openai.gif.status', 'image.openai.gif.configuration.status', 'audio.project.history', 'audio.project.video.inspect', 'audio.music.provider.read', 'video.director.read'}
+
+
+def refreshes_director_catalog(name, arguments):
+    return (name == 'video.director.read' and type(arguments) is dict
+            and arguments.get('action') == 'models' and arguments.get('refresh_tokenhex') is True)
 
 
 def descriptor():
@@ -74,12 +79,13 @@ class SupportRouter:
             if name in CHAT_SPECS:
                 return self._chat(name,arguments)
             return self.inner.call(name,arguments)
-        return self.observe(name,invoke) if self.instrument else invoke()
+        return self.observe(name, invoke, catalog_refresh=refreshes_director_catalog(name, arguments)) if self.instrument else invoke()
 
-    def observe(self,name,invoke,*,protocol_result=False):
+    def observe(self,name,invoke,*,protocol_result=False,catalog_refresh=False):
         # The outermost formal router supplies the complete trusted descriptor
-        # catalog. This function never retains inputs, raw responses or errors.
-        effect='NONE' if name in getattr(self,'readonly_tools',()) else 'POSSIBLE'
+        # catalog and one derived flag. POSSIBLE includes external reads.
+        # Analytics can refresh cached data and acquire a token on the same route.
+        effect='NONE' if name in getattr(self,'readonly_tools',()) and not catalog_refresh else 'POSSIBLE'
         kind=None;details={}
         start=time.monotonic();state='RETURNED';code=None;site=None;http_status=None;wechat_code=None
         try:
@@ -87,6 +93,9 @@ class SupportRouter:
             value=original.get('structuredContent') if protocol_result and type(original)is dict else original
             if protocol_result and type(original)is dict and original.get('isError')is True:state='TOOL_ERROR'
             if type(value)is dict:
+                catalog = value.get('tokenhex_catalog')
+                if catalog_refresh and type(catalog) is dict and catalog.get('state') == 'NOT_CONFIGURED':
+                    effect = 'NONE'
                 if type(value.get('state'))is str and value['state']in RESULTS:state=value['state']
                 diagnostic=value.get('diagnostic')
                 if type(diagnostic)is dict:

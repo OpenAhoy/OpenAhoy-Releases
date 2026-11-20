@@ -41,6 +41,31 @@ class Review(unittest.TestCase):
         self.addCleanup(fixture.cleanup)
         self.root = Path(fixture.name)
 
+    def test_legacy_successor_reproduces_historical_claims(self):
+        from wce.current_publication_store import _successor_row
+        from wce.publication_contract import digest
+
+        picture = '<p><img src="https://example.invalid/raw"/></p>'
+        news = [{'title':'inline and block spacing', 'content':'<p>甲<b>乙</b><br>丙&amp;丁</p><div>戊<span>己</span></div>'},
+                {'title':'visual only', 'content':picture}, {'title':'duplicate visual', 'content':picture}]
+        projection = {'response':{'news_item':news}}
+        previous = {'intent_handle':'original','state':'READY','account_key':'fixture-account','submit_count':0}
+        link = {'original_intent':'original','successor_handle':'successor','effect':{
+            'projection':projection,'projection_sha256':digest(projection),'response_sha256':'b'*64}}
+        untouched = deepcopy((previous,link))
+        row = _successor_row(previous,link)
+        self.assertEqual((row['intent_handle'],row['revision_successor_of'],row['account_key'],row['submit_count']),
+                         ('successor','original','fixture-account',0))
+        self.assertEqual(row['content_claims'], [
+            ['BODY','1260493b8cf87bbd11d6e38bf68947c876e1678a4b56ceeed9b056dd98d45fad'],
+            ['MEMBER_FULL','6f89e7f4f8a3000ccbd3f979e53fcefe03426316e1e131bee98b5e838f7f5be9'],
+            ['REMOTE_VISUAL','3330b5bcfb18bce0bf2594766df29b44fd705cc9e37fc9950a9683df4f291ac5']])
+        self.assertEqual(row['titles'],[item['title'] for item in news])
+        self.assertEqual((previous,link),untouched)
+        news[1]['content'] = None
+        with self.assertRaisesRegex(WCEError,'CURRENT_REVISION_SUCCESSOR_CORRUPT'):
+            _successor_row(previous,link)
+
     def test_02_publication_local_refusal_leaves_original_reusable(self):
         row = {'submit_count': 0, 'state': 'NOT_ATTEMPTED', 'intent_handle': 'original',
                'reference': 'original-media', 'article_count': 1}

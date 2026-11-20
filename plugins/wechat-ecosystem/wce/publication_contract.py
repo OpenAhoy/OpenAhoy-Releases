@@ -1,6 +1,7 @@
 """Independent public-publication contract. No credential or network effects."""
 from dataclasses import dataclass
 from hashlib import sha256
+from html.parser import HTMLParser
 import json
 import re
 import unicodedata
@@ -109,4 +110,45 @@ def member_claims(members):
             claims.add(('VISUAL', digest({'profile': CONTENT_PROFILE, 'images': sorted(images)})))
         claims.add(('MEMBER_FULL', digest({'profile': CONTENT_PROFILE,
             'text': body, 'images': images})))
+    return sorted(claims)
+
+
+class _LegacyClaimText(HTMLParser):
+    def __init__(self, html):
+        super().__init__(convert_charrefs=True)
+        self.text = []
+        self.feed(html)
+        self.close()
+
+    def handle_data(self, data):
+        self.text.append(data)
+
+    def handle_starttag(self, tag, attrs):
+        from .html_document import INLINE
+
+        if tag not in INLINE or tag == 'br':
+            self.text.append(' ')
+
+    def handle_endtag(self, tag):
+        from .html_document import INLINE
+
+        if tag not in INLINE:
+            self.text.append(' ')
+
+
+def legacy_projection_claims(projection):
+    """Reproduce the claims stored by the legacy current-publication ledger."""
+    claims = set()
+    for index, row in enumerate(projection['response']['news_item']):
+        if type(row.get('content')) is not str:
+            fail('CURRENT_REVISION_SUCCESSOR_CORRUPT')
+        try:
+            text = ''.join(_LegacyClaimText(row['content']).text)
+        except (AssertionError, ValueError):
+            fail('CURRENT_REVISION_SUCCESSOR_CORRUPT')
+        if text.strip():
+            claims.update(member_claims([{'id': str(index), 'title': row['title'],
+                                         'text': text, 'images': []}]))
+        else:
+            claims.add(('REMOTE_VISUAL', digest(row['content'])))
     return sorted(claims)

@@ -215,6 +215,7 @@ class PersonalStdioServer(OperatorStdioServer):
 
     def tool_result(self,name,arguments):
         # One hook surrounds every formal tool and its MCP representation.
+        from .support_protocol import refreshes_director_catalog
         from .video_director_protocol import MEDIA as DIRECTOR_MEDIA
         from .video_protocol import AUDIO_VIDEO, WORKSPACE
         if name == DIRECTOR_MEDIA or (name == WORKSPACE and arguments.get('action') in {'playback', 'preview_frames', 'intro_frames', 'audio_chunk'}):
@@ -229,7 +230,8 @@ class PersonalStdioServer(OperatorStdioServer):
             return {'content': [{'type':'text', 'text':json.dumps(value, ensure_ascii=False)}] +
                 [{'type':'image', 'mimeType':'image/jpeg', 'data':frame} for frame in frames],
                 'structuredContent':value, 'isError':False}
-        return self._tool_observer.observe(name,lambda:super(PersonalStdioServer,self).tool_result(name,arguments),protocol_result=True)
+        return self._tool_observer.observe(name,lambda:super(PersonalStdioServer,self).tool_result(name,arguments),
+            protocol_result=True,catalog_refresh=refreshes_director_catalog(name,arguments))
 
     def resource(self, method, params):
         from .own_settings_protocol import resource

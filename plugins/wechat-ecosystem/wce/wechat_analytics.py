@@ -1,16 +1,87 @@
 """Read-only WeChat Data Cube projections for a single bound account."""
 from datetime import date, datetime, timedelta, timezone
 import json
+import threading
 import time
 from urllib.parse import urlencode, urlsplit
 
 from .contracts import WCEError
-from .http_transport import DATACUBE_PATHS, HTTPRequest, HTTPResponse, HTTPSender
+from .http_transport import DATACUBE_PATHS, HTTPRequest, HTTPResponse, HTTPSender, TransportFailure
 from .publication_contract import strict_json
 from .publication_wire import article_url_supported
 from .upload_wire import contains_secret, secret_value
 
 TOOL = 'wce.ui.wechat.analytics'
+
+
+class _AnalyticsPolicy:
+    """Use the existing token credential scope with read-only membership checks."""
+
+    def __init__(self, original):
+        self.original = original
+        self.root = original.root
+        self.data = original.data
+
+    def check(self):
+        return self.original.check(readonly=True)
+
+
+class BoundAnalytics:
+    """One in-memory reader and token cache per verified binding in this router."""
+
+    def __init__(self, registry):
+        self.registry = registry
+        self._lock = threading.Lock()
+        self._readers = {}
+
+    def read(self, arguments):
+        from .own_connection_policy import resolve
+        from .own_connection_token import TokenCache
+
+        cid = arguments['connection_id']
+        deadline = time.monotonic() + 48
+        with self._lock:
+            previous = self._readers.get(cid)
+        try:
+            policy = resolve(cid, self.registry, active=False, readonly=True)
+            policy.check(readonly=True)
+        except (WCEError, OSError):
+            with self._lock:
+                if self._readers.get(cid) is previous:
+                    self._readers.pop(cid, None)
+            raise
+        revision = policy.fingerprint
+        if arguments.get('binding_revision', revision) != revision:
+            raise WCEError('CONNECTION_POLICY_CHANGED')
+        scope = (revision, policy.path, policy.pin, policy.root_pin, policy.image_pin, policy.database_pin[:2])
+        with self._lock:
+            policy.check(readonly=True)
+            entry = self._readers.get(cid)
+            if entry is None or entry[0] != scope:
+                adapted = _AnalyticsPolicy(policy)
+                entry = (scope, threading.Lock(), Analytics(TokenCache(adapted)))
+                self._readers[cid] = entry
+        _, serial, analytics = entry
+
+        def guard():
+            if time.monotonic() >= deadline:
+                raise WCEError('CONNECTION_QUEUE_EXPIRED')
+            policy.check(readonly=True)
+            with self._lock:
+                if self._readers.get(cid) is not entry:
+                    raise WCEError('CONNECTION_POLICY_CHANGED')
+
+        if not serial.acquire(timeout=max(0, deadline-time.monotonic())):
+            raise WCEError('CONNECTION_QUEUE_EXPIRED')
+        try:
+            guard()
+            result = analytics.read(cid, arguments['days'], arguments.get('refresh', False), guard, deadline)
+            guard()
+            return result | {'binding_revision': revision}
+        finally:
+            serial.release()
+
+
 BEIJING = timezone(timedelta(hours=8))
 DAY = timedelta(days=1)
 CONTENT_START = date(2025, 11, 1)
@@ -108,6 +179,8 @@ def project(kind, rows, end):
 
 
 def decode(kind, response, token, first, last, end):
+    if isinstance(response, TransportFailure) and response.kind == 'TIMEOUT':
+        return 'TIMEOUT', {}, None
     if not isinstance(response, HTTPResponse) or not 200 <= response.status < 300:
         return 'UNAVAILABLE', {}, None
     try:
@@ -184,7 +257,7 @@ class Analytics:
                 state, values, code = decode(kind, response, token.token, batch[0], batch[-1], latest)
                 ttl = 300 if state == 'READY' else 60
                 affected = batch
-                if state in {'PERMISSION', 'UNAVAILABLE'} or code == 61503:
+                if state in {'PERMISSION', 'TIMEOUT', 'UNAVAILABLE'} or code == 61503:
                     # A range-level rejection/latency message isn't a daily zero.
                     affected = [day for day in requested if day >= batch[0]]
                     missing.clear()

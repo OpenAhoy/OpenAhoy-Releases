@@ -1,10 +1,13 @@
 from datetime import datetime, date
 import json
+import os
 from pathlib import Path
 import sys
 import time
 from types import SimpleNamespace
+from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest.mock import patch
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'plugins/wechat-ecosystem'))
@@ -13,6 +16,9 @@ from wce.http_transport import HTTPRequest, HTTPResponse, HTTPSender
 from wce import wechat_analytics as analytics
 from wce.own_connection_tools import ConnectionRouter, validate
 from wce.own_settings_protocol import SettingsRouter
+from wce.own_plugin import PersonalStdioServer
+from wce.video_seedance import MODEL
+from wce.video_tokenhex import TOKENHEX_ORIGIN
 
 OAUTH = Secret('test-not-a-production-secret')
 
@@ -76,6 +82,129 @@ class AnalyticsTest(TestCase):
 
     def query(self, reader, cid='account-one', days=7, refresh=False):
         return reader.read(cid,days,refresh,lambda:None,time.monotonic()+8)
+
+    def test_formal_tool_diagnostics_distinguish_potential_external_reads(self):
+        reader = self.make()
+        account = 'synthetic-private-analytics-account'
+        tokenhex_key = Secret('synthetic-private-relay-key')
+        with TemporaryDirectory() as directory, patch.dict(os.environ, {'HOME':directory, 'CODEX_HOME':directory}):
+            registry = Path(directory).resolve()/'connections.json'
+            server = PersonalStdioServer(ConnectionRouter(registry=registry))
+            jobs = server.router.video_jobs
+
+            def run(name, **args):
+                reply = server.tool_result(name,args)
+                self.assertFalse(reply['isError'], reply)
+                lines = (registry.parent/'diagnostics/events.jsonl').read_text()
+                self.assertNotIn(account,lines)
+                self.assertNotIn(OAUTH.reveal_for_adapter(),lines)
+                self.assertNotIn(tokenhex_key.reveal_for_adapter(),lines)
+                row = json.loads(lines.splitlines()[-1])
+                self.assertEqual(row['tool'], name)
+                return reply['structuredContent'], row['possible_side_effect']
+
+            binding = SimpleNamespace(root=registry.parent, data={'connection_id':account},
+                fingerprint='1'*64, path=registry, pin=(1,2),root_pin=(1,3),image_pin=(1,4),
+                database_pin=(1,5),check=lambda *,readonly: self.assertTrue(readonly))
+            with (patch('wce.own_connection_policy.resolve', return_value=binding) as resolve,
+                  patch('wce.own_connection_token.TokenCache',return_value=reader.tokens),
+                  patch('wce.wechat_analytics.Analytics',return_value=reader),
+                  patch('wce.own_connection_tools.ensure_started',side_effect=AssertionError('PUBLICATION_BROKER'))):
+                request = {'connection_id':account,'days':7}
+                value,effect = run(analytics.TOOL,binding_revision=binding.fingerprint,**request)
+                self.assertEqual((value['binding_revision'],effect),(binding.fingerprint,'POSSIBLE'))
+                resolve.assert_called_with(account,registry,active=False,readonly=True)
+                count = len(reader.sender.requests)
+                self.assertGreater(count, 0)
+                run(analytics.TOOL,**request)
+                self.assertEqual(len(reader.sender.requests),count)
+                self.assertEqual(reader.tokens.reads,1)
+                reader.days = {key:(0,*value[1:]) for key,value in reader.days.items()}
+                self.assertEqual(run(analytics.TOOL,**request)[1],'POSSIBLE')
+                self.assertEqual(len(reader.sender.requests),2*count)
+                self.assertEqual(run(analytics.TOOL,refresh=True,**request)[1],'POSSIBLE')
+                self.assertEqual(len(reader.sender.requests),3*count)
+                self.assertEqual(reader.tokens.reads,3)
+
+            director = 'video.director.read'
+            with (patch('wce.video_director_media.status', return_value={'state':'NOT_CONFIGURED'}),
+                  patch('wce.video_director_media.configured_connection', return_value='NOT_CONFIGURED'),
+                  patch.object(jobs, 'tokenhex_credential', return_value=None) as connection,
+                  patch.object(jobs.tokenhex, '_json', return_value={'object':'list','data':[{'id':MODEL}]}) as get):
+                self.assertEqual(run(director,action='projects')[1],'NONE')
+                self.assertEqual(run(director,action='models')[1],'NONE')
+                connection.assert_not_called()
+                value, effect = run(director,action='models',refresh_tokenhex=True)
+                self.assertEqual((value['tokenhex_catalog']['state'],effect),('NOT_CONFIGURED','NONE'))
+                get.assert_not_called()
+                connection.return_value = (TOKENHEX_ORIGIN,'fixture-connection',tokenhex_key)
+                self.assertEqual(run(director,action='models',refresh_tokenhex=False)[1],'NONE')
+                get.assert_not_called()
+                value, effect = run(director,action='models',refresh_tokenhex=True)
+                self.assertEqual((value['tokenhex_catalog']['state'],effect),('MODELS_VISIBLE','POSSIBLE'))
+                get.assert_called_once_with(TOKENHEX_ORIGIN+'/v1/models',tokenhex_key)
+
+    def test_bound_reader_keeps_caches_by_revision_and_rejects_late_revoked_read(self):
+        analytics_type = analytics.Analytics
+        current = {'a':'1'*64, 'b':'2'*64}
+        established = {}
+        delegates = {}
+
+        def resolve(cid, registry, *, active, readonly):
+            self.assertEqual((active,readonly),(False,True))
+            revision = current[cid]
+            def check(*, readonly):
+                self.assertTrue(readonly)
+                if current[cid] is None:
+                    raise WCEError('CONNECTION_DISCONNECTED')
+                if current[cid] != revision:
+                    raise WCEError('CONNECTION_POLICY_CHANGED')
+            file = Path('/isolated')/cid
+            policy = SimpleNamespace(root=file, path=file, data={'connection_id':cid},
+                fingerprint=revision, pin=(0,0),root_pin=(0,1),image_pin=(0,2),database_pin=(0,3),check=check)
+            established[cid] = policy
+            return policy
+
+        def tokens(policy):
+            return SimpleNamespace(policy=policy)
+
+        def analytics_for(token_cache):
+            cid = token_cache.policy.data['connection_id']
+            stamp = established[cid].fingerprint
+            clock = lambda: datetime(2026,11,19,9,0,tzinfo=analytics.BEIJING)
+            reader = analytics_type(Tokens(), Sender(int(stamp[0])*100), clock)
+            delegates[stamp] = reader
+            return reader
+
+        router = ConnectionRouter(registry=Path('/isolated/connections.json'))
+        def read(cid, revision, *, refresh=False):
+            return router.call(analytics.TOOL,{'connection_id':cid,'binding_revision':revision,'days':7,'refresh':refresh})
+
+        with (patch('wce.own_connection_policy.resolve', side_effect=resolve),
+              patch('wce.own_connection_tools.ensure_started',side_effect=AssertionError('PUBLICATION_BROKER')),
+              patch('wce.own_connection_token.TokenCache',side_effect=tokens),
+              patch('wce.wechat_analytics.Analytics', side_effect=analytics_for)):
+            a,b=current['a'],current['b']
+            first=read('a',a); second=read('b',b)
+            self.assertEqual((first['timeline'][-1]['read_user'],second['timeline'][-1]['read_user']),(100,200))
+            count=len(delegates[a].sender.requests)
+            self.assertEqual(read('a',a),first)
+            self.assertEqual(len(delegates[a].sender.requests),count)
+            current['a']='3'*64
+            with self.assertRaisesRegex(WCEError,'CONNECTION_POLICY_CHANGED'):
+                read('a',a)
+            new = read('a',current['a'])
+            self.assertEqual((new['binding_revision'],new['timeline'][-1]['read_user']),(current['a'],300))
+            sender=delegates[current['a']].sender
+            original=sender.send
+            def revoked_reply(request,timeout):
+                result=original(request,timeout)
+                current['a']=None
+                return result
+            sender.send=revoked_reply
+            with self.assertRaisesRegex(WCEError,'CONNECTION_DISCONNECTED'):
+                read('a',new['binding_revision'],refresh=True)
+            self.assertEqual(read('b',b),second)
 
     def test_summary_7_to_30_refresh_and_account_isolation(self):
         first=self.make()

@@ -58,9 +58,11 @@ SCRIPT = r'''
 const OAWechatAnalytics=(invoke,openLink)=>{
  const $=id=>document.getElementById(id), root=$('wechatAnalytics'),out=$('wxStatsResult');
  const f=(value)=>Number.isFinite(value)?new Intl.NumberFormat().format(value):'—';
- const states={PERMISSION:'接口权限不足',DELAYED:'微信数据尚未就绪',UNAVAILABLE:'暂时无法读取',EMPTY:'暂无统计记录'};
+ const states={PERMISSION:'接口权限不足',DELAYED:'微信数据尚未就绪',TIMEOUT:'微信接口响应超时',UNAVAILABLE:'暂时无法读取',EMPTY:'暂无统计记录'};
  const accounts=new Map();
- let target='',binding='',days=7,epoch=0,busy=false;
+ let target='',binding='',revision='',days=7,epoch=0,busy=false;
+ const bindingErrors=new Set(['CONNECTION_DISCONNECTED','CONNECTION_NOT_BOUND','CONNECTION_POLICY_CHANGED',
+   'CONNECTION_REGISTRY_CONFLICT','CONNECTION_NOT_COMMITTED','CONNECTION_COMMITTED_IDENTITY_CHANGED']);
  const element=(tag,text)=>{const el=document.createElement(tag);if(text)OAUI.set(el,text);return el;};
  function stat(parent,label,value,note){
    const box=element('div'),caption=element('span',label),text=element('strong');
@@ -165,7 +167,7 @@ const OAWechatAnalytics=(invoke,openLink)=>{
  }
  async function read(refresh=false){
    if(!target)return;
-   const id=target, generation=binding, period=days,ticket=++epoch;
+   const id=target, generation=binding, expected=revision,period=days,ticket=++epoch;
    const current=()=>epoch===ticket&&target===id&&binding===generation&&days===period;
    const key=JSON.stringify([id,generation,period]);
    const saved=accounts.get(key);
@@ -174,14 +176,19 @@ const OAWechatAnalytics=(invoke,openLink)=>{
    busy=true;$('wxStatsRefresh').disabled=true;
    if(!saved)OAUI.set($('wxStatsStatus'),'正在读取本号统计…');
    try{
-     const value=await invoke({connection_id:id,days:period,refresh});
+     const value=await invoke({connection_id:id,days:period,refresh,
+       ...(expected?{binding_revision:expected}:{})});
      if(!current())return;
+     if(expected&&value?.binding_revision!==expected)throw new Error('CONNECTION_POLICY_CHANGED');
      if(value?.connection_id!==id||value?.days!==period||!Array.isArray(value.timeline)||
         !Array.isArray(value.articles)||!value.status)throw new Error('WECHAT_ANALYTICS_UNAVAILABLE');
      accounts.set(key,value);render(value);
-   }catch(_){
+   }catch(error){
      if(current()){
-       if(saved)OAUI.set($('wxStatsStatus'),'刷新失败，保留本号上次的统计。');
+       if(bindingErrors.has(error.message)){
+         for(const period of [7,30])accounts.delete(JSON.stringify([id,generation,period]));
+         reset();OAUI.set($('wxStatsStatus'),'账号绑定已变化，请刷新账号列表。');
+       }else if(saved)OAUI.set($('wxStatsStatus'),'刷新失败，保留本号上次的统计。');
        else OAUI.set($('wxStatsStatus'),'暂时无法读取本号统计。');
      }
    }finally{if(current()){busy=false;$('wxStatsRefresh').disabled=false;}}
@@ -199,7 +206,7 @@ const OAWechatAnalytics=(invoke,openLink)=>{
    root.hidden=!id;
    if(id===target&&identity===binding){if(id)OAUI.raw($('wxStatsAccount'),label);return;}
    const prior=target, previousBinding=binding;
-   target=id;binding=identity;++epoch;busy=false;reset();OAUI.set($('wxStatsStatus'),'');
+   target=id;binding=identity;revision=id?row.binding_revision||'':'';++epoch;busy=false;reset();OAUI.set($('wxStatsStatus'),'');
    if(prior===id&&previousBinding!==identity)accounts.clear();
    OAUI.raw($('wxStatsAccount'),label||'');
    if(id)void read();
