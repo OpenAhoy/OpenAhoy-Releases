@@ -10,6 +10,7 @@ from .prepared_contracts import strict_validate
 from .tools import schema
 from .video_director import Director, canvas_state, lookup, require
 from . import video_director_delivery as delivery
+from . import character_library as characters
 from .video_director_media import (CATALOG, IMAGE_CHUNK, IMAGE_ROLES, compute_request, import_image_chunk, models, preview_image,
                                    preview_result, preview_whitebox, validate_revision)
 from .video_protocol import ATTEMPT, FRAME, FRAME_INDEX, HANDLE, PROJECT, RELAY_URL, RELAY_IMAGES, RELAY_AUDIO, action
@@ -55,7 +56,7 @@ REVISION_OPTIONS = {key: TEXT for key in REVISION_TEXT} | {
     'title': TITLE, 'start_ms': MS, 'end_ms': MS, 'ratio': RATIO,
     'cards': {'type': 'array', 'items': CARD},
     'images': {'type': 'array', 'items': schema({
-        'role': {'type': 'string', 'enum': list(IMAGE_ROLES)}, 'file': FILE})},
+        'role': {'type': 'string', 'enum': list(IMAGE_ROLES)}, 'file': FILE}, {'asset_version': characters.ID})},
     'configuration': CONFIG, 'whitebox': WHITEBOX, 'result': SOURCE,
 }
 
@@ -78,6 +79,8 @@ CANVAS_NODE = {'oneOf': [
 SPECS = {
     READ: {'oneOf': [
         action('projects', {}),
+        action('character_library', {}),
+        action('character_import_preview', PROJECT_ARG | {'source': characters.SOURCE}),
         action('overview', PROJECT_ARG, {'work_id': PROJECT}),
         action('context', TARGET),
         action('deliveries', WORK_ARG),
@@ -86,6 +89,8 @@ SPECS = {
         action('cards', {}, {'card_id': CARD['properties']['id']}),
     ]},
     EDIT: {'oneOf': [
+        action('character_import', PROJECT_ARG | {'source': characters.SOURCE, 'expected_revision': ORDINAL}),
+        action('character_set_current', PROJECT_ARG | characters.SELECTOR, {'expected_current': characters.ID}),
         action('create_work', PROJECT_ARG | WRITE | {'fields': schema(NAME_FIELDS, WORK_OPTIONS)}),
         action('edit_work', WORK_ARG | WRITE | {'expected_version': ORDINAL,
                                               'fields': schema({}, NAME_FIELDS | WORK_OPTIONS)}),
@@ -109,6 +114,8 @@ SPECS = {
         action('adopt', TARGET | WRITE | {'base_revision': PROJECT}, {'expected_adopted': PROJECT}),
     ]},
     MEDIA: {'oneOf': [
+        action('character_thumbnail', PROJECT_ARG | characters.SELECTOR | {'sha256': HANDLE}),
+        action('character_original', PROJECT_ARG | characters.SELECTOR | {'sha256': HANDLE, 'offset': ORDINAL}),
         action('work_video_chunk', WORK_ARG | {'delivery_id': PROJECT, 'offset': MS}),
         action('canvas_video_chunk', WORK_ARG | {'delivery_id': PROJECT, 'sha256': HANDLE, 'offset': MS}),
         action('canvas_video_frames', WORK_ARG | {'delivery_id': PROJECT, 'sha256': HANDLE, 'start': FRAME_INDEX}),
@@ -126,8 +133,8 @@ SPECS = {
     ]},
 }
 DESCRIPTIONS = {
-    READ: 'Read project storyboards, one exact shot revision, shared model/channel options, original-work delivery status, local preflight, or built-in video-director cards. Refresh Token Hex only when explicitly requested. Preflight only validates local input and encoding; no generation.',
-    EDIT: 'Create or revise a storyboard in a registered local project. Manage canvas layout, exact shot generation bindings and work-level local MP4 delivery. Adopt_video selects an exact verified take for one shot without changing its storyboard revision. Read deliveries for candidate IDs and the current adoption. Poll_delivery may query the original provider and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Use project-relative files with project_id and SHA-256.',
+    READ: 'Read project storyboards, one exact shot revision, shared model/channel options, original-work delivery status, local preflight, built-in video-director cards, or registered character reference versions. Refresh Token Hex only when explicitly requested. Preflight only validates local input and encoding; no generation.',
+    EDIT: 'Create or revise a storyboard in a registered local project. Manage canvas layout, exact shot generation bindings and work-level local MP4 delivery. Character_import records a verified project-local JSON index. Character_set_current changes one role pointer using the observed version. Adopt_video selects an exact verified take for one shot without changing its storyboard revision. Read deliveries for candidate IDs and the current adoption. Poll_delivery may query the original provider and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Use project-relative files with project_id and SHA-256.',
     MEDIA: 'App-only local image import and verified storyboard image, whitebox or completed clip previews.',
 }
 
@@ -142,6 +149,7 @@ class DirectorRouter:
         self.inner = inner
         self.jobs = inner.video_jobs
         self.director = Director(self.jobs.projects)
+        self.characters = characters.CharacterLibrary(self.director)
 
     def __getattr__(self, name):
         return getattr(self.inner, name)
@@ -170,6 +178,14 @@ class DirectorRouter:
             return self.inner.call(name, args)
         strict_validate(args, SPECS[name])
         command = args['action']
+        if command == 'character_library':
+            return self.characters.list()
+        if command == 'character_import_preview':
+            return self.characters.preview(args['project_id'], args['source'])
+        if command in ('character_import', 'character_set_current'):
+            return self.characters.edit(args)
+        if command in ('character_thumbnail', 'character_original'):
+            return self.characters.media(args)
         if name == EDIT and command != 'poll_delivery':
             return self.director.edit(args, partial(validate_revision, self.jobs), self.verify_canvas_node, self.jobs)
         if command == 'projects':

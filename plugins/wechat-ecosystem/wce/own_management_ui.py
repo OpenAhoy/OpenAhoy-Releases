@@ -76,7 +76,9 @@ def platform_sidebar(logo, navigation, *, localized=False):
         )
     return '<aside class="oa-sidebar"><div class="oa-brand">'+brand+'''</div>
 <div id="softwareUpdateSlot"></div>'''+('<button id="wechatCompactUpdates" type="button" aria-controls="softwareUpdateSlot" aria-expanded="false" hidden>版本与帮助</button>' if localized else '')+'''
-<div>'''+('<nav class="oa-nav"><button id="openMediaStudio" type="button" aria-label="Jiusera" aria-controls="mediaStudio">'+icon('video')+'<span>Jiusera</span></button></nav>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
+<div>'''+('<nav class="oa-nav"><button id="openMediaStudio" type="button" aria-label="Jiusera" aria-controls="mediaStudio">' +icon('video')+'<span>Jiusera</span></button>'
+    '<button id="openCharacterLibrary" type="button" aria-label="形象资产库" aria-controls="characterLibrary">'
+    +icon('image')+'<span>形象资产库</span></button></nav>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
 
 
 def minimax_mark():
@@ -111,6 +113,7 @@ def native_page_body(logo, platform_settings):
     from .own_inline_binding_ui import HTML as binding_html
     from .media_monitor_ui import HTML as monitor_html
     from .video_director_ui import HTML as director_html
+    from .character_library_ui import HTML as characters_html
     from .openai_gif_ui import SETTINGS_HTML as gif_settings
     from .audio_workspace_ui import HTML as audio_html
     from .own_branding import icons, video_model_mark
@@ -213,7 +216,7 @@ def native_page_body(logo, platform_settings):
 </dialog>
 <footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div><section id="mediaStudio" aria-label="Jiusera" hidden>
 '''+director_html+'''<dialog id="directorMediaDialog" aria-label="媒体资产"><header class="mm-toolbar">
-<button type="button" id="directorMediaClose">回到画布</button></header>'''+monitor_html+'''</dialog><div id="monitorComponents" hidden>'''+credential+gif_settings+audio_html+'''</div></section>'''+binding_html+'''</main></div>'''
+<button type="button" id="directorMediaClose">回到画布</button></header>'''+monitor_html+'''</dialog><div id="monitorComponents" hidden>'''+credential+gif_settings+audio_html+'''</div></section>'''+characters_html+binding_html+'''</main></div>'''
 
 
 HOME_STYLE = '''

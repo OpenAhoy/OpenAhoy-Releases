@@ -32,7 +32,7 @@ PLAYBACK_CHUNK = 384 * 1024
 PROBE = Path(__file__).resolve().parents[1] / 'native' / 'openahoy-video-inspect'
 PACKAGE = PROBE.parents[1]
 PROMO_DIR = (PACKAGE / 'integrations/codex' if (PACKAGE / 'integrations/codex').is_dir() else PACKAGE) / 'assets/home-video'
-PROMO_SHA = '4284baabff6a818d6721c249d80bb7bd938d23d71161929e72a0ec311d44bd90'
+PROMO_SHA = '022b15e497e4a460be937f377b9a469160b9482c01b600a992279eab01e2a1c9'
 PROJECT_VIDEO_DIR = ('assets', 'openahoy', 'videos')
 RECEIPT_MAX = 1024 * 1024
 

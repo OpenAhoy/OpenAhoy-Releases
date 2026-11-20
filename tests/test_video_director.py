@@ -69,8 +69,10 @@ class DirectorTests(unittest.TestCase):
         return self.desk.call(READ, {'action': action, **(args or {})})
 
     def edit(self, action, args, operation_id=None):
-        return self.desk.call(EDIT, {'project_id':self.p,'action':action,
-                                    'operation_id':operation_id or secrets.token_hex(16),**args})
+        params = {'project_id': self.p, 'action': action, **args}
+        if not action.startswith('character_'):
+            params['operation_id'] = operation_id or secrets.token_hex(16)
+        return self.desk.call(EDIT, params)
 
     def shot(self, scene, title):
         row = self.edit('create_shot', self.base|{'scene_id':scene,'title':title})
@@ -316,6 +318,92 @@ class DirectorTests(unittest.TestCase):
         self.assertTrue(self.desk.call(READ, query)['cards'][0]['adopted'])
         with self.assertRaisesRegex(WCEError, 'DIRECTOR_STALE_REVISION'):
             self.edit('adopt_video', pick)
+
+    def character_entry(self, version, file, status='candidate', use='full_body'):
+        return {'id': version, 'character': {'id': 'aria', 'name': '阿岚', 'series': '港口篇', 'aliases': ['Aria']},
+                'use': use, 'initial_status': status, 'label': version, 'description': '三视图',
+                'source': '隔离原图', 'path': file['path'], 'sha256': file['sha256']}
+
+    def character_manifest(self, *entries):
+        path = self.project / 'characters.json'
+        raw = json.dumps({'schema': 1, 'assets': entries}, ensure_ascii=False).encode()
+        path.write_bytes(raw)
+        return {'path': path.name, 'sha256': sha256(raw).hexdigest()}
+
+    def test_character_library_locks_old_reference_across_current_updates_and_reopen(self):
+        old = self.character_entry('aria-v1', self.image1, 'current')
+        new = self.character_entry('aria-v2', self.image2)
+        face = self.character_entry('aria-face-v1', self.image2, 'current', 'face')
+        manifest = self.character_manifest(old, new, face)
+        args = {'project_id': self.p, 'source': manifest}
+        plan = self.read('character_import_preview', args)
+        self.assertEqual([row['availability'] for row in plan['assets']], ['available'] * 3)
+        self.assertEqual(self.edit('character_import', args | {'expected_revision': plan['revision']})['added'], 3)
+        reference = {'role': 'reference', 'file': self.image1, 'asset_version': old['id']}
+        locked = self.revised(self.a, {'images': [reference]})
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_STALE_REVISION'):
+            self.revised(self.a, {'images': [reference]})
+        self.edit('character_set_current', {'version_id': new['id'], 'expected_current': old['id']})
+        self.assertEqual(self.edit('character_import', args | {'expected_revision': 0})['state'], 'UNCHANGED')
+        self.desk = DirectorRouter(self.inner)
+        assets = next(project['assets'] for project in self.read('character_library')['projects'] if project['id'] == self.p)
+        self.assertEqual({row['id']: row['status'] for row in assets},
+                         {old['id']: 'historical', new['id']: 'current', face['id']: 'current'})
+        self.assertEqual(self.read('context', locked)['revision']['images'], [reference])
+        self.assertEqual(self.read('context', self.a)['revision']['images'], [])
+        for file in [self.image2, self.image1 | {'project_id': self.q}]:
+            with self.assertRaisesRegex(WCEError, 'DIRECTOR_(CHARACTER_REFERENCE_MISMATCH|ASSET_WRONG_PROJECT)'):
+                self.revised(self.b, {'images': [reference | {'file': file}]})
+        result = self.desk.call(MEDIA, {'action': 'character_original', 'project_id': self.p,
+                                      'version_id': old['id'], 'sha256': old['sha256'], 'offset': 0})
+        self.assertEqual(b64decode(result['data']), (self.project / old['path']).read_bytes())
+        self.assertFalse((self.project / '.openahoy-director' / 'images').exists())
+
+    def test_character_library_import_conflicts_and_unavailable_original(self):
+        missing = self.character_entry('missing', self.image2 | {'path': 'missing.png'})
+        old = self.character_entry('aria-v1', self.image1, 'current')
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_ASSET_OUTSIDE_PROJECT'):
+            self.read('character_import_preview', {'project_id': self.p,
+                'source': self.character_manifest(old | {'path': '../other/image.png'})})
+        manifest = self.character_manifest(old, missing)
+        args = {'project_id': self.p, 'source': manifest}
+        self.assertEqual(self.read('character_import_preview', args)['assets'][1]['availability'], 'missing')
+        self.edit('character_import', args | {'expected_revision': 0})
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_CHARACTER_MANIFEST_CHANGED'):
+            conflicting = self.character_manifest(old | {'label': '新的文字'})
+            self.read('character_import_preview', args)
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_CHARACTER_VERSION_CONFLICT'):
+            self.edit('character_import', {'source': conflicting, 'expected_revision': 1})
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_CHARACTER_ORIGINAL_UNAVAILABLE'):
+            self.edit('character_set_current', {'version_id': missing['id'], 'expected_current': old['id']})
+        media = {'action': 'character_thumbnail', 'project_id': self.p,
+                 'version_id': old['id'], 'sha256': old['sha256']}
+        self.desk.call(MEDIA, media)
+        make_png(self.project / old['path'], (3, 60, 168))
+        with self.assertRaisesRegex(WCEError, 'VIDEO_FRAME_CHANGED'):
+            self.desk.call(MEDIA, media)
+        (self.project / old['path']).unlink()
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_CHARACTER_ORIGINAL_MISSING'):
+            self.desk.call(MEDIA, media)
+        self.assertTrue(any(row['id'] == old['id'] for project in self.read('character_library')['projects']
+                            for row in project['assets']))
+        with self.assertRaisesRegex(WCEError, 'DIRECTOR_CHARACTER_VERSION_NOT_FOUND'):
+            self.desk.call(MEDIA, media | {'project_id': self.q})
+
+    def test_character_current_competing_writers_cannot_replace_each_other(self):
+        a = self.character_entry('aria-v1', self.image1, 'current')
+        b = self.character_entry('aria-v2', self.image2)
+        c = self.character_entry('aria-v3', self.image2)
+        self.edit('character_import', {'source': self.character_manifest(a, b, c), 'expected_revision': 0})
+
+        def select(row):
+            try:
+                return self.edit('character_set_current', {'version_id': row['id'], 'expected_current': a['id']})['state']
+            except WCEError as failure:
+                return str(failure)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            self.assertCountEqual(pool.map(select, (b, c)), ['SAVED', 'DIRECTOR_CHARACTER_CURRENT_CONFLICT'])
 
     def test_provider_preflight_does_not_use_credentials_or_submit(self):
         config = {'provider':'ark','model':MODEL,'mode':'frames','duration':5,'resolution':'720p','ratio':'16:9'}

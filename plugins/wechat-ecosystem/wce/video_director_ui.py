@@ -504,20 +504,26 @@ function OADirector(tool, send, canSend, navigation){
    }
    return {path,sha,read,prepare,filename:()=>file.files?.[0]?.name};
  }
+ let imageDraft=null;
  function renderImages(rev,fresh){
-   const list=node('div','dd-asset-list'),images=structuredClone(rev.images);
+   const initial=scopeKey();
+   const list=node('div','dd-asset-list'),images=fresh&&imageDraft?.scope===initial?imageDraft.images:structuredClone(rev.images);
+   const keep=()=>{imageDraft={scope:initial,images};};
    function draw(){
      list.replaceChildren();
      if(!images.length)list.append(label('p','这个修订还没有图片。'));
      images.forEach((row,index)=>{
        const part=node('div','dd-asset-row'),left=node('div'),right=node('div','dd-actions');
        left.append(raw('strong',row.file.path),label('p',roles[row.role]));
+       if(row.asset_version){
+         const version=node('p');OAUI.set(version,'形象版本：{0}',row.asset_version);left.append(version);
+       }
        if(fresh){
          const choice=select(left,'图片用途',Object.entries(roles),row.role);
-         choice.onchange=()=>{row.role=choice.value;};
-         if(index>0)right.append(button('上移',()=>{[images[index-1],images[index]]=[images[index],images[index-1]];draw();}));
-         if(index+1<images.length)right.append(button('下移',()=>{[images[index+1],images[index]]=[images[index],images[index+1]];draw();}));
-         right.append(button('从此版移除',()=>{images.splice(index,1);draw();}));
+         choice.onchange=()=>{row.role=choice.value;keep();};
+         if(index>0)right.append(button('上移',()=>{[images[index-1],images[index]]=[images[index],images[index-1]];keep();draw();}));
+         if(index+1<images.length)right.append(button('下移',()=>{[images[index+1],images[index]]=[images[index],images[index+1]];keep();draw();}));
+         right.append(button('从此版移除',()=>{images.splice(index,1);keep();draw();}));
        }
        const stored=rev.images.findIndex(item=>item.file.path===row.file.path&&item.file.sha256===row.file.sha256);
        if(stored>=0)right.prepend(button('预览',()=>renderImage(stored)));
@@ -535,12 +541,22 @@ function OADirector(tool, send, canSend, navigation){
        const spec=await file.prepare();
        if(scopeKey()!==initial)return;
        if(!spec.path||!(/^[a-f0-9]{64}$/).test(spec.sha256)){say('请填写项目相对路径和完整 SHA-256。',true);return;}
-       images.push({role:role.value,file:spec});file.path.value='';file.sha.value='';draw();add.open=false;
+       images.push({role:role.value,file:spec});keep();file.path.value='';file.sha.value='';draw();add.open=false;
      }catch(problem){error(problem);}
      finally{addButton.disabled=false;}
    });
    form.append(addButton);
-   add.append(form);inspector.append(add,button('保存图片修订',()=>revise({images}),'primary'));
+   const pick=button('从形象库选择',()=>navigation.chooseCharacter(pid(),asset=>{
+     if(scopeKey()!==initial||tab!=='images')throw Error('DIRECTOR_STALE_REVISION');
+     const file=structuredClone(asset.file);
+     if(!images.some(row=>row.asset_version===asset.id&&row.file.sha256===file.sha256)){
+       images.push({role:'reference',file,asset_version:asset.id});keep();draw();
+     }
+   },pick));
+   add.append(form);inspector.append(pick,add,button('保存图片修订',async()=>{
+     const saved=await revise({images});
+     if(saved&&imageDraft?.scope===initial)imageDraft=null;
+   },'primary'));
  }
  function renderVersions(rev){
    const shot=currentShot(),list=node('div','dd-version-list');
@@ -1052,7 +1068,7 @@ function OADirector(tool, send, canSend, navigation){
    }catch(problem){if(mode)error(problem);}
  }
  function close(){
-   canvas.suspend();
+   navigation.closeCharacterPicker();imageDraft=null;canvas.suspend();
    clearInterval(workspaceTimer);workspaceTimer=null;polled.clear();engineDraft=null;engineDirty=false;
    mode='';root.hidden=true;reading++;visual++;clearPreview();stopWatch();say('');
    if($('directorCanvasPreview').open)$('directorCanvasPreview').close();

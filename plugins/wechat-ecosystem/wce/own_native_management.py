@@ -48,7 +48,7 @@ SCRIPT = r'''
    ['x','管理 X 账号、创作规则和开发者应用。'],
    ['xiaohongshu','绑定小红书账号并管理笔记发布。']
  ]);
- function route(value){return value==='home'||value==='media'||value==='video'||value==='gif'||value==='audio'||platformNames.has(value)?value:'';}
+ function route(value){return value==='home'||value==='characters'||value==='media'||value==='video'||value==='gif'||value==='audio'||platformNames.has(value)?value:'';}
  function routeFromURL(){
    const query=new URLSearchParams(location.search),fragment=new URLSearchParams(location.hash.slice(1));
    return route(query.get('view')||query.get('platform')||fragment.get('view')||fragment.get('platform'));
@@ -128,7 +128,7 @@ SCRIPT = r'''
   }
  })]));
  function applyHostTheme(context){if(context?.theme==='light'||context?.theme==='dark')document.body.dataset.colorScheme=context.theme;}
- function dispose(){homeIntro?.close();closeStudioMedia();director.close();video.dispose();binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
+ function dispose(){characters.close();homeIntro?.close();closeStudioMedia();director.close();video.dispose();binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
    for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('VIEW_CLOSED'));}pending.clear();
    for(const el of document.querySelectorAll('button,input,select,textarea'))el.disabled=true;
  }
@@ -201,7 +201,7 @@ SCRIPT = r'''
    return supported;
  }
  async function selectPlatform(id,{focus,user}){
-   showMedia('');const intent=++platformEpoch;selectEpoch++;selectionIntent++;navigationEpoch++;
+   characters.close();showMedia('');const intent=++platformEpoch;selectEpoch++;selectionIntent++;navigationEpoch++;
    closeXTools();activePlatform=id;
    accountsExpanded=user||!compactAccounts.matches;
    paintAccountHeader();
@@ -402,7 +402,7 @@ SCRIPT = r'''
  const compactUpdates=matchMedia('(max-width:799px), (max-height:740px)');
  const updateToggle=$('wechatCompactUpdates'),updateSlot=$('softwareUpdateSlot');
  function syncPlatformUpdates(){
-   const compact=view==='platform'&&compactUpdates.matches&&typeof updateSlot.showPopover==='function';
+   const compact=(view==='platform'||view==='characters')&&compactUpdates.matches&&typeof updateSlot.showPopover==='function';
    updateToggle.hidden=!compact;
    const sidebar=updateSlot.parentElement,support=sidebar.querySelector('.oa-support-links');
    if(compact&&!updateSlot.hasAttribute('popover')){
@@ -885,7 +885,14 @@ SCRIPT = r'''
  }
  $('directorMediaClose').onclick=closeStudioMedia;
  assetDialog.addEventListener('close',()=>{if(!assetDialog.open)monitor.close();});
+ async function openProjectSettings(){
+   await openView(activePlatform||'wechat_official_account',{focus:true});
+   setWechatPage('settings');
+   $('contextSettingsTab').click();
+ }
+ const characters=OACharacterLibrary(mediaTool,openProjectSettings);
  const director=OADirector(mediaTool,sendChatRequest,()=>!!hostCapabilities.message?.text,{
+    chooseCharacter:characters.choose,closeCharacterPicker:characters.closePicker,
     library:()=>openStudioMedia(),settings:()=>openStudioMedia({settings:true}),
     asset:asset=>openStudioMedia({asset}),closeLibrary:closeStudioMedia,
     source:url=>{
@@ -894,11 +901,7 @@ SCRIPT = r'''
         throw Error('DIRECTOR_INVALID_SOURCE');
       return openXLink(target.href);
     },
-    project:async()=>{
-      await openView(activePlatform||'wechat_official_account',{focus:true});
-      setWechatPage('settings');
-      $('contextSettingsTab').click();
-    },
+    project:openProjectSettings,
  });
  const intro=$('homeIntroPlayer'),introToggle=$('homeIntroToggle');
  const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
@@ -940,12 +943,14 @@ SCRIPT = r'''
  }
  function renderView(){
    document.body.classList.toggle('oa-platform-view',view==='platform');
+   document.body.classList.toggle('oa-character-view',view==='characters');
    syncPlatformUpdates();
    renderWechatWorkspace();
    syncIntro();
    $('openAhoyHome').hidden=view!=='home';
    $('nativeWorkspace').hidden=view!=='platform'||!$('inlineBinding').hidden;
    $('openHome').setAttribute('aria-current',view==='home'?'page':'false');
+   $('openCharacterLibrary').setAttribute('aria-current',view==='characters'?'page':'false');
    $('openMediaStudio').setAttribute('aria-current',mediaView?'page':'false');
  }
  async function openView(target,{user=false,focus=false}={}){
@@ -953,17 +958,19 @@ SCRIPT = r'''
    if(closed||!ready||!$('inlineBinding').hidden)return;
    if(activePlatform!==target||view!=='platform')notice('');
    if(user){explicitNavigation=true;rememberView(target);}
-   if(target==='home'||target==='media'||target==='video'||target==='gif'||target==='audio'){
+   if(target==='home'||target==='characters'||target==='media'||target==='video'||target==='gif'||target==='audio'){
      platformEpoch++;selectionIntent++;selectEpoch++;navigationEpoch++;
-     if(target==='home'){closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();}
-     view=target;showMedia(target==='home'?'':target);renderView();renderPlatforms();
-     if(focus)$(target==='home'?'homeTitle':'directorTitle').focus();
+     if(target==='home'||target==='characters'){closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();}
+     view=target;showMedia(target==='home'||target==='characters'?'':target);renderView();renderPlatforms();
+     if(target==='characters'){characters.open();if(focus)characters.focus();}
+     else{characters.close();if(focus)$(target==='home'?'homeTitle':'directorTitle').focus();}
      return;
    }
    if(view==='platform'&&activePlatform===target)return;
    view='platform';
    await selectPlatform(target,{focus,user});
  }
+ $('openCharacterLibrary').onclick=()=>openView('characters',{user:true,focus:true});
  $('openHome').onclick=()=>openView('home',{user:true,focus:true});
  for(const id of ['openMediaStudio','homeMediaStudio'])$(id).onclick=()=>openView('media',{user:true,focus:true});
  $('refresh').addEventListener('click',()=>void refresh());$('showAdd').addEventListener('click',secure);
@@ -1038,6 +1045,7 @@ def resource():
     from .media_monitor_ui import STYLE as monitor_style, SCRIPT as monitor_script
     from .video_director_canvas_ui import STYLE as canvas_style, SCRIPT as canvas_script
     from .video_director_ui import STYLE as director_style, SCRIPT as director_script
+    from .character_library_ui import STYLE as characters_style, SCRIPT as characters_script
     from .video_frame_player import STYLE as frame_style, SCRIPT as frame_script
     from .x_management_ui import HTML as x_html, SCRIPT as x_script
     from .xhs_management_ui import HTML as xhs_html, SCRIPT as xhs_script
@@ -1049,9 +1057,9 @@ def resource():
     html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>OpenAhoy · Platform management</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + canvas_style + interaction_style + wechat_workspace_style + PLATFORM_ACCOUNT_NAV_STYLE + '</style>'
+        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + PLATFORM_ACCOUNT_NAV_STYLE + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
-        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + director_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + SCRIPT + '</script></body></html>')
+        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + director_script + characters_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
         '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://cdn1.suno.ai',
                                                                  'https://cdn2.suno.ai', 'https://suno-data-uploads.s3.amazonaws.com', 'https://acemusic.ai'], 'frameDomains': []}},

@@ -204,12 +204,15 @@ def verified_whitebox(path, pin, expected):
 
 def validate_revision(jobs, values, patch, root, scratch, project_id):
     if 'images' in patch:
+        from .character_library import verify_reference
+
         roles = [row['role'] for row in values['images']]
         require(roles.count('first') <= 1 and roles.count('last') <= 1, 'DIRECTOR_DUPLICATE_FRAME_ROLE')
         seen = set()
         for row in values['images']:
             file = row['file']
             require(file['project_id'] == project_id, 'DIRECTOR_ASSET_WRONG_PROJECT')
+            verify_reference(scratch, project_id, row)
             key = (file['path'], file['sha256'])
             if key not in seen:
                 source_image(root, file, scratch)

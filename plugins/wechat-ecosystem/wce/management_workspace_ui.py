@@ -601,22 +601,22 @@ PLATFORM_ACCOUNT_NAV_STYLE = """
 }
 .oa-management.oa-native.oa-platform-view #accountTools{margin:0;align-self:center}
 .oa-native #accountTools .oa-more-settings > summary{min-height:31px;padding:4px 8px;white-space:nowrap}
-.oa-management.oa-native.oa-platform-view .oa-workspace-popover:popover-open{
+.oa-management.oa-native:is(.oa-platform-view,.oa-character-view) .oa-workspace-popover:popover-open{
  position:fixed;inset:auto;margin:0;overflow:auto;overscroll-behavior:contain;
  color:var(--ink);background:var(--surface);white-space:normal;
  box-shadow:var(--oa-popover-shadow);border:1px solid var(--line);border-radius:9px
 }
-.oa-native.oa-platform-view .oa-workspace-popover button{white-space:normal;overflow-wrap:anywhere}
+.oa-native:is(.oa-platform-view,.oa-character-view) .oa-workspace-popover button{white-space:normal;overflow-wrap:anywhere}
 .oa-native.oa-platform-view .oa-workspace-popover .oa-account-menu{position:relative}
 .oa-native.oa-platform-view .oa-account-menu > div.oa-workspace-popover button{
  width:100%;max-width:none;padding:6px 8px;justify-content:flex-start
 }
-.oa-native.oa-platform-view #softwareUpdateSlot[popover]:not(:popover-open){display:none}
-.oa-native.oa-platform-view #softwareUpdateSlot:popover-open .oa-software-update{margin:0}
-.oa-native.oa-platform-view #softwareUpdateSlot:popover-open .oa-support-links{
+.oa-native:is(.oa-platform-view,.oa-character-view) #softwareUpdateSlot[popover]:not(:popover-open){display:none}
+.oa-native:is(.oa-platform-view,.oa-character-view) #softwareUpdateSlot:popover-open .oa-software-update{margin:0}
+.oa-native:is(.oa-platform-view,.oa-character-view) #softwareUpdateSlot:popover-open .oa-support-links{
  grid-template-columns:repeat(2,minmax(0,1fr));gap:3px;margin:4px 0 0;padding:3px
 }
-.oa-native.oa-platform-view #wechatCompactUpdates{
+.oa-native:is(.oa-platform-view,.oa-character-view) #wechatCompactUpdates{
  min-height:28px;padding:4px 7px;white-space:nowrap;font-size:12px;align-self:start
 }
 @media(min-width:561px) and (max-width:799px),(min-width:561px) and (max-height:599px){
