@@ -19,7 +19,10 @@ RESOLUTIONS = ('480p横', '480p竖', '768p横', '768p竖', '960p横', '960p竖')
 WORKFLOW = '/api/v1/comfyui/comfyui_workflow/'
 OFFICIAL_AUTODL_HOST = 'autodl.art'
 OFFICIAL_AUTODL_MEDIA_HOST = 'cg-comfyui-prod.tos-cn-beijing.volces.com'
-OFFICIAL_AUTODL_MEDIA_ALIAS = 'tos7-public.cn-beijing.tos.volces.com'
+OFFICIAL_AUTODL_MEDIA_ALIASES = frozenset({
+    'tos7-public.cn-beijing.tos.volces.com',
+    'tos27-cp-public.cn-beijing.tos.volces.com',
+})
 FAKE_IP_RANGE = ipaddress.IPv4Network('198.18.0.0/15')
 DNS_JSON_LIMIT = 16384
 SUBMIT_RESPONSE_WINDOW = 50
@@ -249,10 +252,11 @@ def autodl_public_addresses(host):
     if host == OFFICIAL_AUTODL_MEDIA_HOST:
         aliases = [record for record in answers if dns_record(record, host, 5)]
         if aliases:
-            if len(aliases) != 1 or aliases[0].get('data') not in (
-                    OFFICIAL_AUTODL_MEDIA_ALIAS, OFFICIAL_AUTODL_MEDIA_ALIAS + '.'):
+            target = aliases[0].get('data')
+            target = target.removesuffix('.') if type(target) is str else None
+            if len(aliases) != 1 or target not in OFFICIAL_AUTODL_MEDIA_ALIASES:
                 raise ValueError('Unexpected AutoDL media alias')
-            owner = OFFICIAL_AUTODL_MEDIA_ALIAS
+            owner = target
             answers = [record for record in answers if record is not aliases[0]]
     if not answers or not all(dns_record(record, owner, 1) and type(record.get('data')) is str for record in answers):
         raise ValueError('Unexpected DNS answer')

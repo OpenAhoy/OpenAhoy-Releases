@@ -4,12 +4,14 @@ import errno
 import io
 import json
 from pathlib import Path
+import socket
+import ssl
 import sys
 from tempfile import TemporaryDirectory
 from typing import NamedTuple
 import unittest
-from unittest.mock import patch
-from urllib.error import HTTPError
+from unittest.mock import Mock, patch
+from urllib.error import HTTPError, URLError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'plugins/wechat-ecosystem'))
 from wce.contracts import Secret
@@ -17,7 +19,12 @@ from wce.own_connection_policy import atomic_write
 from wce.support_protocol import PREVIEW, SupportRouter
 from wce.video_jobs import Jobs, PROMO_DIR, media_facts
 from wce.video_protocol import STATUS, WORKSPACE, VideoRouter
-from wce.video_relay import RELAY_MODEL, WORKFLOW, Relay
+from wce.video_relay import (
+    OFFICIAL_AUTODL_HOST, OFFICIAL_AUTODL_MEDIA_HOST, PUBLIC_DNS_REQUIRED,
+    RELAY_MODEL, WORKFLOW, AutoDLMediaHTTPSConnection, PublicDestinationError, Relay,
+    autodl_public_addresses, public_destination,
+)
+from wce.video_seedance import MAX_RESULT
 
 PROJECT = '1' * 32
 ATTEMPT = 'relay-original-attempt'
@@ -27,6 +34,93 @@ QUERY = ORIGIN + WORKFLOW + 'result/' + TASK
 OLD = 'https://cdn.example.com/old.mp4?sig=private-test-url'
 NEW = 'https://cdn.example.com/new.mp4?sig=private-test-url'
 KEY = 'private-test-authorization'
+LEGACY_ALIAS = 'tos7-public.cn-beijing.tos.volces.com'
+OBSERVED_ALIAS = 'tos27-cp-public.cn-beijing.tos.volces.com'
+PUBLIC_IP = '116.136.45.114'
+FAKE_IP = '198.18.0.10'
+
+
+def dns_payload(alias=None, *, host=OFFICIAL_AUTODL_MEDIA_HOST, addresses=(PUBLIC_IP,)):
+    answers = [{'name': host + '.', 'type': 5, 'data': alias}] if alias is not None else []
+    owner = alias.removesuffix('.') if alias is not None else host
+    answers.extend({'name': owner + '.', 'type': 1, 'data': ip} for ip in addresses)
+    return {'Status': 0, 'TC': False, 'Question': [{'name': host + '.', 'type': 1}], 'Answer': answers}
+
+
+def dns_reply(payload):
+    response = Mock()
+    response.status = 200
+    response.getheader.return_value = 'application/dns-json; charset=utf-8'
+    response.read.return_value = json.dumps(payload).encode()
+    return response
+
+
+def socket_rows(*addresses):
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (ip, 443)) for ip in addresses]
+
+
+class RelayMediaDNS(unittest.TestCase):
+    def setUp(self):
+        resolver = patch('wce.video_relay.HTTPSConnection')
+        self.resolver = resolver.start()
+        self.addCleanup(resolver.stop)
+
+    def test_both_observed_cnames_and_direct_a_answers_resolve(self):
+        for alias in (LEGACY_ALIAS, LEGACY_ALIAS + '.', OBSERVED_ALIAS, OBSERVED_ALIAS + '.', None):
+            with self.subTest(alias=alias):
+                self.resolver.return_value.getresponse.return_value = dns_reply(dns_payload(alias))
+                self.assertEqual(list(map(str, autodl_public_addresses(OFFICIAL_AUTODL_MEDIA_HOST))),
+                                 [PUBLIC_IP])
+        self.resolver.assert_called_with('1.1.1.1', timeout=5)
+        self.resolver.return_value.request.assert_called_with(
+            'GET', f'/dns-query?name={OFFICIAL_AUTODL_MEDIA_HOST}&type=A',
+            headers={'Accept': 'application/dns-json'})
+
+    def test_unexpected_cname_or_wrong_a_owner_are_rejected(self):
+        wrong_owner = dns_payload(OBSERVED_ALIAS)
+        wrong_owner['Answer'][-1]['name'] = LEGACY_ALIAS + '.'
+        multiple = dns_payload(OBSERVED_ALIAS)
+        multiple['Answer'].insert(1, dict(multiple['Answer'][0], data=LEGACY_ALIAS + '.'))
+        invalid_alias = dns_payload(LEGACY_ALIAS)
+        invalid_alias['Answer'][0]['data'] = {'invalid': True}
+        for payload in (dns_payload('unknown.cn-beijing.tos.volces.com'), wrong_owner, multiple, invalid_alias):
+            with self.subTest(answers=payload['Answer']):
+                self.resolver.return_value.getresponse.return_value = dns_reply(payload)
+                with self.assertRaises(ValueError):
+                    autodl_public_addresses(OFFICIAL_AUTODL_MEDIA_HOST)
+
+    def test_fallback_checks_every_address_and_does_not_expand_the_media_host_rule(self):
+        rows = Mock(return_value=socket_rows(FAKE_IP))
+        self.resolver.return_value.getresponse.return_value = dns_reply(
+            dns_payload(OBSERVED_ALIAS, addresses=(PUBLIC_IP, '192.168.1.1')))
+        with self.assertRaises(PublicDestinationError) as error:
+            public_destination(OFFICIAL_AUTODL_MEDIA_HOST, 443, resolve=rows,
+                               fallback_host=OFFICIAL_AUTODL_MEDIA_HOST)
+        self.assertEqual(str(error.exception), 'Relay destination must resolve to a public address')
+        self.resolver.reset_mock()
+        for host, port in (('other.example.com', 443), (OBSERVED_ALIAS, 443),
+                           (OFFICIAL_AUTODL_MEDIA_HOST, 8443)):
+            with self.subTest(host=host, port=port), self.assertRaises(PublicDestinationError):
+                public_destination(host, port, resolve=rows, fallback_host=OFFICIAL_AUTODL_MEDIA_HOST)
+        self.resolver.assert_not_called()
+        self.resolver.return_value.getresponse.return_value = dns_reply(
+            dns_payload(OBSERVED_ALIAS, host=OFFICIAL_AUTODL_HOST))
+        with self.assertRaises(ValueError):
+            autodl_public_addresses(OFFICIAL_AUTODL_HOST)
+
+    def test_public_ip_is_pinned_and_tls_verifies_original_media_hostname(self):
+        self.resolver.return_value.getresponse.return_value = dns_reply(dns_payload(OBSERVED_ALIAS))
+        context = ssl.create_default_context()
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        connection = AutoDLMediaHTTPSConnection(OFFICIAL_AUTODL_MEDIA_HOST, timeout=25, context=context)
+        with patch('wce.video_relay.socket.getaddrinfo', return_value=socket_rows(FAKE_IP)), \
+                patch('wce.video_relay.socket.create_connection') as dial, \
+                patch.object(context, 'wrap_socket', side_effect=ssl.SSLCertVerificationError) as tls:
+            with self.assertRaises(ssl.SSLCertVerificationError):
+                connection.connect()
+        dial.assert_called_once_with((PUBLIC_IP, 443), 25, None)
+        tls.assert_called_once_with(dial.return_value, server_hostname=OFFICIAL_AUTODL_MEDIA_HOST)
 
 
 class Response:
@@ -138,6 +232,50 @@ class RelayResultRecovery(unittest.TestCase):
     def test_healthy_existing_result_is_ready_and_no_second_request_on_repeat(self):
         self.opener.entries = [status_result(OLD), Entry(OLD, Response(self.fixture))]
         self.assert_ready([QUERY, OLD])
+
+    def test_original_task_survives_public_dns_timeout_then_recovers_with_observed_cname(self):
+        media = 'https://' + OFFICIAL_AUTODL_MEDIA_HOST + '/synthetic-result.mp4'
+        self.opener.entries = [status_result(media), Entry(media, Response(self.fixture)),
+                               status_result(media), Entry(media, Response(self.fixture))]
+        open_fixture = self.opener.open
+
+        def open_with_dns(request, *, timeout):
+            response = open_fixture(request, timeout=timeout)
+            if request.host == OFFICIAL_AUTODL_MEDIA_HOST:
+                try:
+                    AutoDLMediaHTTPSConnection.connect_public((request.host, 443), timeout, None)
+                except PublicDestinationError as error:
+                    response.data.close()
+                    raise URLError(error) from None
+            return response
+
+        with patch.object(self.opener, 'open', side_effect=open_with_dns), \
+                patch('wce.video_relay.HTTPSConnection') as resolver, \
+                patch('wce.video_relay.socket.getaddrinfo', return_value=socket_rows(FAKE_IP)), \
+                patch('wce.video_relay.socket.create_connection') as dial:
+            resolver.return_value.request.side_effect = [TimeoutError, None]
+            resolver.return_value.getresponse.return_value = dns_reply(dns_payload(OBSERVED_ALIAS + '.'))
+            result = self.run_status()
+            self.assertEqual(result['state'], 'SAVE_PENDING')
+            self.assertEqual(result['download_error'], PUBLIC_DNS_REQUIRED)
+            self.assertFalse(self.artifact.exists())
+            dial.assert_not_called()
+            self.assertEqual(self.opener.requests, [QUERY, media])
+            row = json.loads(self.receipt.read_text())
+            for field in ('generation_attempt_id', 'provider_task_id', 'relay_connection'):
+                self.assertEqual(row[field], self.original[field])
+            self.assert_ready([QUERY, media, QUERY, media])
+            dial.assert_called_once_with((PUBLIC_IP, 443), 25, None)
+
+    def test_advertised_oversize_stays_pending_without_downloading_or_requerying(self):
+        response = Response(self.fixture, length=MAX_RESULT + 1)
+        response.read1 = Mock(side_effect=AssertionError('Oversize content must not be read'))
+        self.opener.entries = [status_result(OLD), Entry(OLD, response)]
+        result = self.run_status()
+        self.assertEqual((result['state'], result['download_error']), ('SAVE_PENDING', 'VIDEO_RESULT_TOO_LARGE'))
+        self.assertFalse(self.artifact.exists())
+        self.assertEqual(self.opener.requests, [QUERY, OLD])
+        response.read1.assert_not_called()
 
     def test_interrupted_stream_requeries_same_task_and_commits_only_the_complete_file(self):
         self.opener.entries = [status_result(OLD), Entry(OLD, Response(self.fixture[:4096], disconnected=True)),

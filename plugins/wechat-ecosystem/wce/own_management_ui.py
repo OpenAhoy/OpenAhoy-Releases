@@ -1,6 +1,7 @@
 """OpenAhoy's single-category management workspace. No account I/O here."""
 from html import escape
 from .own_branding import header as brand_header
+from .own_branding import jiusera_symbols
 from .platform_branding import label as platform_label
 from .management_workspace_ui import STYLE as WORKSPACE_STYLE
 
@@ -64,10 +65,13 @@ def icon(name):
     return '<svg class="oa-icon" viewBox="0 0 24 24" aria-hidden="true">'+paths[name]+'</svg>'
 
 
+JIUSERA_MARK = '<span class="oa-jiusera-mark" aria-hidden="true"></span>'
+
+
 def jiusera_sidebar():
     return ('<nav id="jiuseraNav" class="oa-nav" aria-label="Jiusera">'
             '<button id="openMediaStudio" type="button" aria-expanded="false" aria-controls="jiuseraEntries">'
-            + icon('video') + '<span>Jiusera</span><span class="oa-jiusera-chevron" aria-hidden="true">›</span></button>'
+            + JIUSERA_MARK + '<span>Jiusera</span><span class="oa-jiusera-chevron" aria-hidden="true">›</span></button>'
             '<div id="jiuseraEntries" hidden>'
             '<button type="button" data-studio-page="monitor" aria-controls="directorMonitor">导演台</button>'
             '<button type="button" data-studio-page="desk" aria-controls="directorBoard">工作画布</button>'
@@ -87,7 +91,7 @@ def platform_sidebar(logo, navigation, *, localized=False):
         )
     return '<aside class="oa-sidebar"><div class="oa-brand">'+brand+'''</div>
 <div id="softwareUpdateSlot"></div>'''+('<button id="wechatCompactUpdates" type="button" aria-controls="softwareUpdateSlot" aria-expanded="false" hidden>版本与帮助</button>' if localized else '')+'''
-<div>'''+(jiusera_sidebar() if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
+<div>'''+(jiusera_sidebar() + '<div class="oa-nav"><button id="openWorkflowGuide" type="button" aria-expanded="false" aria-controls="workflowGuide">指导模式</button></div>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
 
 
 def minimax_mark():
@@ -124,6 +128,7 @@ def native_page_body(logo, platform_settings):
     from .character_library_ui import HTML as characters_html
     from .openai_gif_ui import SETTINGS_HTML as gif_settings
     from .audio_workspace_ui import HTML as audio_html
+    from .workflow_guide_ui import HTML as guide_html
     from .own_branding import icons, video_model_mark
     from .video_jobs import PROMO_DIR
     from base64 import b64encode
@@ -142,7 +147,7 @@ def native_page_body(logo, platform_settings):
 <section class="oa-home-features" aria-labelledby="homeFeaturesTitle">
 <h2 id="homeFeaturesTitle">开始使用</h2>
 <div class="oa-home-grid" id="homeFeatures">
-<button id="homeMediaStudio" type="button" class="oa-home-card" disabled><span class="oa-home-card-title">'''+icon('video')+'''<span>Jiusera</span></span><span class="oa-home-card-description">管理项目动图、视频和音频。</span>'''+icon('arrow')+'''</button>
+<button id="homeMediaStudio" type="button" class="oa-home-card" disabled><span class="oa-home-card-title">'''+JIUSERA_MARK+'''<span>Jiusera</span></span><span class="oa-home-card-description">管理项目动图、视频和音频。</span>'''+icon('arrow')+'''</button>
 </div></section>'''+promo+'''
 <section id="homeRecommendations" aria-labelledby="homeRecommendationsTitle" hidden>
 <h2 id="homeRecommendationsTitle">推荐插件</h2><div class="oa-home-grid"></div>
@@ -188,7 +193,7 @@ def native_page_body(logo, platform_settings):
     from .wechat_analytics_ui import HTML as analytics_html
     return '''<body class="oa-management oa-platform-workspace oa-native"><div class="oa-shell">
 '''+platform_sidebar(logo, '<p class="help">正在读取平台…</p>', localized=True)+'''
-<main class="oa-content">'''+home+'''<div id="nativeWorkspace" hidden><header class="oa-account-header">
+<main class="oa-content">'''+guide_html+home+'''<div id="nativeWorkspace" hidden><header class="oa-account-header">
 <div class="oa-heading"><div id="accountCurrent"><h1 id="pageTitle" data-oa-overflow>选择平台</h1><small id="accountCaption" hidden></small></div></div>
 <div class="actions"><div id="accountTools" class="oa-account-tools"><details class="oa-more-settings"><summary>更多设置</summary><div class="oa-more-popover"><button id="accountRules" disabled>编辑本号配置</button><button id="accountCreate" disabled>快速创建配置</button><button id="accountImport" disabled>加载并保存配置</button><div><button id="accountBackend" disabled>打开公众号后台</button></div><p id="wechatBackendHelp" class="help">使用浏览器现有登录，请核对账号。</p><details><summary>账号信息</summary><div id="selectedAccount"></div></details></div></details></div>
 <button id="refresh" aria-label="刷新账号">刷新</button><button id="showAdd" class="primary" aria-label="绑定账号">绑定账号</button></div></header>
@@ -285,6 +290,17 @@ HOME_STYLE = '''
 }
 @media(max-width:480px){.oa-home-hero{column-gap:10px}.oa-home-features,#homeRecommendations{margin-top:14px}}
 '''
+
+_JIUSERA_LIGHT, _JIUSERA_DARK = jiusera_symbols()
+HOME_STYLE += f"""
+.oa-management{{--oa-jiusera-light:url("{_JIUSERA_LIGHT}");--oa-jiusera-dark:url("{_JIUSERA_DARK}")}}
+.oa-jiusera-mark{{width:20px;height:20px;flex:none;background:var(--oa-jiusera-light) center / contain no-repeat}}
+.oa-home-card-title .oa-jiusera-mark{{width:22px;height:22px}}
+.oa-management[data-color-scheme="dark"] .oa-jiusera-mark{{background-image:var(--oa-jiusera-dark)}}
+@media(prefers-color-scheme:dark){{
+ .oa-management:not([data-color-scheme]) .oa-jiusera-mark{{background-image:var(--oa-jiusera-dark)}}
+}}
+"""
 
 
 def page_body(logo, rules_html, technical_html, routes_html):

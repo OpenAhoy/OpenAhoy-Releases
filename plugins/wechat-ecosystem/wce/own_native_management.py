@@ -33,7 +33,7 @@ SCRIPT = r'''
  const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.workspace','video.director.read','video.director.edit','wce.ui.video.director.media','wce.ui.wechat.storage_recovery','wce.ui.wechat.analytics']);
 
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
- let view='home',initialView='',explicitNavigation=false;
+ let view='home',initialView='',explicitNavigation=false,guide=null,accountRead=false;
  let wechatPage='monitor';
  const isWechat=()=>view==='platform'&&activePlatform==='wechat_official_account';
  const notice=(text,error=false,...values)=>{OAUI.set($('notice'),text,...values);$('notice').className='notice'+(error?' error':'');};
@@ -563,6 +563,7 @@ SCRIPT = r'''
    $('selectedAccount').replaceChildren();
    if(row){const line=document.createElement('p');line.className='account-id';line.textContent=typeof row.account_id==='string'?(platform(row.platform_id)?.account_id_label||'账号标识')+' '+row.account_id:'账号资料暂不可用';$('selectedAccount').append(line);}
    else{const p=document.createElement('p');OAUI.set(p,'选择一个账号，查看所属平台与设置。');$('selectedAccount').append(p);}
+   guide?.render();
  }
  function paintAccountHeader(){
    const row=current(),p=platform(activePlatform),label=platformName(activePlatform);
@@ -695,7 +696,7 @@ SCRIPT = r'''
  function refresh({afterWrite=false}={}){
    if(!ready||closed||launching)return Promise.resolve();
    if(refreshTask)return afterWrite?refreshTask.then(()=>refresh()):refreshTask;
-   refreshTask=readAccounts().finally(()=>{refreshTask=null;refreshing=false;if(!closed)buttons();});
+   refreshTask=readAccounts().finally(()=>{refreshTask=null;refreshing=false;if(!closed)buttons();guide?.render();});
    return refreshTask;
  }
  function prepareEditors(){
@@ -710,7 +711,7 @@ SCRIPT = r'''
    const sameView=()=>!closed&&view===origin.view&&platformEpoch===origin.platformEpoch;
    const visibleRows=all=>all.filter(row=>origin.view!=='platform'||row.platform_id===origin.platform);
    const before=JSON.stringify(visibleRows(rows));
-   refreshing=true;buttons();notice('正在读取账号…');
+   accountRead=false;guide?.render();refreshing=true;buttons();notice('正在读取账号…');
    try{
      const value=content(await tool('wce.ui.management.overview',{}));if(closed)return;
      if(!Array.isArray(value.platforms)||value.platforms.some(p=>!p||typeof p.id!=='string'||typeof p.name!=='string'||typeof p.settings_supported!=='boolean'||typeof p.binding_supported!=='boolean')||new Set(value.platforms.map(p=>p.id)).size!==value.platforms.length)throw new Error('PLATFORM_INVALID_DIRECTORY');
@@ -722,6 +723,7 @@ SCRIPT = r'''
        const old=previous.get(key(row));
        return JSON.stringify(old)===JSON.stringify(row)?old:row;
      });
+     accountRead=true;
      if(directoryChanged){renderPlatforms();renderFeatures();if(view==='platform')showSettings(activePlatform);}
      for(const [id,editor]of editors){
        const own=rows.filter(row=>row.platform_id===id);
@@ -908,6 +910,7 @@ SCRIPT = r'''
  }
  const characters=OACharacterLibrary(mediaTool,openProjectSettings);
  const director=OADirector(mediaTool,sendChatRequest,()=>!!hostCapabilities.message?.text,{
+    guideChanged:()=>guide?.render(),
     sound:studioSound,chooseCharacter:characters.choose,closeCharacterPicker:characters.closePicker,
     go:section=>enterStudio(section,{user:true,focus:true}),
     back:()=>enterStudio(mainStudio,{user:true,focus:true}),
@@ -993,6 +996,7 @@ SCRIPT = r'''
    $('nativeWorkspace').hidden=view!=='platform'||!$('inlineBinding').hidden;
    $('openHome').setAttribute('aria-current',view==='home'?'page':'false');
    paintStudioNavigation();
+   guide?.render();
  }
  async function openView(target,{user=false,focus=false}={}){
    closeFloatingMenus();
@@ -1015,6 +1019,46 @@ SCRIPT = r'''
    view='platform';
    await selectPlatform(target,{focus,user});
  }
+ guide=OAWorkflowGuide({
+   status(){
+     const row=accountRead&&view==='platform'&&current();
+     return {work:view==='studio'?director.guideContext():null,platform:view==='platform'?activePlatform:'',
+       account:row?{id:row.connection_id,label:name(row)||row.label||row.account_id||'',state:accountState(row)}:null};
+   },
+   async locate(target,step,currentRequest,scope,tab='text'){
+     if(!ready||closed||!$('inlineBinding').hidden||(step===4&&!platform(target)))return false;
+     await openView(target,{user:true});
+     if(!currentRequest()||closed)return false;
+     let control;
+     if(step===4){
+       if(view!=='platform'||activePlatform!==target)return false;
+       accountsExpanded=true;syncAccountNavigation();revealSelectedAccount();
+       control=accountList.querySelector('.is-selected .account-select')||platformButton();
+     }else{
+       if(view!=='studio'||mediaView!==studioRoutes.get(target).section)return false;
+       if(step===2){
+         const work=director.guideContext();
+         if(work&&work.project===scope?.project&&work.work===scope.work){
+           if(work.shot)control=$('directorTabs').querySelector(`[data-tab="${tab}"]`);
+           else if(work.shots)control=$('directorSceneSelect');
+           else if(!$('directorNewShot').disabled)control=$('directorNewShot');
+           else control=$('directorNewScene');
+         }else control=$('directorWork');
+       }else{
+         control=$(['directorChatWork','dmGoCanvas'][step])||
+           assetKinds.querySelector('[data-asset-kind=characters]');
+       }
+       if(control?.disabled){
+         if(step===0){$('directorMore').open=true;control=$('directorMore').querySelector('summary');}
+         else control=$('directorTitle');
+       }
+     }
+     if(!control?.getClientRects().length&&step===2)control=$('directorTitle');
+     if(!control?.getClientRects().length)return false;
+     control.focus();
+     return true;
+   }
+ });
  $('openHome').onclick=()=>openView('home',{user:true,focus:true});
  studioParent.onclick=()=>{
    if(mediaView){studioExpanded=!studioExpanded;paintStudioNavigation();return;}
@@ -1083,6 +1127,7 @@ def resource():
     from .own_management_ui import HOME_STYLE, STYLE as management_style, native_page_body
     from .management_workspace_ui import NATIVE_FINISH_STYLE, PLATFORM_ACCOUNT_NAV_STYLE
     from .management_interactions import STYLE as interaction_style, SCRIPT as interaction_script
+    from .workflow_guide_ui import STYLE as guide_style, SCRIPT as guide_script
     from .own_wechat_management import settings_html, settings_script
     from .own_inline_binding_ui import SCRIPT as binding_script
     from .video_inline_ui import SCRIPT as video_script
@@ -1108,9 +1153,9 @@ def resource():
     html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>OpenAhoy · Platform management</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + review_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + PLATFORM_ACCOUNT_NAV_STYLE + '</style>'
+        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + review_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + PLATFORM_ACCOUNT_NAV_STYLE + guide_style + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
-        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + characters_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + SCRIPT + '</script></body></html>')
+        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + characters_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + guide_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
         '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://cdn1.suno.ai',
                                                                  'https://cdn2.suno.ai', 'https://suno-data-uploads.s3.amazonaws.com', 'https://acemusic.ai'], 'frameDomains': []}},

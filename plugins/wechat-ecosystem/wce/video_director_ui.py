@@ -349,11 +349,31 @@ function OADirector(tool, send, canSend, navigation){
    }catch(problem){if(mode&&pid()===args.project_id)error(problem);return false;}
    finally{writing=false;}
  }
- let readingWork=0;
+ let readingWork=0,guideRead=0,guideWorkChoice=null;
+ function readChosenWork(work,overview){
+   guideWorkChoice={project:pid(),work};
+   return readWork({work,overview});
+ }
  async function readWork(options={}){
-   readingWork++;
-   try{return await loadWork(options);}
-   finally{readingWork--;}
+   const token=reading+1;guideRead=0;readingWork++;
+   navigation.guideChanged?.();
+   try{
+     const loaded=await loadWork(options);
+     if(loaded&&reading===token)guideRead=token;
+     return loaded;
+   }finally{readingWork--;navigation.guideChanged?.();}
+ }
+ function guideContext(){
+   const work=present();
+   if(!mode||!guideRead||guideRead!==reading||data?.project_id!==pid()||!work||work.inbox)return null;
+   if(chatRequest?.selection===selection)return null;
+   // A refresh or late save can still read the previous work after a failed switch.
+   if(guideWorkChoice&&guideWorkChoice.project===pid()&&guideWorkChoice.work!==work.id)return null;
+   const shot=context?.project_id===pid()&&context?.work_id===work.id?context.shot_id:'';
+   const stored=shot&&context.revision.images.find(
+     row=>row.asset_version&&row.file.project_id===pid()&&/^[a-f0-9]{64}$/.test(row.file.sha256));
+   return {project:pid(),work:work.id,title:work.title,scenes:work.scenes.length,
+     shots:work.scenes.reduce((sum,scene)=>sum+scene.shots.length,0),shot,asset:stored?.asset_version||''};
  }
  async function loadWork({work,focus,scene,keep=false,overview}){
    const token=++reading, id=pid();
@@ -970,7 +990,9 @@ function OADirector(tool, send, canSend, navigation){
        ...Object.fromEntries(Object.entries(fields).map(([k,el])=>[k,el.value]))};
      if(existing)return write('edit_work',{project_id:projectID,work_id:existing.id,expected_version:version,fields:values},
        ()=>readWork({keep:true}));
-     return write('create_work',{project_id:projectID,fields:values},result=>readWork({work:result.work_id}));
+     const intent=selection;
+     return write('create_work',{project_id:projectID,fields:values},result=>
+       intent===selection?readChosenWork(result.work_id):readWork({work:result.work_id}));
    });
  }
  function entityDialog(kind){
@@ -1137,6 +1159,7 @@ function OADirector(tool, send, canSend, navigation){
    project.title=list.find(row=>row.id===project.value)?.label||'';
  }
  async function refreshProjects(){
+   guideRead=0;navigation.guideChanged?.();
    const epoch=++projectLoad,intent=selection,current=pid(),{projects:list}=await read('projects');
    if(epoch!==projectLoad||intent!==selection||!mode)return;
    setProjectList(list,current);
@@ -1163,7 +1186,7 @@ function OADirector(tool, send, canSend, navigation){
  async function startChatWork(){
    if(!mainView()||!canSend()||(chatRequest&&chatRequest.selection===selection))return;
    const request={id:randomID(),selection};
-   chatRequest=request;render();
+   chatRequest=request;render();navigation.guideChanged?.();
    try{
      await send(startPrompt(request.id));
      if(chatRequest===request&&request.selection===selection&&mainView())say('请求已发往当前聊天。');
@@ -1188,8 +1211,8 @@ function OADirector(tool, send, canSend, navigation){
         overview.work.inbox||!overview.works.some(row=>row.id===work_id))throw Error('DIRECTOR_WORK_NOT_FOUND');
      projectLoad++;explicitProject=project_id;
      resetWork();setProjectList(list,project_id);
-     if(await readWork({work:work_id,overview})&&current()){
-       chatRequest=null;render();say('已读回聊天中的作品。');
+     if(await readChosenWork(work_id,overview)&&current()){
+       chatRequest=null;render();say('已读回聊天中的作品。');navigation.guideChanged?.();
      }
    }catch(problem){if(current())error(problem);}
    finally{readingRequest=false;}
@@ -1199,7 +1222,7 @@ function OADirector(tool, send, canSend, navigation){
    const operation=input(body,'聊天中的原操作编号','','text',{required:true,pattern:'[a-f0-9]{32}',maxLength:32});
    dialog('找回聊天作品',body,async()=>{
      chatRequest={id:operation.value,selection};
-     render();await checkChatRequest();
+     render();navigation.guideChanged?.();await checkChatRequest();
      if(chatRequest)say('尚未读到这次请求的作品，请核对聊天中的原操作编号。');
      return true;
    });
@@ -1237,6 +1260,7 @@ function OADirector(tool, send, canSend, navigation){
  }
  project.onchange=()=>{
    selection++;explicitProject=pid();
+   guideWorkChoice=null;
    project.title=projects.find(row=>row.id===pid())?.label||'';
    resetWork();render();
    void readWork().catch(error);
@@ -1245,7 +1269,7 @@ function OADirector(tool, send, canSend, navigation){
    const chosen=workSelect.value;
    if(!chosen){render();return;}
    selection++;stopWatch();engineDraft=null;engineDirty=false;
-   void readWork({work:chosen}).catch(error);
+   void readChosenWork(chosen).catch(error);
  };
  $('directorSceneSelect').onchange=()=>selectScene($('directorSceneSelect').value);
  $('directorPrevious').onclick=()=>{const scenes=present().scenes;return selectScene(scenes[scenes.indexOf(currentScene())-1]?.id);};
@@ -1283,7 +1307,7 @@ function OADirector(tool, send, canSend, navigation){
  };
  $('directorChatWork').onclick=startChatWork;
  $('directorRecoverWork').onclick=recoverChatWork;
- $('directorStopFollowing').onclick=()=>{chatRequest=null;render();say('');};
+ $('directorStopFollowing').onclick=()=>{chatRequest=null;render();say('');navigation.guideChanged?.();};
  $('directorProjectSettings').onclick=navigation.project;
  $('directorNewWork').onclick=()=>{if(pid())workDialog();};
  $('directorWorkSettings').onclick=()=>workDialog(present());
@@ -1497,6 +1521,6 @@ function OADirector(tool, send, canSend, navigation){
    },
    play:playCanvasVideo,
  });
- return {open,close,view,canAttach,attach};
+ return {open,close,view,canAttach,attach,guideContext};
 }
 '''

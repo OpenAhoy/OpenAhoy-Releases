@@ -17,6 +17,12 @@ def video_model_mark():
     return 'data:image/png;base64,' + base64.b64encode(raw).decode('ascii')
 
 
+def jiusera_symbols():
+    return tuple('data:image/svg+xml;base64,' + base64.b64encode(
+        (_PACKAGE / f'assets/jiusera/Jiusera-symbol-{variant}.svg').read_bytes()
+    ).decode('ascii') for variant in ('color', 'white'))
+
+
 def icons():
     result = []
     for variant, theme in (('color', 'light'), ('inverse', 'dark')):
