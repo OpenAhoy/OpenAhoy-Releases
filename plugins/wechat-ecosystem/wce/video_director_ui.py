@@ -1394,14 +1394,6 @@ function OADirector(tool, send, canSend, navigation){
  function resetWork(){
    reading++;stopWatch();engineDraft=null;engineDirty=false;data=null;context=null;sceneID=null;
  }
- let addressOpened=false;
- async function openAddress(){
-   if(addressOpened||mode!=='desk')return;
-   addressOpened=true;
-   const query=new URLSearchParams(location.search);
-   const [project_id,work_id,scene_id,shot_id,revision_id]=['project','work','scene','shot','revision'].map(key=>query.get(key));
-   return openShot({scope:{project_id,work_id,scene_id,shot_id,revision_id},tab:query.get('tab')});
- }
  async function openShot(shot){
    const {project_id,work_id,scene_id,shot_id,revision_id}=shot.scope;
    if(mode!=='desk'||![project_id,work_id,scene_id,shot_id,revision_id].every(value=>/^[a-f0-9]{32}$/.test(value||''))||
@@ -1418,7 +1410,7 @@ function OADirector(tool, send, canSend, navigation){
    root.hidden=false;
    view(target);
    if(!workspaceTimer)workspaceTimer=setInterval(tickWorkspace,2600);
-   try{await refreshProjects({restore:true});if(shot)await openShot(shot);else await openAddress();await checkChatRequest();}
+   try{await refreshProjects({restore:true});if(shot)await openShot(shot);await checkChatRequest();}
    catch(problem){if(mode)error(problem);}
  }
  function startPrompt(id){

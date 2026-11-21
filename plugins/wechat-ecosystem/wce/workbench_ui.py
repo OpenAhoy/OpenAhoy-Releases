@@ -10,7 +10,7 @@ def trend_resource(suffix):
 
 def chrome(icon):
     return '''<header class="wb-titlebar">
- <button id="wbBrand" type="button" aria-label="返回工作画布">'''+jiusera_header()+'''</button>
+ <button id="wbBrand" type="button" aria-label="Jiusera 作品首页">'''+jiusera_header()+'''</button>
  <span class="wb-face" aria-hidden="true"><span>•</span>‿<span>•</span></span>
  <div id="wbCanvasControls" class="wb-context" hidden>
   <button id="wbProject" aria-expanded="false" aria-controls="directorWorkbar" type="button">项目与作品</button>
@@ -21,7 +21,7 @@ def chrome(icon):
  <nav class="wb-dock" aria-label="Jiusera 工作台导航">
   <button class="wb-dock-brand" data-wb-route="published" type="button" aria-label="Jiusera 作品首页">'''+jiusera_header()+'''</button>
   <button data-wb-route="jiusera-monitor" type="button">'''+icon('video')+'''<span>监看</span></button>
-  <button data-wb-route="jiusera-canvas" type="button" aria-current="page">'''+icon('settings')+'''<span>画布</span></button>
+  <button data-wb-route="jiusera-canvas" type="button">'''+icon('settings')+'''<span>画布</span></button>
   <button data-wb-route="jiusera-assets" type="button">'''+icon('accounts')+'''<span>资产</span></button>
   <button id="wbMore" type="button" aria-expanded="false" aria-controls="wbMenu"><span aria-hidden="true">···</span><span>更多</span></button>
  </nav>
@@ -35,9 +35,9 @@ def chrome(icon):
 
 
 SURFACES = '''
-<section id="wbStartup" aria-label="工作画布">
+<section id="wbStartup" aria-label="Jiusera">
  <div class="wb-startup-center">
-  <h1 id="wbStartupTitle">工作画布</h1>
+  <h1 id="wbStartupTitle">Jiusera</h1>
   <p id="wbStartupStatus" role="status">正在连接工作台…</p>
  </div>
 </section>
@@ -316,7 +316,7 @@ function OAWorkbench({open, readAnalytics, openLink, accountName, platformName, 
  for(const [id,target] of [['wbProject','project'],['wbShot','shot']]){
    $(id).onclick=()=>{closeMenu();panel(body.dataset.workbenchPanel===target?'':target);};
  }
- home.onclick=()=>open('jiusera-canvas');
+ home.onclick=()=>open('published');
  more.onclick=()=>{
    if(!menu.hidden){closeMenu(true);return;}
    panel();menu.hidden=false;more.setAttribute('aria-expanded','true');menu.querySelector('button')?.focus();

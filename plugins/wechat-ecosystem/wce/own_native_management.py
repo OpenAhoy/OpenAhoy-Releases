@@ -33,7 +33,8 @@ SCRIPT = r'''
  const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.workspace','video.director.read','video.director.edit','wce.ui.video.director.media','wce.ui.wechat.storage_recovery','wce.ui.wechat.analytics']);
 
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
- let view='startup',initialView='',explicitNavigation=false,guide=null,accountRead=false;
+ const homeView='published';
+ let view='startup',hostView='',explicitNavigation=false,guide=null,accountRead=false;
  let wechatPage='monitor';
  const isWechat=()=>view==='platform'&&activePlatform==='wechat_official_account';
  const notice=(text,error=false,...values)=>{OAUI.set($('notice'),text,...values);$('notice').className='notice'+(error?' error':'');};
@@ -55,13 +56,24 @@ SCRIPT = r'''
  ]);
  const studioURLs={monitor:'jiusera-monitor',desk:'jiusera-canvas',assets:'jiusera-assets'};
  function route(value){
-   if(value==='home')return 'published';
+   if(value==='home')return homeView;
    return value==='about'||value==='published'||value==='studio-showcase'||studioRoutes.has(value)||platformNames.has(value)?value:'';
  }
  function routeFromURL(){
-   const query=new URLSearchParams(location.search),fragment=new URLSearchParams(location.hash.slice(1));
-   return route(fragment.get('view')||fragment.get('platform')||query.get('view')||query.get('platform')||location.hash.slice(1));
+   const hash=location.hash.slice(1),query=new URLSearchParams(location.search),fragment=new URLSearchParams(hash);
+   return [fragment.get('view'),fragment.get('platform'),query.get('view'),query.get('platform'),hash].map(route).find(Boolean)||'';
  }
+ function launchFromURL(){
+   const target=routeFromURL(),query=new URLSearchParams(location.search);
+   const fields=['project','work','scene','shot','revision'];
+   const identifiers=fields.map(field=>query.get(field));
+   if((!target||target==='jiusera-canvas')&&identifiers.every(value=>/^[a-f0-9]{32}$/.test(value||''))){
+     const scope=Object.fromEntries(fields.map((field,index)=>[field+'_id',identifiers[index]]));
+     return {target:'jiusera-canvas',shot:{scope,tab:query.get('tab')}};
+   }
+   return {target};
+ }
+ const addressLaunch=launchFromURL();
  const initializedEditors=new Set();let binding=null,xManagement=null,xhsManagement=null,projectContext=null,contextOpen=false;
  const localExports=new Map(),selectedByPlatform=new Map();let selectEpoch=0,platformEpoch=0,selectionIntent=0,pendingSelection=null;
  const hostDownloadsUnknown=new Set();
@@ -139,10 +151,13 @@ SCRIPT = r'''
    if(event.source!==bridge||event.data?.jsonrpc!=='2.0')return;
    const v=event.data;
    if(v.method==='ui/notifications/tool-input'&&!Object.hasOwn(v,'id')){
-     const target=route(v.params?.arguments?.view||v.params?.arguments?.platform_id);
-     if(target&&!explicitNavigation){
-       initialView=target;
-       if(ready)openView(target);
+     const args=v.params?.arguments;
+     const target=route(args?.view)||route(args?.platform_id);
+     // The host can deliver launch arguments after initialization. Accept one
+     // explicit launch per frame, unless the URL or the user already chose.
+     if(target&&!closed&&!addressLaunch.target&&!hostView&&!explicitNavigation){
+       hostView=target;
+       if(ready&&view===homeView&&target!==homeView)void openView(target);
      }
      return;
    }
@@ -865,7 +880,7 @@ SCRIPT = r'''
  $('monitorGifProvider').onclick=()=>showMediaProvider('gif');
  $('monitorAudioProvider').onclick=()=>showMediaProvider('audio');
  const studioEntries=$('jiuseraEntries'), studioParent=$('openMediaStudio'), assetKinds=$('directorAssetKinds');
- let showcaseBack='jiusera-canvas';
+ let showcaseBack=homeView;
  const showcase=OAStudioShowcase((action,args)=>mediaTool('wce.ui.video.director.media',{action,...args}),
    ()=>void openView(showcaseBack,{user:true,focus:true}),
    shot=>void openView('jiusera-canvas',{user:true,focus:true,shot}));
@@ -1050,8 +1065,8 @@ SCRIPT = r'''
    if(closed||!ready||!$('inlineBinding').hidden)return;
    if(target==='studio-showcase'){
      if(view!=='studio-showcase'){
-       showcaseBack=view==='studio'?(mediaView==='assets'?assetRoute(assetKind):studioURLs[mediaView]||'jiusera-canvas'):
-         view==='platform'?(activePlatform||'jiusera-canvas'):view==='startup'?'jiusera-canvas':view;
+       showcaseBack=view==='studio'?(mediaView==='assets'?assetRoute(assetKind):studioURLs[mediaView]||homeView):
+         view==='platform'?(activePlatform||homeView):view==='startup'?homeView:view;
        platformEpoch++;selectionIntent++;selectEpoch++;navigationEpoch++;
        closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();
        view=target;showMedia('');renderView();
@@ -1124,7 +1139,7 @@ SCRIPT = r'''
      return true;
    }
  });
- $('openHome').onclick=()=>openView('jiusera-canvas',{user:true,focus:true});
+ $('openHome').onclick=()=>openView(homeView,{user:true,focus:true});
  studioParent.onclick=()=>{
    if(mediaView){studioExpanded=!studioExpanded;paintStudioNavigation();return;}
    void openView('media',{user:true,focus:true});
@@ -1172,8 +1187,7 @@ SCRIPT = r'''
  rpc('ui/initialize',{appInfo:{name:'openahoy-management',version:'3.0.0'},protocolVersion:'2026-01-26',appCapabilities:{availableDisplayModes:['inline','fullscreen']}})
  .then(async host=>{if(closed||host?.protocolVersion!=='2026-01-26'||!host.hostCapabilities?.serverTools)throw new Error('NO_SERVER_TOOLS');
    hostCapabilities=host.hostCapabilities;ready=true;applyHostTheme(host.hostContext);projectContext.setReady(true,!!hostCapabilities.message?.text);bridge.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized'},'*');
-   const startup=initialView||routeFromURL()||'jiusera-canvas';
-   void openView(startup);
+   void openView(addressLaunch.target||hostView||homeView,{shot:addressLaunch.shot});
    buttons();await refresh();
    // Optional host checks run after the first paint.
    requestAnimationFrame(()=>requestAnimationFrame(()=>{
