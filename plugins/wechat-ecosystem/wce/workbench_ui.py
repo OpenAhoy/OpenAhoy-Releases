@@ -12,6 +12,10 @@ def chrome(icon):
     return '''<header class="wb-titlebar">
  <button id="wbBrand" type="button" aria-label="Jiusera 作品首页">'''+jiusera_header()+'''</button>
  <span class="wb-face" aria-hidden="true"><span>•</span>‿<span>•</span></span>
+ <button id="wbHomeUpdate" type="button" hidden disabled aria-describedby="wbHomeUpdateStatus">
+  <span id="wbHomeRunning"></span><span id="wbHomeUpdateHint"></span>
+ </button>
+ <span id="wbHomeUpdateStatus" class="jh-screenreader" role="status"></span>
  <div id="wbCanvasControls" class="wb-context" hidden>
   <button id="wbProject" aria-expanded="false" aria-controls="directorWorkbar" type="button">项目与作品</button>
   <button id="wbShot" aria-expanded="false" aria-controls="wbCanvasDetails" type="button">镜头</button>
@@ -346,6 +350,7 @@ function OAWorkbench({open, readAnalytics, openLink, accountName, platformName, 
    body.dataset.workbench=next;
    $('wbStartup').hidden=next!=='startup';
    $('wbPublished').hidden=next!=='published';
+   $('wbHomeUpdate').hidden=next!=='published';
    $('wbCanvasControls').hidden=!showCanvas;
    for(const button of dock.querySelectorAll('[data-wb-route]')){
      const active={canvas:'jiusera-canvas',monitor:'jiusera-monitor',published:'published',assets:'jiusera-assets'}[next];

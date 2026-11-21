@@ -15,6 +15,8 @@ Seedance 生成和 X 单视频交付见 [Seedance 视频](references/SEEDANCE.md
 
 用户明确要求制作动图且已保存 OpenAI 动图 Key 时，默认走 [OpenAI GPT‑Image‑2.6 动图](../video-director/references/OPENAI_GIF.md)。Codex 继续制作静态参图，已有 GIF 仍沿对应平台原上传流程。
 
+已有公众号稿、普通文章、论文或文案需要润色时，走[润色已有文字](references/WRITING_POLISH.md)。给可直接使用的正文，原文与规则版本做本机读回。
+
 ## 连接与规则
 
 内嵌页“反馈问题”仅需可选的一句描述；本人点击“提交反馈并附诊断”时自动生成脱敏快照并使用本机已有GitHub CLI身份提交至OpenAhoy/OpenAhoy-Feedback，版本、系统和最近失败/运行诊断自动附上，技术预览可选查看，不要求填写复现步骤或复制日志；没有该身份时打开官方待提交草稿，不声称已经创建Issue。发送未知只查询原report_id，不重发。诊断日志仅白名单状态/错误码/相对模块位置，无自动上报；本人可复制或导出当前脱敏快照。内嵌页反馈/日志工具仅供界面使用。对话可用 `openahoy.feedback.preview` 预览仅作本机准备的脱敏报告。本人明确要求提交反馈时，沿这份报告的 `report_id` 和 `digest` 调用 `openahoy.feedback.submit`，传 `confirmed: true`。若状态未知，使用 `openahoy.feedback.status` 查原回执。返回网页草稿时提供原链接。反馈说明只整理与故障直接相关的内容，勿传原稿、秘密、完整聊天或原始日志。软件更新固定公开发行源OpenAhoy/OpenAhoy-Releases，保留账号及配置。

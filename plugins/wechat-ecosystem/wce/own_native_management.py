@@ -30,7 +30,7 @@ SCRIPT = r'''
    if(accountPanel.matches(':popover-open')){event.preventDefault();closeAccountNavigation({focus:true});}
  });
  mountOpenAhoyHints();
- const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.workspace','video.director.read','video.director.edit','wce.ui.video.director.media','wce.ui.wechat.storage_recovery','wce.ui.wechat.analytics']);
+ const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.workspace','video.director.read','video.director.edit','wce.ui.video.director.media','wce.ui.wechat.storage_recovery','wce.ui.wechat.analytics','wce.ui.writing.rules']);
 
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
  const homeView='published';
@@ -178,6 +178,11 @@ SCRIPT = r'''
  });
  async function tool(name,args){if(!ready||!allowed.has(name))throw new Error('UI_TOOL_UNAVAILABLE');return rpc('tools/call',{name,arguments:args});}
  function content(result){if(result?.isError||!result?.structuredContent)throw new Error('MANAGEMENT_READ_FAILED');return result.structuredContent;}
+ OAWritingRules(async args=>{
+   const result=await tool('wce.ui.writing.rules',args);
+   if(result?.isError)throw Error(result.structuredContent?.error);
+   return content(result);
+ });
  async function platformCall(id,operation,args){
    const p=platform(id);if(!p)throw new Error('PLATFORM_UNSUPPORTED');
    if(['READ_RULES','SAVE_RULES','RESTORE_RULES','EXPORT_CONFIG'].includes(operation)){
@@ -1207,6 +1212,7 @@ def resource():
     from .management_interactions import STYLE as interaction_style, SCRIPT as interaction_script
     from .workflow_guide_ui import STYLE as guide_style, SCRIPT as guide_script
     from .workbench_ui import STYLE as workbench_style, SCRIPT as workbench_script, trend_resource
+    from .writing_workflow_ui import SCRIPT as writing_rules_script
     from .own_wechat_management import settings_html, settings_script
     from .own_inline_binding_ui import SCRIPT as binding_script
     from .video_inline_ui import SCRIPT as video_script
@@ -1236,7 +1242,7 @@ def resource():
         '<title>Jiusera · Workspace</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
         + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + review_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + PLATFORM_ACCOUNT_NAV_STYLE + guide_style + workbench_style + assets_style + showcase_style + trend_resource('css') + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
-        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + characters_script + assets_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + guide_script + trend_resource('js') + workbench_script + showcase_script + SCRIPT + '</script></body></html>')
+        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + characters_script + assets_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + guide_script + trend_resource('js') + workbench_script + showcase_script + writing_rules_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
         '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://cdn1.suno.ai',
                                                                  'https://cdn2.suno.ai', 'https://suno-data-uploads.s3.amazonaws.com', 'https://acemusic.ai'], 'frameDomains': []}},

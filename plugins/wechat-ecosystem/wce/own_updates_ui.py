@@ -10,6 +10,14 @@ STYLE = """
 .oa-management .oa-software-update{--update-text:#075536;--update-bg:#d9f4e5;--update-hover:#c5ecd7;display:grid;gap:8px;min-width:0;padding:10px;border:0;border-radius:10px;background:var(--soft);box-shadow:none;font-size:11px;line-height:1.45}
 body.oa-management[data-color-scheme=dark] .oa-software-update{--update-text:#b7f5d2;--update-bg:#18392b;--update-hover:#234d38}
 @media(prefers-color-scheme:dark){body.oa-management:not([data-color-scheme=light]) .oa-software-update{--update-text:#b7f5d2;--update-bg:#18392b;--update-hover:#234d38}}
+#wbHomeUpdateStatus{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;pointer-events:none}
+.oa-management .wb-titlebar #wbHomeUpdate{justify-self:end;display:inline-flex;align-items:center;gap:5px;min-height:29px;padding:3px 8px;border:1px solid var(--wb-line);border-radius:9px;background:var(--wb-float);color:var(--wb-ink);box-shadow:none;font-size:11px;white-space:nowrap}
+.oa-management .wb-titlebar #wbHomeUpdate[hidden]{display:none}
+#wbHomeRunning{font-variant-numeric:tabular-nums}
+#wbHomeUpdateHint:empty{display:none}
+.oa-management .wb-titlebar #wbHomeUpdate:is([data-update=available],[data-update=restart]){border-color:#b0ddc5;background:#d9f4e5;color:#075536}
+body[data-color-scheme=dark].oa-management .wb-titlebar #wbHomeUpdate:is([data-update=available],[data-update=restart]){border-color:#356f58;background:#18392b;color:#b7f5d2}
+@media(max-width:380px){.oa-management .wb-titlebar #wbHomeUpdate{font-size:10px;gap:3px;padding-inline:5px}}
 .oa-update-version{font-size:12px;font-weight:700;color:var(--ink)}
 .oa-update-versions{margin:0;display:grid;gap:4px;font-variant-numeric:tabular-nums}
 .oa-update-versions div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1px 8px}
@@ -61,6 +69,9 @@ window.OASoftwareUpdates={mount(rpc,installed){
  const node=suffix=>box.querySelector('.oa-update-'+suffix);
  const status=node('status'),jobStatus=node('job'),checkButton=node('check'),startButton=node('start'),receiptButton=node('receipt');
  const stable=node('latest'),installedRow=node('installed-row'),helpButton=node('help'),history=node('history');
+ const home=document.getElementById('wbHomeUpdate'),homeRunning=document.getElementById('wbHomeRunning');
+ const homeHint=document.getElementById('wbHomeUpdateHint'),homeStatus=document.getElementById('wbHomeUpdateStatus');
+ if(home)ui.raw(homeRunning,'v'+installed);
  const technical=node('technical'),checkDetail=node('check-detail'),jobDetail=node('job-detail');
  ui.set(stable,'待检查');
  ui.raw(node('running'),installed);
@@ -92,6 +103,25 @@ window.OASoftwareUpdates={mount(rpc,installed){
   startButton.hidden=!latest||busy||terminal.has(job)||Boolean(pendingRequest);
   startButton.disabled=!ready||closed||checking||reading||startButton.hidden;
   helpButton.hidden=!canOpenLinks||!(jobHelp||box.dataset.discovery==='CHECK_UNAVAILABLE');
+  if(!home)return;
+  home.disabled=!ready||closed||checking||reading||busy;
+  home.removeAttribute('data-update');
+  const detail=[status.textContent,jobStatus.textContent].filter(Boolean).join(' ');
+  ui.raw(homeStatus,detail);
+  ui.attr(home,'title',detail);
+  if(job==='INSTALLED_RELOAD_REQUIRED'){
+   home.dataset.update='restart';ui.set(homeHint,'需重启');
+  }else if(busy){
+   ui.set(homeHint,'升级中');
+  }else if(terminal.has(job)||pendingRequest){
+   ui.set(homeHint,'升级状态');
+  }else if(latest&&!startButton.hidden){
+   home.dataset.update='available';ui.set(homeHint,'升级 v{0}',latest.latest_version);
+  }else if(box.dataset.discovery==='CHECK_UNAVAILABLE'){
+   ui.set(homeHint,'检查失败');
+  }else{
+   ui.raw(homeHint,'');
+  }
  }
  function sayJob(text,state,...values){ui.set(jobStatus,text,...values);box.dataset.state=state;paintAvailable();buttons();}
  function paintAvailable(){
@@ -327,6 +357,12 @@ window.OASoftwareUpdates={mount(rpc,installed){
  checkButton.addEventListener('click',()=>void check());
  receiptButton.addEventListener('click',()=>void statusPoll());
  startButton.addEventListener('click',start);
+ home?.addEventListener('click',event=>{
+  if(!event.isTrusted||home.disabled)return;
+  if(terminal.has(job)||pendingRequest){void statusPoll();return;}
+  if(latest&&!startButton.hidden){void start(event);return;}
+  void check();
+ });
  helpButton.addEventListener('click',event=>{
   if(event.isTrusted&&canOpenLinks)void rpc('ui/open-link',{
    url:'https://github.com/OpenAhoy/OpenAhoy-Releases/blob/main/UPDATE_PROMPT.md'
@@ -362,8 +398,8 @@ def decorate(value, installed_version, uri):
         "const $=id=>document.getElementById(id),bridge=window.parent,pending=new Map();":
             "const $=id=>document.getElementById(id),bridge=window.parent,pending=new Map();\n const softwareUpdates=OASoftwareUpdates.mount(rpc," + json.dumps(installed_version).replace('<', '\\u003c') + ');',
         'function dispose(){': 'function dispose(){softwareUpdates.dispose();',
-        'buttons();await refresh();': 'softwareUpdates.ready(hostCapabilities);buttons();await refresh();',
-        'if(closed||!ready)return;\n     syncIntro();': 'if(closed||!ready)return;\n     softwareUpdates.startAutomatic();syncIntro();',
+        'buttons();await refresh();': ('softwareUpdates.ready(hostCapabilities);'
+            'requestAnimationFrame(()=>{if(!closed&&ready)softwareUpdates.startAutomatic();});buttons();await refresh();'),
     }
     for before, after in seams.items():
         if text.count(before) != 1:

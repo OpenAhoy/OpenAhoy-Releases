@@ -132,6 +132,7 @@ def native_page_body(logo, platform_settings):
     from .audio_workspace_ui import HTML as audio_html
     from .workflow_guide_ui import HTML as guide_html
     from .own_branding import video_model_mark
+    from .writing_workflow_ui import HTML as writing_rules
     home = '''<section id="openAhoyHome" aria-labelledby="homeTitle" hidden>
 <header class="wb-about-card">
 <h1 id="homeTitle" tabindex="-1">关于与设置</h1>
@@ -148,6 +149,7 @@ def native_page_body(logo, platform_settings):
   <div class="wb-context"><button type="button" id="oaLocale">English</button>
   <button id="openWorkflowGuide" type="button" aria-expanded="false" aria-controls="workflowGuide">指导模式</button></div>
  </section>
+ ''' + writing_rules + '''
 </div>
 <section class="oa-home-features oa-home-publishing" aria-labelledby="homePublishingTitle">
 <h2 id="homePublishingTitle">'''+jiusera_header()+'''<span>发布与账号</span></h2>
