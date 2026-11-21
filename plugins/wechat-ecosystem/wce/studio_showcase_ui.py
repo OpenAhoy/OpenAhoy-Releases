@@ -10,6 +10,7 @@ HTML = '''
   <button data-case-tab="assets" type="button">资产</button>
   <button data-case-tab="monitor" type="button">导演台</button>
   <button data-case-tab="canvas" type="button">画布</button>
+  <button data-case-tab="trial" type="button">资产锁版试用</button>
  </nav>
  <div id="scContent" aria-label="案例内容"></div>
  <p id="scStatus" role="status" aria-live="polite" hidden></p>
@@ -83,7 +84,7 @@ STYLE = '''
 '''
 
 SCRIPT = r'''
-function OAStudioShowcase(call, exit){
+function OAStudioShowcase(call, exit, openShot){
  const root=document.getElementById('studioShowcase'),content=document.getElementById('scContent');
  const status=document.getElementById('scStatus'),tabs=[...root.querySelectorAll('[data-case-tab]')];
  const categories=[
@@ -325,11 +326,57 @@ function OAStudioShowcase(call, exit){
    else if(work==='article')stage.append(image('body',currentNode[1],stamp));
    else stage.append(el('p','桌灯落在镜框与麦克风之间，窗后的蓝色保持轻微流动。','sc-selection'));
  }
+ function showTrial(stamp, state){
+   const pane=el('section','','sc-main');
+   pane.id='scTrial';
+   const title=el('h2','试用角色、声音、场景与物品锁版');
+   title.tabIndex=-1;
+   pane.append(title);
+   const controls=el('div','','sc-links');
+   const message=el('p');
+   message.setAttribute('role','status');
+   const failed='示例项目暂不可用。请检查本机项目目录后重试。';
+   function apply(action, args={}){
+     for(const item of controls.querySelectorAll('button'))item.disabled=true;
+     message.textContent='正在准备本机示例…';
+     void call(action,args).then(next=>{
+       if(!current(stamp))return;
+       content.replaceChildren();showTrial(stamp,next);
+     }).catch(()=>{
+       if(!current(stamp))return;
+       message.textContent=failed;
+       for(const item of controls.querySelectorAll('button'))item.disabled=false;
+     });
+   }
+   pane.append(message,controls);content.append(pane);
+   if(!state){apply('asset_trial_state');return;}
+   if(state.state==='NOT_CREATED'){
+     message.textContent='在本机创建一个独立示例，之后可在画布和形象库里打开。';
+     controls.append(button('创建试用项目',()=>apply('asset_trial_create')));
+     return;
+   }
+   if(state.state!=='READY'||!Array.isArray(state.shots)){message.textContent=failed;return;}
+   pane.append(el('h3',state.project_name));
+   message.textContent=state.default_version===null?'示例默认已单独调整。':
+     '图、声音、演播室、话筒的当前默认：v'+state.default_version+'。三个示例镜头保存的是 v1。';
+   for(const number of [1,2]){
+     const item=button('设默认 v'+number,()=>apply('asset_trial_switch',{number}));
+     item.disabled=number===state.default_version;controls.append(item);
+   }
+   const links=el('div','','sc-links');
+   for(const shot of state.shots)links.append(button('打开 '+shot.title,()=>openShot(shot)));
+   pane.append(links);
+ }
  function render(focus=false, selectedNode=''){
    const stamp=++epoch;
    content.replaceChildren();setStatus('');
    if(!active)return;
    for(const tab of tabs)tab.setAttribute('aria-pressed',String(tab.dataset.caseTab===page));
+   if(page==='trial'){
+     showTrial(stamp);content.scrollTop=0;
+     if(focus)content.querySelector('h2')?.focus({preventScroll:true});
+     return;
+   }
    if(!manifest){
      setStatus('正在读取内置案例…');
      void requestIndex().then(()=>{if(current(stamp))render(focus);}).catch(()=>{

@@ -26,11 +26,17 @@
 
 ### 形象资产库
 
-在「形象资产库」按项目、系列和用途查找已登记的形象。分镜的「图片」中可选本项目的准确版本。选择其他已登记项目的版本时，点击「引入本项目」将原图按 SHA-256 复制到目标项目，再保存分镜。目标库保留来源项目、版本与摘要。Codex 在用户明确要引入该版本时，用 `video.director.edit action=character_import_version` 传目标 `project_id` 和来源 `origin`（`project_id`、`version_id`、`sha256`）。把回执中的 `version_id` 和 `file` 写入目标分镜。Codex 用 `video.director.read action=character_library` 读项目和资产版本。将返回的 `id` 作为修订图片条目的 `asset_version`，并保留同一行返回的 `file`。使用 `context` 读回。后续设为当前的版本供新选择使用，已有镜头沿用其原版。
+在「资产库 → 形象」按项目、系列、人物及形态查找已登记的资产。同一人物一张卡，默认常态。标准资产可跨同项目的镜头使用，特别资产仅能用于登记的作品。形态可登记自己的人脸图，也可让不同形态的版本引用同一张原图。用 `character_set_primary` 设置该形态的主参考，提供现有 `expected_primary`。没有旧指针时省略该字段。主参考需为含人脸的标准资产。每种用途的当前版独立维护，由 `character_set_current` 和已观察的 `expected_current` 更新。
 
-用户提供项目索引时，先确认原文件和版本状态。将索引 JSON 放在已登记项目内，使用页面「导入索引 → 从项目目录选择」或 `character_import_preview`。在页面选中子目录的索引后，会自动保留项目相对路径并预览。索引中的图片路径仍相对于项目根。调用提供项目 ID 和 `source` 对象，含索引的项目相对路径 `path` 及 `sha256`。确认预览中的缺图、版本冲突和确认状态后，用同一 `source`、`project_id` 和预览的 `revision` 作为 `expected_revision` 调用 `character_import`。返回 `UNCHANGED` 表示相同版本已登记。设置当前参考用 `character_set_current`，传 `project_id`、`version_id` 和现有指针 `expected_current`，原用途未设当前时省略 `expected_current`。
+新导入的精确图像字节写入项目的 `JiuseraAssets/Characters/`。本地 PCM WAV 声音参考写入 `JiuseraAssets/Audio/`。复制按摘要去重，原文件路径、原字节和旧索引引用照常保留。插件管理普通参考可通过 `character_import_version` 将精确版本引入另一个登记项目，传目标 `project_id` 和来源 `origin`（`project_id`、`version_id`、`sha256`）。特别资产和带裁切来源的资产留在原项目。
 
-索引示例。将示例文件名、角色 ID、用途、版本和摘要替换为原项目实际值。用途支持 `full_body`、`face`、`expression`、`pose`、`style`（风格／质感）。已明确采用的来源可标 `current`，待确认用 `candidate`，已有历史用 `historical`。每个角色的每种用途分别维护当前指针。
+在镜头「图片」中同时选图和声音，再保存修订。Codex 可用 `action=character_library` 读取准确版本；图片项带 `asset_version` 和同一行的 `file`，声音项 `fields.voice` 使用相同两个字段。保存后 `context` 读回人物、形态、资产版本及已有裁切来源。以后更新默认图声时，镜头仍引用原版本。声音可在镜头内试听，生成供应商的独立素材输入照原通路选择。
+
+项目索引 JSON 放在已登记项目内。页面「导入索引 → 从项目目录选择」或 `character_import_preview` 读取索引的项目相对路径及 SHA-256。按预览结果用同一 `source`、`project_id` 和 `revision` 作为 `expected_revision` 调用 `character_import`。已有相同记录返回 `UNCHANGED`。
+
+新增形态、声音或特别资产使用 `schema: 2`。可选 `form` 为 `{"id":"shift","name":"变身"}`，省略归常态；`category:"special"` 必须带同项目的 `work_id`，默认 `standard`。除原有用途外支持 `angle`、`wardrobe`、`accessory`、`voice`。若已准备好裁切原件，登记导出的裁切图并附 `crop` 的 `source_version_id`、`x`、`y`、`width`、`height`，按原图像素记录。`face_visible: true` 可让脸清晰可见的标准全身图充当主参考。原 `schema: 1` 项目索引继续可读。
+
+索引示例。将示例文件名、角色 ID、用途、版本和摘要替换为原项目实际值。用途支持 `full_body`、`face`、`expression`、`pose`、`style`（风格／质感）。已明确采用的来源可标 `current`，待确认用 `candidate`，已有历史用 `historical`。在各形态内按用途维护当前指针，特别资产另按作品隔离。
 
 ```json
 {
@@ -50,3 +56,10 @@
   ]
 }
 ```
+
+
+### 本地 Blender 场景和物品
+
+把可编辑原件与同版本的依赖分别保存在项目的 `JiuseraAssets/Scenes/` 与 `JiuseraAssets/Objects/`。使用 `stage_register` 登记项目内的 `.blend` 原件、明确版本及依赖摘要，`stage_catalog` 读取当前版。切换默认版本时用 `stage_set_current` 和已有 `expected_current`，保留两个目录及旧版本原件。
+
+镜头修订的 `stage` 指定 `scene_version_id`、`object_version_id`、在 Blender 实际使用的 `camera` 与 `placement`，以及该构图独立渲染的 `preview` 文件及摘要。位置按毫米、旋转按毫度、焦距按微米、比例按千分值记录。镜头的场景面板读回准确版本和预览。提供预览时使用已经渲染的项目文件，插件核对原件与依赖，并保留对应相机、话筒或其他物品的摆位。

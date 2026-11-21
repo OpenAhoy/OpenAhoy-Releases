@@ -203,21 +203,44 @@ def verified_whitebox(path, pin, expected):
     return media_facts(path)
 
 
-def validate_revision(jobs, values, patch, root, scratch, project_id):
+def validate_revision(jobs, values, patch, root, scratch, project_id, work_id, previous_images):
     if 'images' in patch:
         from .character_library import verify_reference
 
         roles = [row['role'] for row in values['images']]
         require(roles.count('first') <= 1 and roles.count('last') <= 1, 'DIRECTOR_DUPLICATE_FRAME_ROLE')
         seen = set()
+        images = []
         for row in values['images']:
             file = row['file']
             require(file['project_id'] == project_id, 'DIRECTOR_ASSET_WRONG_PROJECT')
-            verify_reference(scratch, project_id, row)
+            new_reference = row not in previous_images
+            file, reference = verify_reference(scratch, project_id, row, work_id, selecting=new_reference)
+            if reference is not None and new_reference:
+                row = row | {'file': file, 'character_reference': reference}
+            images.append(row)
             key = (file['path'], file['sha256'])
             if key not in seen:
                 source_image(root, file, scratch)
                 seen.add(key)
+        values['images'] = images
+    if 'voice' in patch:
+        from .character_library import verify_reference, voice_original, file_pin
+
+        row = patch['voice']
+        if row == {'mode': 'none'}:
+            values['voice'] = None
+        else:
+            require(row['file']['project_id'] == project_id, 'DIRECTOR_ASSET_WRONG_PROJECT')
+            file, reference = verify_reference(scratch, project_id, row, work_id, selecting=True, voice=True)
+            voice_original(root, file['path'], file['sha256'], file_pin(root, file))
+            values['voice'] = {'file': file, 'asset_version': row['asset_version'], 'character_reference': reference}
+    if 'stage' in patch:
+        from .stage_assets import pin_stage
+
+        stage = patch['stage']
+        values['stage'] = (None if stage == {'mode': 'none'}
+                           else pin_stage(root, scratch, project_id, stage))
     if 'whitebox' in patch:
         whitebox = values['whitebox']
         for key in ('camera_path', 'subject_path', 'key_points'):

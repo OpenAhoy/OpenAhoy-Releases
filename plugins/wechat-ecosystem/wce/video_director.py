@@ -431,14 +431,19 @@ class Director:
         require(base == shot['head_revision'], 'DIRECTOR_STALE_REVISION')
         original = shot['revisions'][base]
         patch = args['fields']
-        values = {key: original[key] for key in REVISION_FIELDS} | patch
+        previous = {key: original[key] for key in REVISION_FIELDS}
+        previous.update({key: original[key] for key in ('voice', 'stage') if key in original})
+        values = previous | patch
         for key in REVISION_FIELDS:
             if type(values[key]) is str:
                 values[key] = project_text(values[key])
         values['title'] = display_name(values['title'])
         require(values['end_ms'] >= values['start_ms'], 'DIRECTOR_TIME_RANGE_INVALID')
-        verify_revision(values, patch, root, scratch, args['project_id'])
-        if values == {key: original[key] for key in REVISION_FIELDS}:
+        verify_revision(values, patch, root, scratch, args['project_id'], work_id, original['images'])
+        for key in ('voice', 'stage'):
+            if values.get(key) is None:
+                values.pop(key, None)
+        if values == previous:
             return receipt | {'revision_id': base}
         revision_id = secrets.token_hex(16)
         shot['revisions'][revision_id] = {**values, 'id': revision_id, 'number': original['number'] + 1,

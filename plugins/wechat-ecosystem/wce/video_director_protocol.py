@@ -13,7 +13,7 @@ from .video_director import Director, WORK_FIELDS, canvas_state, lookup, primary
 from . import video_director_delivery as delivery
 from . import character_library as characters
 from . import asset_image_library as asset_images
-from . import studio_showcase
+from . import studio_showcase, stage_assets, asset_trial
 from .video_director_media import (CATALOG, IMAGE_CHUNK, IMAGE_ROLES, compute_request, import_image_chunk, models, preview_image,
                                    preview_result, preview_whitebox, validate_revision)
 from .video_protocol import ATTEMPT, FRAME, FRAME_INDEX, HANDLE, PROJECT, RELAY_URL, action
@@ -65,7 +65,12 @@ REVISION_OPTIONS = {key: TEXT for key in REVISION_TEXT} | {
     'title': TITLE, 'start_ms': MS, 'end_ms': MS, 'ratio': RATIO,
     'cards': {'type': 'array', 'items': CARD},
     'images': {'type': 'array', 'items': schema({
-        'role': {'type': 'string', 'enum': list(IMAGE_ROLES)}, 'file': FILE}, {'asset_version': characters.ID})},
+        'role': {'type': 'string', 'enum': list(IMAGE_ROLES)}, 'file': FILE}, {'asset_version': characters.ID, 'character_reference': characters.REFERENCE})},
+    'voice': {'oneOf': [
+        schema({'file': FILE, 'asset_version': characters.ID}, {'character_reference': characters.REFERENCE}),
+        schema({'mode': {'type': 'string', 'const': 'none'}}),
+    ]},
+    'stage': {'oneOf': [stage_assets.ASSIGNMENT, schema({'mode': {'type': 'string', 'const': 'none'}})]},
     'configuration': CONFIG, 'whitebox': WHITEBOX, 'result': SOURCE,
 }
 
@@ -90,6 +95,7 @@ SPECS = {
         action('projects', {}),
         action('work_request', WRITE),
         action('character_library', {}),
+        action('stage_catalog', PROJECT_ARG),
         action('character_import_preview', PROJECT_ARG | {'source': characters.SOURCE}),
         action('overview', PROJECT_ARG, {'work_id': PROJECT}),
         action('article_work', WORK_ARG, {'version': ARTICLE_VERSION, 'known_version': ARTICLE_VERSION}),
@@ -104,6 +110,9 @@ SPECS = {
         action('character_import', PROJECT_ARG | {'source': characters.SOURCE, 'expected_revision': ORDINAL}),
         action('character_import_version', PROJECT_ARG | {'origin': characters.ORIGIN}),
         action('character_set_current', PROJECT_ARG | characters.SELECTOR, {'expected_current': characters.ID}),
+        action('character_set_primary', PROJECT_ARG | characters.SELECTOR, {'expected_primary': characters.ID}),
+        action('stage_register', PROJECT_ARG | {'version': stage_assets.VERSION}),
+        action('stage_set_current', PROJECT_ARG | {'version_id': characters.ID}, {'expected_current': characters.ID}),
         action('register_article', PROJECT_ARG | WRITE | ARTICLE_SELECTOR | {'article_id': ID}),
         action('create_work', PROJECT_ARG | WRITE | {'fields': schema(NAME_FIELDS, WORK_OPTIONS)}),
         action('start_work', PROJECT_ARG | CHAT_ROOT | WRITE | {'fields': schema(NAME_FIELDS, WORK_OPTIONS)}),
@@ -132,6 +141,9 @@ SPECS = {
     SUBMIT: schema(TARGET | {'generation_attempt_id': ATTEMPT}),
     MEDIA: {'oneOf': [
         action('showcase_index', {}),
+        action('asset_trial_state', {}),
+        action('asset_trial_create', {}),
+        action('asset_trial_switch', {'number': {'type': 'integer', 'minimum': 1, 'maximum': 2}}),
         action('showcase_blob', {'media_id': studio_showcase.MEDIA_ID, 'offset': ORDINAL}),
         action('asset_image_library', {}),
         action('asset_image_original', PROJECT_ARG | {'sha256': HANDLE, 'offset': ORDINAL}),
@@ -150,6 +162,7 @@ SPECS = {
         action('article_image', WORK_ARG | {'version': ARTICLE_VERSION, 'slot': ID, 'offset': ORDINAL}),
         action('canvas_image', WORK_ARG | {'node_id': PROJECT}, {'thumbnail': {'type': 'boolean'}}),
         action('image', TARGET, {'index': ORDINAL, 'thumbnail': {'type': 'boolean'}}),
+        action('stage_preview', TARGET),
         action('whitebox', TARGET),
         action('whitebox_frames', TARGET | {'start': FRAME_INDEX}),
         action('result', TARGET),
@@ -158,7 +171,7 @@ SPECS = {
 }
 DESCRIPTIONS = {
     READ: 'Read account-scoped WeChat article works, their original draft/publish status, project storyboards, one exact shot revision, shared model/channel options, original-work delivery status, local preflight, built-in video-director cards, a work_request by its original operation_id, or registered character reference versions. Refresh Token Hex only when explicitly requested. Preflight only validates local input and encoding; no generation.',
-    EDIT: 'Create or revise a storyboard in a registered local project. The original own.documents.prepare HTML route automatically registers each article under its containing project. Use register_article with exact connection, bundle, version and article ID to recover a missing association. For chat starts use start_work with the original operation_id and both the current chat’s verified project_root and its matched project_id. Pass either an exact existing work_id or fields for a new work. First read work_request to recover any earlier result. Manage canvas layout, exact shot generation bindings and work-level local MP4 delivery. Character_import records a verified project-local JSON index. Character_set_current changes one role pointer using the observed version. Adopt_video selects an exact verified take for one shot without changing its storyboard revision. Read deliveries for candidate IDs and the current adoption. Poll_delivery may query the original provider and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Use project-relative files with project_id and SHA-256.',
+    EDIT: 'Create or revise a storyboard in a registered local project. The original own.documents.prepare HTML route automatically registers each article under its containing project. Use register_article with exact connection, bundle, version and article ID to recover a missing association. For chat starts use start_work with the original operation_id and both the current chat’s verified project_root and its matched project_id. Pass either an exact existing work_id or fields for a new work. First read work_request to recover any earlier result. Manage canvas layout, exact shot generation bindings and work-level local MP4 delivery. Character_import records a verified project-local JSON index. Character_set_current changes one role pointer using the observed version. Character_set_primary pins the visible identity reference for one form. A storyboard use pins the character, form and selected asset version; special references depend on the work. Adopt_video selects an exact verified take for one shot without changing its storyboard revision. Read deliveries for candidate IDs and the current adoption. Poll_delivery may query the original provider and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Use project-relative files with project_id and SHA-256.',
     SUBMIT: 'Submit one expressly authorized billable video from the exact saved shot revision. Inputs and provider come from that immutable revision. Use the original project and attempt with video.ark.generation.status after any ambiguous result. The exact original attempt is linked to the Jiusera canvas before submission.',
     MEDIA: 'App-only local image import and verified storyboard image, whitebox or completed clip previews.',
 }
@@ -175,6 +188,8 @@ class DirectorRouter:
         self.jobs = inner.video_jobs
         self.director = Director(self.jobs.projects)
         self.characters = characters.CharacterLibrary(self.director)
+        self.stage = stage_assets.StageLibrary(self.director)
+        self.trial = asset_trial.AssetTrial(self)
         self.registry = self.director.projects.registry
 
     def __getattr__(self, name):
@@ -226,6 +241,12 @@ class DirectorRouter:
             return article_work.read_work(self.director, self.registry, args, media=command == 'article_image')
         if command == 'showcase_index':
             return studio_showcase.index()
+        if command == 'asset_trial_state':
+            return self.trial.state()
+        if command == 'asset_trial_create':
+            return self.trial.create()
+        if command == 'asset_trial_switch':
+            return self.trial.switch(args['number'])
         if command == 'showcase_blob':
             return studio_showcase.chunk(args['media_id'], args['offset'])
         if command == 'asset_image_library':
@@ -234,9 +255,13 @@ class DirectorRouter:
             return asset_images.original(self.director, args)
         if command == 'character_library':
             return self.characters.list()
+        if command == 'stage_catalog':
+            return self.stage.catalog(args['project_id'])
+        if command in ('stage_register', 'stage_set_current'):
+            return self.stage.edit(args)
         if command == 'character_import_preview':
             return self.characters.preview(args['project_id'], args['source'])
-        if command in ('character_import', 'character_import_version', 'character_set_current'):
+        if command in ('character_import', 'character_import_version', 'character_set_current', 'character_set_primary'):
             return self.characters.edit(args)
         if command == 'character_manifest_files':
             return self.characters.manifest_files(args['project_id'], args.get('directory', ''))
@@ -339,6 +364,11 @@ class DirectorRouter:
                     'revision_id': args['revision_id'], 'request': request,
                     'provider_access_verified': False}
         revision = context['revision']
+        if command == 'stage_preview':
+            stage = revision.get('stage')
+            require(stage, 'DIRECTOR_STAGE_VERSION_NOT_FOUND')
+            root, pin = self.director.project(args['project_id'])
+            return stage_assets.preview(root, self.director.storage(root, pin), args['project_id'], stage)
         if command == 'image':
             images = revision['images']
             require(images, 'DIRECTOR_IMAGE_UNAVAILABLE')

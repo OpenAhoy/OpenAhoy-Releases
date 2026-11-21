@@ -66,7 +66,7 @@ HTML = '''
    <nav id="directorTabs" aria-label="当前镜头">
     <button type="button" data-tab="text">文字</button><button type="button" data-tab="images">图片</button>
     <button type="button" data-tab="versions">版本</button><button type="button" data-tab="generation">生成配置</button>
-    <button type="button" data-tab="whitebox">白模</button>
+    <button type="button" data-tab="whitebox">白模</button><button type="button" data-tab="stage" hidden>场景</button>
    </nav>
    <div id="directorInspector"></div>
    <details id="directorHandoff"><summary>交给 Codex 修改</summary>
@@ -545,6 +545,7 @@ function OADirector(tool, send, canSend, navigation){
      result=>readWork({work:ctx.work_id,focus:{scene_id:ctx.scene_id,shot_id:ctx.shot_id,revision_id:result.revision_id}}),message);
  }
  function renderInspector(){
+   releaseVoicePreview();
    if(player){player.close();player=null;}
    inspector.replaceChildren();
    const tabs=$('directorTabs'),headline=$('directorShotTitle'),status=$('directorShotStatus');
@@ -564,7 +565,48 @@ function OADirector(tool, send, canSend, navigation){
    if(tab==='images')renderImages(rev,fresh);
    if(tab==='versions')renderVersions(rev);
    if(tab==='generation')void renderConfig(rev,fresh);
+   tabs.querySelector('[data-tab=stage]').hidden=!rev.stage;
    if(tab==='whitebox')renderWhitebox(rev,fresh);
+   if(tab==='stage'){
+     if(rev.stage)void renderStage(rev.stage);
+     else inspector.append(label('p','这个修订还没有锁定场景。'));
+   }
+ }
+ async function renderStage(stage){
+   const scope=exact(),key=scopeKey(),pane=node('section','dd-asset-list');
+   pane.dataset.pinnedStage='';pane.dataset.sceneVersion=stage.scene.version_id;pane.dataset.objectVersion=stage.object.version_id;
+   const picture=node('div','dd-asset-list'),status=label('p','正在读取锁定的场景预览…');
+   const row=(title,detail)=>{const element=node('div');element.append(label('strong',title),raw('p',detail));return element;};
+   const dims=(data)=>data.map(n=>String(n/1000)).join(', ');
+   const paths=node('div','dd-actions');
+   paths.append(button('复制演播室原件路径',()=>copy(context.project_root+'/'+stage.scene.file.path)),
+                button('复制话筒原件路径',()=>copy(context.project_root+'/'+stage.object.file.path)));
+   pane.append(picture,status,paths,row('场景原件',stage.scene.title+' · '+stage.scene.version_id),
+      row('物品原件',stage.object.title+' · '+stage.object.version_id),
+      row('相机位置（米）',dims(stage.camera.location_mm)),row('相机旋转（度）',dims(stage.camera.rotation_mdeg)),
+      row('焦距（毫米）',String(stage.camera.lens_um/1000)),
+      row('物品位置（米）',dims(stage.placement.location_mm)),row('物品旋转（度）',dims(stage.placement.rotation_mdeg)));
+   inspector.append(pane);
+   try{
+     const preview=await media('stage_preview',scope);
+     if(!pane.isConnected||tab!=='stage'||scopeKey()!==key)return;
+     if(preview.sha256!==stage.preview.sha256||preview.mime_type!=='image/jpeg'||!preview.data.startsWith('/9j/'))
+       throw Error('DIRECTOR_STAGE_FILE_CHANGED');
+     const source='data:image/jpeg;base64,'+preview.data,small=node('img');
+     OAUI.attr(small,'alt','锁定场景预览');small.style.width='100%';small.style.borderRadius='8px';
+     small.src=source;picture.append(small);status.hidden=true;
+     picture.append(button('查看场景大图',()=>{
+       const dialog=$('directorCanvasPreview'),large=node('img');
+       OAUI.raw($('directorCanvasPreviewTitle'),stage.scene.title+' · '+stage.scene.version_id);
+       $('directorCanvasNoteEdit').hidden=true;
+       const container=$('directorCanvasPreviewBody');
+       OAUI.attr(large,'alt','锁定场景预览');large.style.maxWidth='100%';large.src=source;
+       container.replaceChildren(large);
+       if(!dialog.open)dialog.showModal();
+     }));
+   }catch(_){
+     if(pane.isConnected)OAUI.set(status,'场景预览暂不可用，请核对锁定的原件与依赖。');
+   }
  }
  function renderText(rev,fresh){
    const fields=['purpose','opening','action','ending','transition','subjects','composition','camera','lens',
@@ -627,11 +669,16 @@ function OADirector(tool, send, canSend, navigation){
    }
    return {path,sha,read,prepare,filename:()=>file.files?.[0]?.name};
  }
- let imageDraft=null;
+ let imageDraft=null,voiceURL=null,voiceElement=null;
+ function releaseVoicePreview(){
+   if(voiceElement){voiceElement.pause();voiceElement.removeAttribute('src');voiceElement=null;}
+   if(voiceURL){URL.revokeObjectURL(voiceURL);voiceURL=null;}
+ }
  function renderImages(rev,fresh){
-   const initial=scopeKey();
-   const list=node('div','dd-asset-list'),images=fresh&&imageDraft?.scope===initial?imageDraft.images:structuredClone(rev.images);
-   const keep=()=>{imageDraft={scope:initial,images};};
+   const initial=scopeKey(),draft=fresh&&imageDraft?.scope===initial?imageDraft:null;
+   const list=node('div','dd-asset-list'),images=draft?draft.images:structuredClone(rev.images);
+   let voice=draft?draft.voice:structuredClone(rev.voice??null);
+   const keep=()=>{imageDraft={scope:initial,images,voice};};
    function draw(){
      list.replaceChildren();
      if(!images.length)list.append(label('p','这个修订还没有图片。'));
@@ -640,6 +687,11 @@ function OADirector(tool, send, canSend, navigation){
        left.append(raw('strong',row.file.path),label('p',roles[row.role]));
        if(row.asset_version){
          const version=node('p');OAUI.set(version,'形象版本：{0}',row.asset_version);left.append(version);
+         if(row.character_reference){
+           const pinned=row.character_reference;
+           left.append(raw('p',pinned.character_id+' · '+(pinned.form_id==='normal'?'常态':pinned.form_id)));
+           if(pinned.crop)left.append(raw('p',`裁切 ${pinned.crop.x}, ${pinned.crop.y} · ${pinned.crop.width} × ${pinned.crop.height}`));
+         }
        }
        if(fresh){
          const choice=select(left,'图片用途',Object.entries(roles),row.role);
@@ -653,7 +705,43 @@ function OADirector(tool, send, canSend, navigation){
        part.append(left,right);list.append(part);
      });
    }
-   draw();inspector.append(list);
+   const voiceSection=node('section','dd-asset-list');
+   voiceSection.dataset.shotVoice='';
+   function drawVoice(){
+     releaseVoicePreview();
+     const heading=label('strong','镜头声音');
+     voiceSection.replaceChildren(heading);
+     if(voice){
+       const pinned=voice.character_reference;
+       const name=raw('p',pinned?`${pinned.character_id} · ${pinned.form_id} · ${voice.asset_version}`:voice.asset_version);
+       name.dataset.voiceVersion=voice.asset_version;
+       const row=voice,feedback=label('p',''),actions=node('div','dd-actions');
+       const listen=button('试听锁定声音',async()=>{
+         listen.disabled=true;
+         const alive=()=>listen.isConnected&&voice===row&&scopeKey()===initial&&tab==='images';
+         try{
+           const blob=await navigation.readCharacterOriginal({use:'voice',id:row.asset_version,file:row.file},alive);
+           if(!blob||!alive())return;
+           releaseVoicePreview();voiceURL=URL.createObjectURL(blob);
+           voiceElement=node('audio');voiceElement.controls=true;voiceElement.preload='metadata';
+           OAUI.attr(voiceElement,'aria-label','锁定声音播放器');voiceElement.src=voiceURL;
+           voiceSection.append(voiceElement);
+           voiceElement.play().catch(()=>{});
+         }catch(problem){if(alive()){OAUI.set(feedback,'声音原件暂不可播放。');listen.disabled=false;}}
+       });
+       actions.append(listen);
+       if(fresh)actions.append(button('移除此声音',()=>{voice=null;keep();drawVoice();}));
+       voiceSection.append(name,actions,feedback);
+     }
+     if(fresh){
+       const pickVoice=button(voice?'更换镜头声音':'从形象库选择声音',()=>navigation.chooseCharacter(pid(),asset=>{
+         if(scopeKey()!==initial||tab!=='images')throw Error('DIRECTOR_STALE_REVISION');
+         voice={file:structuredClone(asset.file),asset_version:asset.id};keep();drawVoice();
+       },pickVoice,context.work_id,'audio'));
+       voiceSection.append(pickVoice);
+     }
+   }
+   draw();drawVoice();inspector.append(list,voiceSection);
    if(!fresh)return;
    const add=node('details');add.append(label('summary','关联项目图片'));
    const form=node('div','dd-form'),role=select(form,'图片用途',Object.entries(roles),'composition');
@@ -675,9 +763,11 @@ function OADirector(tool, send, canSend, navigation){
      if(!images.some(row=>row.asset_version===asset.id&&row.file.sha256===file.sha256)){
        images.push({role:'reference',file,asset_version:asset.id});keep();draw();
      }
-   },pick));
+   },pick,context.work_id,'image'));
    add.append(form);inspector.append(pick,add,button('保存图片修订',async()=>{
-     const saved=await revise({images});
+     const fields={images};
+     if(JSON.stringify(voice)!==JSON.stringify(rev.voice??null))fields.voice=voice??{mode:'none'};
+     const saved=await revise(fields);
      if(saved&&imageDraft?.scope===initial)imageDraft=null;
    },'primary'));
  }
@@ -1243,7 +1333,7 @@ function OADirector(tool, send, canSend, navigation){
  function view(target){
    if(mode===target)return;
    if(mode==='desk'){
-     canvas.suspend();clearPreview();stopWatch();visual++;
+     canvas.suspend();clearPreview();releaseVoicePreview();stopWatch();visual++;
      if($('directorCanvasPreview').open)$('directorCanvasPreview').close();
      if($('directorDialog').open)$('directorDialog').close();
    }
@@ -1304,11 +1394,31 @@ function OADirector(tool, send, canSend, navigation){
  function resetWork(){
    reading++;stopWatch();engineDraft=null;engineDirty=false;data=null;context=null;sceneID=null;
  }
- async function open(target='monitor'){
+ let addressOpened=false;
+ async function openAddress(){
+   if(addressOpened||mode!=='desk')return;
+   addressOpened=true;
+   const query=new URLSearchParams(location.search);
+   const [project_id,work_id,scene_id,shot_id,revision_id]=['project','work','scene','shot','revision'].map(key=>query.get(key));
+   return openShot({scope:{project_id,work_id,scene_id,shot_id,revision_id},tab:query.get('tab')});
+ }
+ async function openShot(shot){
+   const {project_id,work_id,scene_id,shot_id,revision_id}=shot.scope;
+   if(mode!=='desk'||![project_id,work_id,scene_id,shot_id,revision_id].every(value=>/^[a-f0-9]{32}$/.test(value||''))||
+      !projects.some(row=>row.id===project_id))return;
+   project.value=project_id;
+   if(!await readWork({work:work_id,focus:{scene_id,shot_id,revision_id}}))return;
+   const preferred=shot.tab;
+   if(preferred==='images'||preferred==='stage'&&context?.revision.stage)tab=preferred;
+   renderInspector();
+   const toggle=$('wbShot');
+   if(toggle&&toggle.getAttribute('aria-expanded')!=='true')toggle.click();
+ }
+ async function open(target='monitor',shot){
    root.hidden=false;
    view(target);
    if(!workspaceTimer)workspaceTimer=setInterval(tickWorkspace,2600);
-   try{await refreshProjects({restore:true});await checkChatRequest();}
+   try{await refreshProjects({restore:true});if(shot)await openShot(shot);else await openAddress();await checkChatRequest();}
    catch(problem){if(mode)error(problem);}
  }
  function startPrompt(id){
@@ -1387,7 +1497,7 @@ function OADirector(tool, send, canSend, navigation){
    }finally{ticking=false;}
  }
  function close(){
-   navigation.closeCharacterPicker();imageDraft=null;canvas.suspend();review.clear();articleStage.hide();
+   navigation.closeCharacterPicker();imageDraft=null;releaseVoicePreview();canvas.suspend();review.clear();articleStage.hide();
    document.body.removeAttribute('data-workbench-article');
    clearInterval(workspaceTimer);workspaceTimer=null;polled.clear();engineDraft=null;engineDirty=false;
    mode='';root.hidden=true;projectLoad++;reading++;visual++;clearPreview();stopWatch();say('');
@@ -1681,6 +1791,6 @@ function OADirector(tool, send, canSend, navigation){
    },
    play:playCanvasVideo,
  });
- return {open,close,view,canAttach,attach,guideContext,goToArticle};
+ return {open,close,view,canAttach,attach,guideContext,goToArticle,openShot};
 }
 '''

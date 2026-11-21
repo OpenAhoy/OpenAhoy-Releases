@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "files": {
+    "JiuseraAssets/Objects/mic-v1/grille-mask.png": "d142e85818351b4ffb0a915a247f15136568e63a34408f45d05c8bdbb298e90f",
+    "JiuseraAssets/Objects/mic-v1/microphone.blend": "c0442547aeb94e033e7a48b0f543ad925e361f959a6733225e8c48f3a2b1f1a2",
+    "JiuseraAssets/Objects/mic-v2/grille-mask.png": "4ff85e85db99f11ca1d7ffa15ea9efe77cf0b526bb28c59d0e5afae45edb258e",
+    "JiuseraAssets/Objects/mic-v2/microphone.blend": "b50b2c4b105353660c683eca18be013d1bf1b6a07f2312ac288467a05e8b657d",
+    "JiuseraAssets/Scenes/Previews/studio-close.png": "364c8a38e85b4136198cb47a638ada3c1bf5e7ea58efafcf9004ac9356c453e2",
+    "JiuseraAssets/Scenes/Previews/studio-wide.png": "fa8f7f9cfa932d18c6efd28dda39f00c67b1a9af29e3911c847ec405fbf85056",
+    "JiuseraAssets/Scenes/studio-v1/screen-grid.png": "a3ba8e3dd908468ea98a3c68864b7dd55f66acfc434dfedc0d742f2757d2f5d1",
+    "JiuseraAssets/Scenes/studio-v1/studio.blend": "13fdd51133d9bf170ffd8d2d0ff97790edf70cf4ac36f6a951da209714fc7379",
+    "JiuseraAssets/Scenes/studio-v2/screen-grid.png": "f6b6b18afb33f0a58fba31dc02566dc37be6247a1b13f882718f46ead1f536c1",
+    "JiuseraAssets/Scenes/studio-v2/studio.blend": "c4fc804eb99be6526e54d54ce80d56daf7b15933743ac39bf1e7e286cf35d6e2",
+    "References/normal.png": "d62526efcf628269cee7222afdf1ee8d1bce8e675c9d882085b0f55df12d4e34",
+    "References/shift-v1.png": "1fed5d28f4511530a97e7ecdcee087c1925e81f6fb37767b55a0912718da93d6",
+    "References/shift-v2.png": "c3f16e7def9736396303c4b033bf3b64dae68f98913d5c59f7d56f28c84d427d",
+    "References/voice-v1.wav": "4dc2ac309b136dd687189b3a842029c4cb5013435b26d1a555fc92fc734309bf",
+    "References/voice-v2.wav": "7474adc06fc807d97ace2a1a5bf0d48812b74ac526e7ee33869fda39dbbaf683"
+  },
+  "poses": {
+    "wide": {
+      "camera": {
+        "location_mm": [
+          4600,
+          -8900,
+          3650
+        ],
+        "rotation_mdeg": [
+          80167,
+          0,
+          24812
+        ],
+        "lens_um": 43000
+      },
+      "placement": {
+        "location_mm": [
+          -920,
+          -180,
+          1320
+        ],
+        "rotation_mdeg": [
+          0,
+          0,
+          18000
+        ],
+        "scale_permille": [
+          1000,
+          1000,
+          1000
+        ]
+      }
+    },
+    "close": {
+      "camera": {
+        "location_mm": [
+          -3250,
+          -6050,
+          2600
+        ],
+        "rotation_mdeg": [
+          83617,
+          0,
+          -27350
+        ],
+        "lens_um": 49000
+      },
+      "placement": {
+        "location_mm": [
+          970,
+          -580,
+          1320
+        ],
+        "rotation_mdeg": [
+          0,
+          0,
+          -34000
+        ],
+        "scale_permille": [
+          1000,
+          1000,
+          1000
+        ]
+      }
+    }
+  }
+}

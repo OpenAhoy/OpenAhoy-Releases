@@ -379,6 +379,11 @@ class DirectorTests(unittest.TestCase):
         path.write_bytes(raw)
         return {'path': path.name, 'sha256': sha256(raw).hexdigest()}
 
+    @staticmethod
+    def managed_character_file(project, record):
+        return {'project_id': project, 'sha256': record['sha256'],
+                'path': f"JiuseraAssets/Characters/{record['sha256']}.png"}
+
     def test_character_library_locks_old_reference_across_current_updates_and_reopen(self):
         old = self.character_entry('aria-v1', self.image1, 'current')
         new = self.character_entry('aria-v2', self.image2)
@@ -398,7 +403,16 @@ class DirectorTests(unittest.TestCase):
         assets = next(project['assets'] for project in self.read('character_library')['projects'] if project['id'] == self.p)
         self.assertEqual({row['id']: row['status'] for row in assets},
                          {old['id']: 'historical', new['id']: 'current', face['id']: 'current'})
-        self.assertEqual(self.read('context', locked)['revision']['images'], [reference])
+        stored = self.managed_character_file(self.p, old)
+        self.assertEqual({row['id']: row['file'] for row in assets},
+                         {row['id']: self.managed_character_file(self.p, row) for row in (old, new, face)})
+        for row in (old, new, face):
+            managed = self.managed_character_file(self.p, row)
+            self.assertEqual((self.project / managed['path']).read_bytes(),
+                             (self.project / row['path']).read_bytes())
+        pinned = reference | {'file': stored, 'character_reference': {
+            'character_id': 'aria', 'form_id': 'normal', 'version_id': old['id']}}
+        self.assertEqual(self.read('context', locked)['revision']['images'], [pinned])
         self.assertEqual(self.read('context', self.a)['revision']['images'], [])
         for file in [self.image2, self.image1 | {'project_id': self.q}]:
             with self.assertRaisesRegex(WCEError, 'DIRECTOR_(CHARACTER_REFERENCE_MISMATCH|ASSET_WRONG_PROJECT)'):
@@ -428,10 +442,20 @@ class DirectorTests(unittest.TestCase):
         media = {'action': 'character_thumbnail', 'project_id': self.p,
                  'version_id': old['id'], 'sha256': old['sha256']}
         self.desk.call(MEDIA, media)
-        make_png(self.project / old['path'], (3, 60, 168))
+        original = self.project / old['path']
+        managed = self.project / self.managed_character_file(self.p, old)['path']
+        frozen = original.read_bytes()
+        self.assertEqual(managed.read_bytes(), frozen)
+        make_png(original, (3, 60, 168))
+        self.assertNotEqual(original.read_bytes(), frozen)
+        self.assertEqual(managed.read_bytes(), frozen)
+        raw = self.desk.call(MEDIA, media | {'action': 'character_original', 'offset': 0})
+        self.assertEqual(b64decode(raw['data']), frozen)
+        make_png(managed, (41, 27, 117))
         with self.assertRaisesRegex(WCEError, 'VIDEO_FRAME_CHANGED'):
             self.desk.call(MEDIA, media)
-        (self.project / old['path']).unlink()
+        managed.unlink()
+        self.assertTrue(original.is_file())
         with self.assertRaisesRegex(WCEError, 'DIRECTOR_CHARACTER_ORIGINAL_MISSING'):
             self.desk.call(MEDIA, media)
         self.assertTrue(any(row['id'] == old['id'] for project in self.read('character_library')['projects']
@@ -458,13 +482,16 @@ class DirectorTests(unittest.TestCase):
         with self.assertRaisesRegex(WCEError, 'DIRECTOR_CHARACTER_MANIFEST_INVALID') as error:
             media('character_manifest_pick', path='references/faces/bad.json')
         self.assertEqual(location(error.exception), {'manifest_position': 2, 'manifest_field': 'use',
-            'allowed_values': ['full_body', 'face', 'expression', 'pose', 'style']})
+            'allowed_values': ['full_body', 'face', 'expression', 'pose', 'style',
+                               'angle', 'wardrobe', 'accessory', 'voice']})
         plan = media('character_manifest_pick', path='references/faces/good.json')
         self.assertEqual(plan['source']['path'], 'references/faces/good.json')
         self.edit('character_import', {'source': plan['source'], 'expected_revision': plan['revision']})
         index = self.project / '.openahoy-director/character-library.json'
         original_index = index.read_bytes()
         original_asset = (self.project / style['path']).read_bytes()
+        upstream = self.project / self.managed_character_file(self.p, style)['path']
+        self.assertEqual(upstream.read_bytes(), original_asset)
         origin = {'project_id': self.p, 'version_id': style['id'], 'sha256': style['sha256']}
         args = {'project_id': self.q, 'origin': origin}
         with self.assertRaisesRegex(WCEError, 'DIRECTOR_PROJECT_NOT_REGISTERED'):
@@ -480,17 +507,24 @@ class DirectorTests(unittest.TestCase):
             self.revised(target, {'images': [{'role':'reference','file':self.image1,'asset_version':style['id']}]})
         imported = self.edit('character_import_version', args)
         self.assertEqual((imported['state'], imported['origin']), ('IMPORTED', origin))
-        before = (self.other / imported['file']['path']).read_bytes()
-        self.assertEqual(before, original_asset)
+        self.assertEqual(imported['file'], self.managed_character_file(self.q, style))
+        destination = self.other / imported['file']['path']
+        self.assertEqual(destination.read_bytes(), original_asset)
         same = self.edit('character_import_version', args)
         self.assertEqual(same, imported | {'state': 'UNCHANGED'})
-        pinned = {'role':'reference','file':imported['file'],'asset_version':imported['version_id']}
-        saved = self.revised(target, {'images':[pinned]})
+        chosen = {'role': 'reference', 'file': imported['file'], 'asset_version': imported['version_id']}
+        pinned = chosen | {'character_reference': {'character_id': 'aria', 'form_id': 'normal',
+                                                    'version_id': imported['version_id']}}
+        saved = self.revised(target, {'images': [chosen]})
         self.assertEqual(index.read_bytes(), original_index)
         self.assertEqual((self.project / style['path']).read_bytes(), original_asset)
         make_png(self.project / style['path'], (8, 7, 6))
+        self.assertEqual(self.edit('character_import_version', args), same)
+        self.assertEqual(upstream.read_bytes(), original_asset)
+        make_png(upstream, (14, 27, 41))
         with self.assertRaisesRegex(WCEError, 'VIDEO_FRAME_CHANGED'):
             self.edit('character_import_version', args)
+        self.assertEqual(destination.read_bytes(), original_asset)
         self.desk = DirectorRouter(self.inner)
         self.assertEqual(self.read('context', saved)['revision']['images'], [pinned])
         listing = self.read('character_library')['projects']
@@ -526,6 +560,9 @@ class DirectorTests(unittest.TestCase):
         attempt = job['generation_attempt_id']
         receipt, artifact = self.jobs._paths(attempt)
         original = b'fixture-original-video-bytes'
+        character_pin = {'character_id': 'aria', 'form_id': 'normal', 'version_id': old['id']}
+        character_inputs = [{'position': 1, 'role': 'first', 'version_id': old['id'],
+                             'sha256': self.image1['sha256'], 'character_reference': character_pin}]
         self.jobs.inspect = lambda path: {'width':640,'height':360,'seconds':5,'audio_tracks':0}
 
         def accept(key, body):
@@ -533,6 +570,7 @@ class DirectorTests(unittest.TestCase):
             self.assertEqual(guard['state'], 'SUBMIT_UNKNOWN')
             self.assertEqual(guard['request_sha256'], sha256(body).hexdigest())
             self.assertTrue(all(guard['director_binding'][key] == value for key, value in target.items()))
+            self.assertEqual(guard['director_binding']['characters'], character_inputs)
             self.assertEqual(guard['request']['frames'], [self.image1['sha256'],self.image2['sha256']])
             cards = self.read('deliveries', self.base)['cards']
             self.assertEqual([(card['attempt_id'],card['state']) for card in cards], [(attempt,'SUBMIT_UNKNOWN')])
@@ -544,8 +582,7 @@ class DirectorTests(unittest.TestCase):
         self.assertEqual(self.desk.call(SUBMIT, job)['provider_task_id'], 'upstream-original')
         submitted = self.read('deliveries', self.base)['cards'][0]
         self.assertEqual(submitted['state'], 'SUBMITTED')
-        self.assertEqual(submitted['character_inputs'], [{'position':1,'role':'first','version_id':old['id'],
-                                                           'sha256':self.image1['sha256']}])
+        self.assertEqual(submitted['character_inputs'], character_inputs)
         with self.assertRaisesRegex(WCEError, 'DIRECTOR_GENERATION_SCOPE_CHANGED'):
             self.desk.call(SUBMIT, self.b | {'generation_attempt_id': attempt})
         with self.assertRaises(WCEError):

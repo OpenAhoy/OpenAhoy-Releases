@@ -867,7 +867,8 @@ SCRIPT = r'''
  const studioEntries=$('jiuseraEntries'), studioParent=$('openMediaStudio'), assetKinds=$('directorAssetKinds');
  let showcaseBack='jiusera-canvas';
  const showcase=OAStudioShowcase((action,args)=>mediaTool('wce.ui.video.director.media',{action,...args}),
-   ()=>void openView(showcaseBack,{user:true,focus:true}));
+   ()=>void openView(showcaseBack,{user:true,focus:true}),
+   shot=>void openView('jiusera-canvas',{user:true,focus:true,shot}));
  const studioSound=OAStudioPreviewSound($('directorSound'));
  let studioExpanded=false,mediaView='',mainStudio='monitor',assetKind='';
  const assetRoute=kind=>kind||'jiusera-assets';
@@ -946,7 +947,8 @@ SCRIPT = r'''
  const characters=OACharacterLibrary(mediaTool,openProjectSettings);
  const director=OADirector(mediaTool,sendChatRequest,()=>!!hostCapabilities.message?.text,{
     guideChanged:()=>guide?.render(),
-    sound:studioSound,chooseCharacter:characters.choose,closeCharacterPicker:characters.closePicker,
+    sound:studioSound,chooseCharacter:characters.choose,readCharacterOriginal:characters.readOriginal,
+    closeCharacterPicker:characters.closePicker,
     go:section=>enterStudio(section,{user:true,focus:true}),
     back:()=>enterStudio(mainStudio,{user:true,focus:true}),
     library:()=>enterStudio('assets',{kind:'video',user:true,focus:true}),
@@ -981,7 +983,7 @@ SCRIPT = r'''
    introToggle.onclick=()=>{introPreference=!homeIntro.isPlaying();syncIntro();};
    document.addEventListener('visibilitychange',syncIntro);
  }
- function showMedia(section,{kind='',asset}={}){
+ function showMedia(section,{kind='',asset,shot}={}){
    const before=mediaView;
    if(!before&&!section)return;
    if(before!==section){
@@ -1000,8 +1002,11 @@ SCRIPT = r'''
    if(!section){director.close();return;}
    if(!before){
      closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();
-     void director.open(section);
-   }else director.view(section);
+     void director.open(section,shot);
+   }else{
+     director.view(section);
+     if(shot)void director.openShot(shot);
+   }
    if(section==='assets'&&(before!==section||kind!==assetKind||asset))showAssetKind(kind,asset);
    if(section==='tasks'&&before!==section)monitor.open('all');
    if(section==='providers'&&before!==section)showMediaProvider('video');
@@ -1012,7 +1017,7 @@ SCRIPT = r'''
    for(const button of studioEntries.querySelectorAll('[data-studio-page]'))
      button.setAttribute('aria-current',mediaView&&mainStudio===button.dataset.studioPage?'page':'false');
  }
- function enterStudio(section,{kind,asset,user=false,focus=false}={}){
+ function enterStudio(section,{kind,asset,shot,user=false,focus=false}={}){
    if(closed||!ready||!$('inlineBinding').hidden)return;
    if(view!=='studio'){
      platformEpoch++;selectionIntent++;selectEpoch++;
@@ -1025,7 +1030,7 @@ SCRIPT = r'''
      if(section==='assets')updateAssetURL(assetRoute(kind));
      else if(mediaView==='assets')updateAssetURL('');
    }
-   showMedia(section,{kind,asset});renderView();renderPlatforms();
+   showMedia(section,{kind,asset,shot});renderView();renderPlatforms();
    if(focus&&!asset)$('directorTitle').focus({preventScroll:true});
  }
  function renderView(){
@@ -1040,7 +1045,7 @@ SCRIPT = r'''
    paintStudioNavigation();
    guide?.render();
  }
- async function openView(target,{user=false,focus=false}={}){
+ async function openView(target,{user=false,focus=false,shot}={}){
    closeFloatingMenus();
    if(closed||!ready||!$('inlineBinding').hidden)return;
    if(target==='studio-showcase'){
@@ -1062,7 +1067,7 @@ SCRIPT = r'''
    }
    if(studioRoutes.has(target)){
      const {section,kind}=studioRoutes.get(target);
-     enterStudio(section,{kind,user,focus});
+     enterStudio(section,{kind,user,focus,shot});
      return;
    }
    if(user&&mediaView==='assets')updateAssetURL('');

@@ -42,6 +42,11 @@ def submit(router, args):
         require(director.project(project) == (root, pin) and row.get('project_video_root') == list(pin),
                 'DIRECTOR_PROJECT_CHANGED')
         delivery.generation_scope(row, spec)
+        from .character_library import verify_reference
+
+        for item in inputs:
+            if 'asset_version' in item:
+                verify_reference(location, project, item, target['work_id'])
         receipt = director.edit(track_args, None, jobs=jobs)
         require(all(receipt.get(key) == value for key, value in target.items()) and
                 receipt.get('attempt_id') == attempt, 'DIRECTOR_SAVE_NOT_VERIFIED')
@@ -51,14 +56,11 @@ def submit(router, args):
         require(stored is not None and all(stored.get(key) == spec[key] for key in spec)
                 and all(stored.get(key) == target[key] for key in TARGET_KEYS[2:]),
                 'DIRECTOR_SAVE_NOT_VERIFIED')
-        from .character_library import verify_reference
-
-        for item in inputs:
-            if 'asset_version' in item:
-                verify_reference(location, project, item)
         return dict(target, kind='shot', verification='URL_UNVERIFIED' if mode in ('subject', 'workflow') else 'LOCAL_INPUTS',
                     characters=[{'position': index, 'role': item['role'], 'version_id': item['asset_version'],
                                  'sha256': item['file']['sha256']}
+                                | ({'character_reference': item['character_reference']}
+                                   if 'character_reference' in item else {})
                                 for index, item in enumerate(inputs, 1) if 'asset_version' in item])
 
     if mode == 'subject':
