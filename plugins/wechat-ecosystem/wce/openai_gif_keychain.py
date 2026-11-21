@@ -14,7 +14,7 @@ SCOPE = sha256(SERVICE.encode()).hexdigest()
 
 class GifKeychain(VideoKeychain):
     service = SERVICE
-    label = 'OpenAhoy · OpenAI GIF API Key'
+    label = 'Jiusera · OpenAI GIF API Key'
 
     def __init__(self):
         # The configured() query uses this exact scope and does not retrieve key data.

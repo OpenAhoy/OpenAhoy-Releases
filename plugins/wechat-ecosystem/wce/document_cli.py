@@ -58,7 +58,7 @@ def prepare(document_path, asset_manifest_path, image_root):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='OpenAhoy local preview; no token or WeChat request')
+    parser = argparse.ArgumentParser(description='Jiusera local preview; no token or WeChat request')
     parser.add_argument('--document', required=True)
     parser.add_argument('--assets', required=True)
     parser.add_argument('--images', required=True)

@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 
 from .contracts import WCEError
+from . import video_autodl_catalog as autodl
 from .video_seedance import Ark, MAX_JSON, MAX_REQUEST, MAX_RESULT, NoRedirect
 
 RELAY_MODEL = 'MiniMax-H3-Relay'
@@ -366,11 +367,16 @@ class AutoDLMediaHTTPSHandler(PublicHTTPSHandler):
 
 
 def workflow_body(inputs):
-    fields = {key: inputs[key] for key in ('prompt', 'duration', 'resolution') if key in inputs}
-    for name, group in (('ref_image', inputs['reference_images']), ('ref_audio', inputs.get('reference_audio', []))):
-        for index, url in enumerate(group):
+    if 'workflow_id' in inputs:
+        fields = autodl.validate(inputs)
+        for _, url in autodl.media(inputs):
             https_url(url, 'VIDEO_RELAY_INPUT_URL_INVALID')
-            fields[f'{name}_{index}'] = url
+    else:
+        fields = {key: inputs[key] for key in ('prompt', 'duration', 'resolution') if key in inputs}
+        for name, group in (('ref_image', inputs['reference_images']), ('ref_audio', inputs.get('reference_audio', []))):
+            for index, url in enumerate(group):
+                https_url(url, 'VIDEO_RELAY_INPUT_URL_INVALID')
+                fields[f'{name}_{index}'] = url
     body = json.dumps(fields, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
     if len(body) > MAX_REQUEST:
         raise WCEError('VIDEO_REQUEST_TOO_LARGE')
@@ -393,12 +399,13 @@ class Relay(Ark):
             'Accept': 'application/json'})
         return self.workflow_opener.open(request, timeout=25)
 
-    def submit(self, key, body):
+    def submit(self, key, body, *, workflow_id=autodl.LEGACY_WORKFLOW):
+        endpoint = autodl.profile(workflow_id)['endpoint']
         authorization = key.reveal_for_adapter()
         status = None
         shape = {}
         try:
-            with self._request('minimax_h3_zm_nono', authorization, body) as response:
+            with self._request(endpoint, authorization, body) as response:
                 status, shape = submit_response_headers(response)
                 with timeout_phase('READ_RESPONSE_BODY'):
                     value = read_submit_response(response, shape, authorization)

@@ -22,12 +22,12 @@ def scope(provider):
 
 class VideoKeychain(XKeychain):
     service = SERVICE
-    label = 'OpenAhoy · Volcengine Ark API Key'
+    label = 'Jiusera · Volcengine Ark API Key'
 
     def __init__(self, provider='ark'):
         if provider in SITES:
             self.service = 'com.readysteadyscience.openahoy.video.minimax.' + provider + '.v1'
-            self.label = 'OpenAhoy · MiniMax H3 · ' + provider
+            self.label = 'Jiusera · MiniMax H3 · ' + provider
         self.scope = scope(provider)
         super().__init__()
 

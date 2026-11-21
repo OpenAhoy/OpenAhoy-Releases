@@ -1,0 +1,6 @@
+/* Optional template defaults; source.html carries equivalent inline styles. */
+article { padding:24px 16px; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif; background:white; }
+p { margin:0 0 18px; font-size:16px; line-height:1.8; letter-spacing:.5px; color:#233733; }
+.thesis { font-size:26px; line-height:1.5; font-weight:650; margin:0 0 24px; }
+h2 { margin:24px 0 12px; font-size:20px; line-height:1.5; color:#214f43; }
+img { display:block; width:100%; height:auto; margin:0 0 24px; }

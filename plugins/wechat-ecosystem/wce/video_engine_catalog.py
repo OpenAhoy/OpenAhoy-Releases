@@ -2,6 +2,7 @@
 from urllib.parse import parse_qsl
 
 from .contracts import WCEError
+from . import video_autodl_catalog as autodl
 from .project_context import text as project_text
 from .video_minimax import H3_MODES, H3_MODELS, RATIOS, SITES, SUBJECT_MODEL, V1_MODELS
 from .video_relay import RELAY_MODEL, RESOLUTIONS, https_url
@@ -67,7 +68,8 @@ def mode_profiles(provider, model):
                     for mode, sizes in V1_MODELS[model].items()}
     if provider == 'relay' and model == RELAY_MODEL:
         return {'workflow': params(RESOLUTIONS, lambda _size: range(1, 16), ())
-                | {'url_inputs': 'relay', 'optional_output': True, 'image_urls': 9, 'audio_urls': 3}}
+                | {'url_inputs': 'relay', 'optional_output': True, 'image_urls': 9, 'audio_urls': 3,
+                   'workflows': autodl.options()}}
     return {}
 
 
@@ -88,6 +90,19 @@ def validate_config(config, project_id, *, ready=False):
     profile = modes.get(config['mode'])
     require(profile, 'VIDEO_MODE_UNSUPPORTED')
     url_kind = profile.get('url_inputs')
+    relay_fields = set(autodl.FIELDS) - {'duration', 'resolution'}
+    require(url_kind == 'relay' or not relay_fields & config.keys(), 'VIDEO_MODE_PARAMETERS_INVALID')
+    if url_kind == 'relay' and 'workflow_id' in config:
+        require(not ({'ratio', 'audio', 'direction', 'source', 'subject_image_url'} & config.keys()),
+                'VIDEO_MODE_PARAMETERS_INVALID')
+        relay_config = {key: config[key] for key in autodl.FIELDS if key in config}
+        autodl.validate(relay_config, partial=True)
+        required = {key for key, rule in autodl.profile(config['workflow_id'])['fields'].items()
+                    if rule['required']} - {'prompt'}
+        require(not ready or required <= relay_config.keys(), 'DIRECTOR_INPUT_URL_REQUIRED')
+        for _, url in autodl.media(relay_config):
+            public_media_url(url)
+        return profile
     sizes = profile['resolutions']
     optional = profile.get('optional_output', False)
     size = config.get('resolution')
@@ -107,8 +122,9 @@ def validate_config(config, project_id, *, ready=False):
         require(source, 'VIDEO_REFERENCE_SOURCE_UNAVAILABLE')
     require(profile['direction'] == ('direction' in config), 'VIDEO_MODE_PARAMETERS_INVALID')
     require(url_kind == 'subject' or 'subject_image_url' not in config, 'VIDEO_MODE_PARAMETERS_INVALID')
-    require(url_kind == 'relay' or not {'reference_images', 'reference_audio'} & config.keys(),
-            'VIDEO_MODE_PARAMETERS_INVALID')
+    if url_kind == 'relay':
+        require(not (relay_fields - {'reference_images', 'reference_audio'}) & config.keys(),
+                'VIDEO_MODE_PARAMETERS_INVALID')
     if url_kind == 'subject':
         if ready:
             require(config.get('subject_image_url'), 'DIRECTOR_INPUT_URL_REQUIRED')

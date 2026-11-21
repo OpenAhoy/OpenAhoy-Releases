@@ -26,7 +26,10 @@ HTML = '''
  </div>
  <div id="directorCanvas" aria-label="混合媒体画布" tabindex="0">
    <div id="directorCanvasPlane"><canvas id="directorCanvasEdges" hidden></canvas><div id="directorCanvasNodes"></div></div>
-   <p id="directorCanvasEmpty">新建镜头，或把图片和媒体放到画布上。</p>
+   <div id="wbCanvasEmptyActions" data-canvas-controls>
+      <button type="button" id="wbCanvasStart" aria-label="在 Codex 开始创作" disabled>+</button>
+      <p id="directorCanvasEmpty">新建镜头，或把图片和媒体放到画布上。</p>
+   </div>
    <canvas id="directorCanvasMap" width="148" height="96" aria-label="画布小地图" hidden></canvas>
  </div>
  <div class="dd-viewport-feedback" hidden id="directorCanvasFeedback">
@@ -96,6 +99,9 @@ STYLE = '''
 .dd-canvas-card .dd-canvas-handle img{width:100%;height:60px;object-fit:cover;border-radius:5px}
 .dd-canvas-card .dd-canvas-handle div:empty{display:none}
 .dd-canvas-card small{color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.dd-canvas-card[data-kind=shot] small:not([hidden]){display:-webkit-box;white-space:pre-line;
+ -webkit-line-clamp:3;-webkit-box-orient:vertical;line-height:1.35}
+.dd-canvas-card[data-reference] img{height:76px;object-fit:contain;background:var(--soft)}
 #directorCanvasPreview{width:min(860px,calc(100% - 24px));max-height:90dvh}
 #directorCanvasPreviewBody{display:grid;place-items:center;padding:9px 0;overflow:auto}
 #directorCanvasPreviewBody p{white-space:pre-wrap;overflow-wrap:anywhere;width:100%}
@@ -120,7 +126,7 @@ SCRIPT = r'''
 function OADirectorCanvas(commit, select, show, picture, engineName, playVideo, adopt){
  const $=id=>document.getElementById(id);
  const viewport=$('directorCanvas'),plane=$('directorCanvasPlane'),nodes=$('directorCanvasNodes');
- const edge=$('directorCanvasEdges'),empty=$('directorCanvasEmpty');
+ const edge=$('directorCanvasEdges'),empty=$('directorCanvasEmpty'),emptyActions=$('wbCanvasEmptyActions');
  const actions={remove:$('directorCanvasRemove'),reset:$('directorCanvasReset')};
  const labels={shot:'镜头',engine:'视频引擎',note:'文字卡',image:'图片',video:'视频',gif:'动图',audio:'音频'};
  const states={AWAITING_RECEIPT:'等待原任务回执',SUBMITTED:'已提交',QUEUED:'排队中',RUNNING:'生成中',
@@ -130,7 +136,7 @@ function OADirectorCanvas(commit, select, show, picture, engineName, playVideo, 
  const scopes=new Map(),map=$('directorCanvasMap'),handToggle=$('directorCanvasHand');
  const status=$('directorCanvasStatus'),feedback=$('directorCanvasFeedback'),retry=$('directorCanvasRetry');
  const freshScope=key=>({key,version:0,moves:new Map(),viewState:''});
- let scope=freshScope(''),selected='',work=null,deliveries=[],focused='';
+ let scope=freshScope(''),selected='',work=null,deliveries=[],focused='',focusedRevision=null;
  let hand=false,space=false,mapLayout=null;
  let view={x:28,y:28,scale:100},gesture=null,timer=null,pending=Promise.resolve();
  let cards=new Map(),previews={};
@@ -247,19 +253,44 @@ function OADirectorCanvas(commit, select, show, picture, engineName, playVideo, 
    for(const [id,card] of cards)card.element.dataset.current=String(id===(selected||shot));
  }
  function collect(model){
-   const rows=[],extras=[];let serial=0;
+   const rows=[],references=[],extras=[];let serial=0;
    for(const scene of model.scenes){
      for(const shot of scene.shots){
-       const revision=shot.adopted_revision||shot.head_revision;
+       const current=shot.id===focused&&shot.revisions.some(row=>row.id===focusedRevision?.id)?focusedRevision:null;
+       const revision=current?.id||shot.adopted_revision||shot.head_revision;
        const meta=shot.revisions.find(row=>row.id===revision);
+       const frontendText=current&&[current.purpose,current.opening,current.action,current.ending,current.composition,
+                                   current.camera,current.lighting].filter(Boolean).join('\n');
        rows.push({kind:'shot',id:shot.id,title:meta.title,scene:scene.id,revision,
-                  cover:shot.cover_revision,engine:shot.engine,position:{x:(serial%3)*184,y:Math.floor(serial/3)*140}});
+                  version:meta.number,text:meta.notes||frontendText,engine:shot.engine,
+                  position:{x:(serial%3)*184,y:Math.floor(serial/3)*140}});
+       if(meta.reference_sha256&&shot.reference_node_id)references.push({kind:'shot_reference',id:shot.reference_node_id,
+         title:OAUI.format('参考图'),scene:scene.id,shot_id:shot.id,revision,version:meta.number,sha256:meta.reference_sha256});
        if(shot.engine)extras.push({kind:'engine',id:shot.engine_node_id,title:engineName(shot.engine),
          scene:scene.id,shot_id:shot.id,revision:shot.head_revision,engine:shot.engine});
        serial++;
      }
    }
    rows.push(...Object.values(model.canvas.nodes));
+   const taken=rows.map(row=>model.canvas.positions[row.id]||row.position).filter(Boolean);
+   const columnsForReference=Math.max(1,Math.min(3,Math.floor((viewport.clientWidth-28)/184)));
+   const referencePlaces=new Map();
+   for(const row of references){
+     const placed=model.canvas.positions[row.id]||cards.get(row.id)?.defaultPosition;
+     if(placed){referencePlaces.set(row.id,placed);taken.push(placed);}
+   }
+   let slot=0;
+   for(const row of references){
+     let position=referencePlaces.get(row.id);
+     if(!position){
+       do{
+         position={x:(slot%columnsForReference)*184,y:Math.floor(slot/columnsForReference)*144};
+         slot++;
+       }while(taken.some(other=>Math.abs(other.x-position.x)<170&&Math.abs(other.y-position.y)<138));
+       taken.push(position);
+     }
+     rows.push({...row,position});
+   }
    const grouped=new Map();
    for(const response of deliveries){
      if(response.kind==='work_video'||response.kind==='inbox_video'){extras.push(response);continue;}
@@ -422,18 +453,24 @@ function OADirectorCanvas(commit, select, show, picture, engineName, playVideo, 
  function updateCard(card,row){
    card.row=row;
    const type=row.kind==='shot_video'||row.kind==='work_video'||row.kind==='inbox_video'?'video':
-     row.kind==='asset'?(row.asset.media_kind||row.asset.family):row.kind;
+     row.kind==='asset'?(row.asset.media_kind||row.asset.family):row.kind==='shot_reference'?'image':row.kind;
    card.delivery=['shot_video','work_video','inbox_video'].includes(row.kind);
    card.element.dataset.kind=type;card.element.dataset.nodeId=row.id;
+   card.element.toggleAttribute('data-reference',row.kind==='shot_reference');
+   if(row.revision)card.element.dataset.revisionId=row.revision;
+   if(row.version)card.element.dataset.revisionNumber=String(row.version);
+   if(row.shot_id||row.kind==='shot')card.element.dataset.shotId=row.shot_id||row.id;
    if(card.delivery)card.element.dataset.deliveryKind=row.kind;
    if(row.engine)card.element.dataset.engine=row.engine.provider+':'+row.engine.model;
    else delete card.element.dataset.engine;
    OAUI.set(card.badge,row.kind==='shot_video'?'镜头视频':row.kind==='work_video'?'作品成片':row.kind==='inbox_video'?'待归位':labels[type]);
    if(card.name.textContent!==row.title)OAUI.raw(card.name,row.title);
-   const description=row.kind==='shot'&&row.engine?engineName(row.engine):row.text||'';
+   const description=row.kind==='shot_reference'?'v'+row.version+' · '+row.sha256.slice(0,12):
+     row.text||(row.kind==='shot'&&row.engine?engineName(row.engine):'');
    OAUI.raw(card.caption,description);card.caption.hidden=!description;
+   card.caption.title=row.sha256||description;
    if(card.delivery){updateVideo(card);return;}
-   const imageKey=(row.cover||row.file?.sha256)||(type==='image'?row.id:'');
+   const imageKey=(row.sha256||row.file?.sha256)||(type==='image'?row.id:'');
    if(imageKey===card.imageKey)return;
    card.imageKey=imageKey;card.pictureSlot.replaceChildren();
    if(imageKey)void picture(row).then(img=>{
@@ -443,7 +480,7 @@ function OADirectorCanvas(commit, select, show, picture, engineName, playVideo, 
  function dispose(card){
    card.player?.close();card.element.remove();
  }
- function render(key,model,shot){
+ function render(key,model,shot,revision=focusedRevision){
    if(key!==scope.key){
      void flush();
      if(key&&!scopes.has(key))scopes.set(key,freshScope(key));
@@ -455,9 +492,9 @@ function OADirectorCanvas(commit, select, show, picture, engineName, playVideo, 
      try{previews=JSON.parse(sessionStorage.getItem(previewStore(key)))||{};}catch(_){}
    }
    viewFeedback();
-   work=model;focused=shot;
+   work=model;focused=shot;focusedRevision=revision;
    OAUI.set(empty,work?'新建镜头，或把图片和媒体放到画布上。':'作品就绪后，镜头和素材会出现在这里。');
-   if(!work){empty.hidden=false;edge.hidden=true;mapLayout=null;refreshSelection(shot);return;}
+   if(!work){emptyActions.hidden=false;edge.hidden=true;mapLayout=null;refreshSelection(shot);return;}
    scope.inbox=!!model.inbox;
    const canvas=model.canvas;
    if(!scope.readback||canvas.version>=scope.readback.version)
@@ -468,7 +505,7 @@ function OADirectorCanvas(commit, select, show, picture, engineName, playVideo, 
      setView({...saved,scale:saved.scale??100},false);
    }
    const rows=collect(model),ids=new Set(rows.map(row=>row.id));
-   empty.hidden=!!rows.length;
+   emptyActions.hidden=!!rows.length;
    for(const [id,card] of cards)if(!ids.has(id)){dispose(card);cards.delete(id);}
    for(const row of rows){
      if(!cards.has(row.id))cards.set(row.id,newCard(row));

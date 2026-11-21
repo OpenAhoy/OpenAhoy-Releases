@@ -1,4 +1,4 @@
-# OpenAhoy HTML 输入
+# Jiusera HTML 输入
 
 正常内容制作每篇交付一个含真实配图的自包含 HTML。使用 `own.documents.prepare` 的 `html_sources` 分支，有序传入本组各篇的 `absolute_path`、`expected_sha256`、`article_id`，以及需要的 `metadata_title/metadata`；不要同时传 `document`。原请求键保持稳定，不将整组拆成多条单篇草稿。
 

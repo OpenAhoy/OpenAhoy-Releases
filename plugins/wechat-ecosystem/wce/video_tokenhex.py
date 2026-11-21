@@ -19,7 +19,7 @@ REMOTE_STATES = frozenset({'queued', 'running', 'failed', 'expired', 'cancelled'
 
 class TokenHexKeychain(XKeychain):
     service = 'com.readysteadyscience.openahoy.video.tokenhex.v1'
-    label = 'OpenAhoy · Token Hex · Video'
+    label = 'Jiusera · Token Hex · Video'
     scope = sha256(service.encode()).hexdigest()
 
 

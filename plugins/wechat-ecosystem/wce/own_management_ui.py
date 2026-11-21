@@ -1,7 +1,7 @@
-"""OpenAhoy's single-category management workspace. No account I/O here."""
+"""Jiusera's single-category management workspace. No account I/O here."""
 from html import escape
 from .own_branding import header as brand_header
-from .own_branding import jiusera_symbols
+from .own_branding import jiusera_header, jiusera_symbols
 from .platform_branding import label as platform_label
 from .management_workspace_ui import STYLE as WORKSPACE_STYLE
 
@@ -82,16 +82,16 @@ def jiusera_sidebar():
 def platform_sidebar(logo, navigation, *, localized=False):
     brand = brand_header(logo)
     if localized:
-        brand = ('<button id="openHome" type="button" aria-label="OpenAhoy 首页" aria-current="page">'
-                 + brand + '</button><button type="button" id="oaLocale">English</button>')
+        brand = ('<button id="openHome" type="button" aria-label="Jiusera 首页" aria-current="page">'
+                 + jiusera_header() + '</button>')
         navigation += (
             '<section id="accountPanel" class="oa-platform-accounts" aria-label="平台账号" hidden>'
             '<div class="oa-list-head"><span>已绑定账号</span><span id="accountCount" class="count">0</span></div>'
             '<div id="accounts" class="oa-account-options"></div></section>'
         )
     return '<aside class="oa-sidebar"><div class="oa-brand">'+brand+'''</div>
-<div id="softwareUpdateSlot"></div>'''+('<button id="wechatCompactUpdates" type="button" aria-controls="softwareUpdateSlot" aria-expanded="false" hidden>版本与帮助</button>' if localized else '')+'''
-<div>'''+(jiusera_sidebar() + '<div class="oa-nav"><button id="openWorkflowGuide" type="button" aria-expanded="false" aria-controls="workflowGuide">指导模式</button></div>' if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
+'''+('' if localized else '<div id="softwareUpdateSlot"></div>')+'''
+<div>'''+(jiusera_sidebar() if localized else '')+'''<p class="help">平台</p><nav id="platformNavigation" class="oa-nav" aria-label="平台导航">'''+navigation+'''</nav></div></aside>'''
 
 
 def minimax_mark():
@@ -125,30 +125,33 @@ def native_page_body(logo, platform_settings):
     """Single native workspace; secret input has its own view in this resource."""
     from .own_inline_binding_ui import HTML as binding_html
     from .video_director_ui import HTML as director_html
+    from .workbench_ui import SURFACES, chrome
+    from .studio_showcase_ui import HTML as showcase_html
     from .character_library_ui import HTML as characters_html
     from .openai_gif_ui import SETTINGS_HTML as gif_settings
     from .audio_workspace_ui import HTML as audio_html
     from .workflow_guide_ui import HTML as guide_html
-    from .own_branding import icons, video_model_mark
-    from .video_jobs import PROMO_DIR
-    from base64 import b64encode
-    cover = PROMO_DIR / 'openahoy-intro-cover.jpg'
-    promo = ('<section id="homeIntro" aria-labelledby="homeIntroTitle"><header class="oa-home-intro-heading"><h2 id="homeIntroTitle">OpenAhoy 宣传片</h2><button id="homeIntroToggle" type="button" aria-controls="homeIntroPlayer" disabled>播放</button></header>'
-             '<div id="homeIntroPlayer" class="oa-frame-player" data-poster="data:image/jpeg;base64,'
-             + b64encode(cover.read_bytes()).decode('ascii') + '"></div>'
-             '<p id="homeIntroStatus" role="status"></p></section>') if cover.is_file() else ''
-    home = '''<section id="openAhoyHome" aria-labelledby="homeTitle">
-<header class="oa-home-hero">
-<h1 id="homeTitle" tabindex="-1">OpenAhoy</h1>
-<p>在 Codex 管理创作账号，制作视频，准备和发布内容。</p>
-<span class="oa-home-mark"><img src="'''+icons()[0]['src']+'''" alt="" width="104" height="104">
-<img src="'''+icons()[1]['src']+'''" alt="" width="104" height="104"></span>
+    from .own_branding import video_model_mark
+    home = '''<section id="openAhoyHome" aria-labelledby="homeTitle" hidden>
+<header class="wb-about-card">
+<h1 id="homeTitle" tabindex="-1">关于与设置</h1>
+<p>Jiusera for Codex</p>
+<button data-wb-route="jiusera-canvas" type="button">返回工作画布</button>
 </header>
-<section class="oa-home-features" aria-labelledby="homeFeaturesTitle">
-<h2 id="homeFeaturesTitle">开始使用</h2>
-<div class="oa-home-grid" id="homeFeatures">
-<button id="homeMediaStudio" type="button" class="oa-home-card" disabled><span class="oa-home-card-title">'''+JIUSERA_MARK+'''<span>Jiusera</span></span><span class="oa-home-card-description">管理项目动图、视频和音频。</span>'''+icon('arrow')+'''</button>
-</div></section>'''+promo+'''
+<div class="wb-about-grid">
+ <section class="wb-about-card" aria-labelledby="wbSoftwareTitle">
+  <h2 id="wbSoftwareTitle">版本与更新</h2><div id="softwareUpdateSlot"></div>
+ </section>
+ <section class="wb-about-card" aria-labelledby="wbHelpTitle">
+  <h2 id="wbHelpTitle">帮助与反馈</h2>
+  <div id="wbSupportSlot"></div>
+  <div class="wb-context"><button type="button" id="oaLocale">English</button>
+  <button id="openWorkflowGuide" type="button" aria-expanded="false" aria-controls="workflowGuide">指导模式</button></div>
+ </section>
+</div>
+<section class="oa-home-features oa-home-publishing" aria-labelledby="homePublishingTitle">
+<h2 id="homePublishingTitle">'''+jiusera_header()+'''<span>发布与账号</span></h2>
+<div class="oa-home-grid" id="homeFeatures"></div></section>
 <section id="homeRecommendations" aria-labelledby="homeRecommendationsTitle" hidden>
 <h2 id="homeRecommendationsTitle">推荐插件</h2><div class="oa-home-grid"></div>
 </section>
@@ -191,9 +194,9 @@ def native_page_body(logo, platform_settings):
 <p id="videoProviderNotice" class="help" role="status"></p><textarea id="videoProviderCopy" aria-label="复制 Codex 指令" readonly hidden></textarea>
 '''
     from .wechat_analytics_ui import HTML as analytics_html
-    return '''<body class="oa-management oa-platform-workspace oa-native"><div class="oa-shell">
+    return '''<body class="oa-management oa-platform-workspace oa-native" data-workbench="startup">'''+chrome(icon)+'''<div class="oa-shell">
 '''+platform_sidebar(logo, '<p class="help">正在读取平台…</p>', localized=True)+'''
-<main class="oa-content">'''+guide_html+home+'''<div id="nativeWorkspace" hidden><header class="oa-account-header">
+<main class="oa-content">'''+guide_html+SURFACES+showcase_html+home+'''<div id="nativeWorkspace" hidden><header class="oa-account-header">
 <div class="oa-heading"><div id="accountCurrent"><h1 id="pageTitle" data-oa-overflow>选择平台</h1><small id="accountCaption" hidden></small></div></div>
 <div class="actions"><div id="accountTools" class="oa-account-tools"><details class="oa-more-settings"><summary>更多设置</summary><div class="oa-more-popover"><button id="accountRules" disabled>编辑本号配置</button><button id="accountCreate" disabled>快速创建配置</button><button id="accountImport" disabled>加载并保存配置</button><div><button id="accountBackend" disabled>打开公众号后台</button></div><p id="wechatBackendHelp" class="help">使用浏览器现有登录，请核对账号。</p><details><summary>账号信息</summary><div id="selectedAccount"></div></details></div></details></div>
 <button id="refresh" aria-label="刷新账号">刷新</button><button id="showAdd" class="primary" aria-label="绑定账号">绑定账号</button></div></header>
@@ -215,7 +218,7 @@ def native_page_body(logo, platform_settings):
 <dialog id="accountRemoveDialog" class="oa-account-remove-dialog" aria-labelledby="accountRemoveTitle">
 <h2 id="accountRemoveTitle">移除账号</h2>
 <p id="accountRemoveTarget"></p>
-<p>将断开此账号在 OpenAhoy 的连接并停止后续自动任务。平台账号、内容、资产和操作记录会保留。</p>
+<p>将断开此账号在 Jiusera 的连接并停止后续自动任务。平台账号、内容、资产和操作记录会保留。</p>
 <div class="actions"><button id="accountRemoveCancel" type="button" autofocus>取消</button>
 <button id="accountRemoveConfirm" class="danger" type="button">确认移除</button></div>
 </dialog>
@@ -227,7 +230,7 @@ def native_page_body(logo, platform_settings):
 <button id="accountRecoveryAsk" type="button" class="primary" hidden>在 macOS 中确认恢复</button></div>
 <p id="accountRecoveryStatus" role="status"></p>
 </dialog>
-<footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span></footer></div><section id="mediaStudio" aria-label="Jiusera" hidden>
+<footer class="oa-footer"><span>Jiusera · 本机账号管理</span></footer></div><section id="mediaStudio" aria-label="Jiusera" hidden>
 '''+director_html+'''<div id="monitorComponents" hidden>'''+credential+gif_settings+audio_html+'''</div></section>'''+characters_html+binding_html+'''</main></div>'''
 
 
@@ -250,6 +253,16 @@ HOME_STYLE = '''
 
 .oa-management #openHome{width:fit-content;min-height:32px;padding:0;background:transparent;border:0;box-shadow:none}
 .oa-management #openHome .oa-brand-logo{display:block}
+.oa-jiusera-logo img{display:block;width:100%;height:auto}
+.oa-jiusera-logo img+img{display:none}
+.oa-management[data-color-scheme="dark"] .oa-jiusera-logo img:first-child{display:none}
+.oa-management[data-color-scheme="dark"] .oa-jiusera-logo img+img{display:block}
+@media(prefers-color-scheme:dark){
+ .oa-management:not([data-color-scheme]) .oa-jiusera-logo img:first-child{display:none}
+ .oa-management:not([data-color-scheme]) .oa-jiusera-logo img+img{display:block}
+}
+.oa-home-publishing h2{display:flex;align-items:center;gap:12px}
+.oa-home-publishing h2 .oa-brand-logo{width:92px;margin:0}
 .oa-management #openHome:hover:not(:disabled){background:transparent;opacity:.8}
 .oa-management #openHome:focus-visible{outline-offset:4px}
 #openAhoyHome{width:100%;max-width:1080px;overflow:auto;align-self:center;padding:6px 2px 14px}
@@ -344,7 +357,7 @@ def page_body(logo, rules_html, technical_html, routes_html):
 <details><summary>详细回执</summary><pre id="result">尚未提交</pre></details></section>
 <div class="legacy-only" hidden><button id="upgrade">升级</button><p id="publicationState"></p><button id="publicationEnable" disabled></button><button id="publicationDisable" disabled></button>
 <p id="restoreState"></p><button id="restoreDrafts" disabled></button><button id="loadRecovery"></button><div id="recoveryTargets"></div><button id="recover"></button><button id="recoverBody"></button><button id="recoverBody5"></button></div>
-<footer class="oa-footer"><span>OpenAhoy · 本机账号管理</span><button id="close">结束本次管理</button></footer></main></div>'''
+<footer class="oa-footer"><span>Jiusera · 本机账号管理</span><button id="close">结束本次管理</button></footer></main></div>'''
 
 
 JS = r'''

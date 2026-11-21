@@ -12,8 +12,8 @@ RESOURCE = 'ui://wechat-ecosystem/management-updates-v1.html'
 
 
 def descriptor():
-    return {'name': CHECK, 'title': '检查 OpenAhoy 稳定版本',
-        'description': 'App-only anonymous read of the published stable OpenAhoy release and its Git tag from the fixed public repository. No installation, marketplace refresh, or account access.',
+    return {'name': CHECK, 'title': '检查 Jiusera 稳定版本',
+        'description': 'App-only anonymous read of the published stable Jiusera release and its Git tag from the fixed public repository. No installation, marketplace refresh, or account access.',
         'inputSchema': {'type': 'object', 'properties': {}, 'additionalProperties': False},
         'outputSchema': {'type': 'object'},
         'annotations': {'readOnlyHint': True, 'destructiveHint': False,
@@ -23,8 +23,8 @@ def descriptor():
 
 def install_descriptor():
     from .tools import schema
-    return {'name': INSTALL, 'title': '立即升级 OpenAhoy',
-            'description': 'App-only stable update explicitly initiated by the user in the OpenAhoy panel.',
+    return {'name': INSTALL, 'title': '立即升级 Jiusera',
+            'description': 'App-only stable update explicitly initiated by the user in the Jiusera panel.',
             'inputSchema': {'type': 'object', 'oneOf': [
                 schema({'action': {'type': 'string', 'const': 'status'}},
                        optional={'request_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'}}),

@@ -447,9 +447,9 @@ def resource(method, params):
         return current().resource()
     if method == 'resources/list' and not params:
         if configured():
-            return {'resources': [{'uri': PROBE_URI, 'name': 'openahoy-management', 'title': 'OpenAhoy · 公众号管理', 'mimeType': MIME}, {'uri': URI, 'name': 'wechat-ecosystem-settings', 'title': 'OpenAhoy', 'mimeType': MIME}]}
+            return {'resources': [{'uri': PROBE_URI, 'name': 'openahoy-management', 'title': 'Jiusera · 公众号管理', 'mimeType': MIME}, {'uri': URI, 'name': 'wechat-ecosystem-settings', 'title': 'Jiusera', 'mimeType': MIME}]}
         return {'resources': [{'uri': URI, 'name': 'wechat-ecosystem-settings',
-                               'title': 'OpenAhoy', 'mimeType': MIME}]}
+                               'title': 'Jiusera', 'mimeType': MIME}]}
     if method == 'resources/read' and params == {'uri': URI}:
         from .own_settings_ui import MODAL
         return {'contents': [{'uri': URI, 'mimeType': MIME, 'text': MODAL,

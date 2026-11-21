@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from . import video_director_delivery as delivery
+from . import video_autodl_catalog as autodl
 from .video_director import require
 from .video_director_media import compute_request
 
@@ -63,9 +64,7 @@ def submit(router, args):
     if mode == 'subject':
         row = jobs.submit_subject(attempt, project, route, prompt, config['subject_image_url'], director_bind=bind)
     elif mode == 'workflow':
-        fields = ('reference_images', 'reference_audio', 'duration', 'resolution')
-        row = jobs.submit_relay(attempt, project, {'prompt': prompt, **{k: config[k] for k in fields if k in config}},
-                                director_bind=bind)
+        row = jobs.submit_relay(attempt, project, autodl.director_inputs(config, prompt), director_bind=bind)
     else:
         fields = ('duration', 'resolution', 'ratio', 'audio', 'direction')
         workspace = {'mode': mode, 'paths': [item['file']['path'] for item in inputs],

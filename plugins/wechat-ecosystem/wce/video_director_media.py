@@ -12,6 +12,7 @@ import tempfile
 
 from .bounded_file import FileSource, file_state, identity
 from .contracts import WCEError
+from . import video_autodl_catalog as autodl
 from .own_bootstrap_security import path_check
 from .own_connection_policy import locked
 from .own_connection_registry import mkdir
@@ -323,10 +324,11 @@ def compute_request(jobs, context, root, scratch):
     config = revision['configuration']
     prompt = revision['prompt']
     require(config, 'DIRECTOR_CONFIGURATION_REQUIRED')
-    require(prompt.strip(), 'DIRECTOR_PROMPT_REQUIRED')
     pid = context['project_id']
     profile = validate_config(config, pid, ready=True)
     provider, model, mode = (config[k] for k in ('provider', 'model', 'mode'))
+    if mode != 'workflow' or 'workflow_id' not in config:
+        require(prompt.strip(), 'DIRECTOR_PROMPT_REQUIRED')
     limit, byte_limit = (20000, 80000) if provider == 'relay' else (4096, 16384)
     require(len(prompt) <= limit and len(prompt.encode()) <= byte_limit, 'DIRECTOR_PROMPT_TOO_LONG')
     receipt = {'provider': provider, 'model': model, 'mode': mode, 'configuration': config, 'prompt': prompt}
@@ -335,12 +337,9 @@ def compute_request(jobs, context, root, scratch):
         subject_body(prompt, url)
         return receipt | {'inputs': [{'role': 'subject', 'url': url}]}
     if mode == 'workflow':
-        workflow_body({'prompt': prompt, **{k: config[k] for k in (
-            'reference_images', 'reference_audio', 'duration', 'resolution') if k in config}})
-        return receipt | {'inputs': [{'role': role, 'url': url}
-                                      for field, role in (('reference_images', 'reference_image'),
-                                                          ('reference_audio', 'reference_audio'))
-                                      for url in config.get(field, [])]}
+        workflow = autodl.director_inputs(config, prompt)
+        workflow_body(workflow)
+        return receipt | {'inputs': [{'role': role, 'url': url} for role, url in autodl.media(workflow)]}
     roles = profile['local_roles']
     if profile['reference_count']:
         inputs = [row for row in revision['images'] if row['role'] in REFERENCE]

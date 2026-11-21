@@ -419,6 +419,6 @@ def preview(result,originals=False):
     content=serialize(tree,mapping,preview=True)
     Fragment(content,set(mapping.values()),POLICY)
     return ('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<title>OpenAhoy · 手机导入预览</title><style>body{margin:0;background:#eee}.notice{padding:16px;font:13px system-ui;background:#eef5ef;color:#294c36}.mobile{max-width:390px;margin:auto;background:white}</style>'
-        '<header class="notice">OpenAhoy · 390px 手机样式投影 · '+('原图片' if originals else '传输候选')+'<br>原文与图片顺序保留；响应式已固定。微信保留样式情况及与Word对照须本人验收。<br>'+escape(result['title'])+'</header>'
+        '<title>Jiusera · 手机导入预览</title><style>body{margin:0;background:#eee}.notice{padding:16px;font:13px system-ui;background:#eef5ef;color:#294c36}.mobile{max-width:390px;margin:auto;background:white}</style>'
+        '<header class="notice">Jiusera · 390px 手机样式投影 · '+('原图片' if originals else '传输候选')+'<br>原文与图片顺序保留；响应式已固定。微信保留样式情况及与Word对照须本人验收。<br>'+escape(result['title'])+'</header>'
         '<main class="mobile">'+content+'</main></html>').encode()

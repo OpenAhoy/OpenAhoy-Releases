@@ -20,7 +20,7 @@ window.OASupport={mount(rpc){
  const $=id=>document.getElementById(id),box=$('oaSupportDialog'),links=document.createElement('section');links.className='oa-support-links';ui.attr(links,'aria-label','帮助与反馈');
  let ready=false,busy=false,mode='feedback',report=null,exportPending=false,pendingRows=[],openLinks=false,toast=null,toastTimer=null;
  function submittedNotice(){if(toastTimer)clearTimeout(toastTimer);if(!toast){toast=document.createElement('div');toast.className='oa-support-toast';toast.setAttribute('role','status');document.body.append(toast);}ui.set(toast,'反馈已提交，诊断信息已自动附上。');toast.hidden=false;toastTimer=setTimeout(()=>{toast.hidden=true;toastTimer=null;},5000);}
- const feedback=document.createElement('button'),diagnostics=document.createElement('button');ui.set(feedback,'反馈问题');ui.set(diagnostics,'诊断日志');links.append(feedback,diagnostics);document.querySelector('.oa-sidebar').append(links);
+ const feedback=document.createElement('button'),diagnostics=document.createElement('button');ui.set(feedback,'反馈问题');ui.set(diagnostics,'诊断日志');links.append(feedback,diagnostics);(document.getElementById('wbSupportSlot')||document.querySelector('.oa-sidebar')).append(links);
  const say=(key,...values)=>ui.set($('oaSupportStatus'),key,...values);
  const scope=()=>{const id=document.querySelector('#platformNavigation [aria-current="page"]')?.dataset.platformId;return id==='x'?'x':id==='wechat_official_account'?'wechat':'general';};
  function buttons(){feedback.disabled=diagnostics.disabled=!ready;for(const id of ['oaSupportQuery','oaSupportCopy','oaSupportExport','oaSupportNew'])$(id).disabled=busy;$('oaSupportSend').hidden=mode!=='feedback';$('oaSupportSend').disabled=busy||!!report&&report.state!=='PREPARED';}
@@ -34,7 +34,7 @@ window.OASupport={mount(rpc){
  async function open(which){
   if(!ready||busy)return;const retained=mode==='feedback'&&report&&['PENDING','WEB_DRAFT'].includes(report.state)?report:null;
   mode=which;reset();ui.set($('oaSupportTitle'),which==='feedback'?'反馈问题':'诊断日志');$('oaSupportForm').hidden=which!=='feedback';$('oaSupportReview').open=which==='diagnostics';$('oaSupportPreview').value=ui.format('展开后自动生成脱敏信息，不会发送。');$('oaSupportCopy').hidden=true;$('oaSupportExport').hidden=which!=='diagnostics';$('oaSupportPendingPanel').hidden=true;
-  ui.set($('oaSupportPrivacy'),which==='feedback'?'提交时自动附上版本、系统和脱敏诊断，发往公开的 OpenAhoy GitHub 反馈仓库。不会发送密钥、账号资料或文章；请勿在描述里填写这些内容。':'日志只保存在本机，不含密钥、账号ID、文章正文、原始响应或宿主日志，不会自动上传。');say('');box.showModal();
+  ui.set($('oaSupportPrivacy'),which==='feedback'?'提交时自动附上版本、系统和脱敏诊断，发往公开的 GitHub 反馈仓库。不会发送密钥、账号资料或文章；请勿在描述里填写这些内容。':'日志只保存在本机，不含密钥、账号ID、文章正文、原始响应或宿主日志，不会自动上传。');say('');box.showModal();
   if(which==='diagnostics')await run(async()=>{show(await call('DIAGNOSTICS'));say('已读取本机脱敏诊断快照，尚未导出或上传。');});
   else {if(retained){show(retained);$('oaSupportQuery').hidden=false;}await run(async()=>{const value=await call('READ');pendingRows=value.pending||[];$('oaSupportPending').replaceChildren();for(const [index,row]of pendingRows.entries()){const option=document.createElement('option');option.value=String(index);option.textContent=row.title;$('oaSupportPending').append(option);}$('oaSupportPendingPanel').hidden=!pendingRows.length;if(pendingRows.length)await resume(pendingRows[0]);});}
   buttons();

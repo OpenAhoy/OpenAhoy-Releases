@@ -1,0 +1,132 @@
+{
+  "schema": 1,
+  "id": "openahoy-editorial-notebook",
+  "version": "1.0.2",
+  "name": "灵感手记",
+  "publisher": "Jiusera",
+  "description": "从文章的问题与依据出发，设计清楚的主体关系、变化和完整画面，再选择适合的视觉表达。",
+  "changelog": [
+    "1.0.2：更新 Jiusera 品牌。沿用原示例、图像和排版。",
+    "1.0.1：新增内容驱动的视觉创作方法；封面与正文图分工、具体主体/关系/变化和有依据的场景构图写入实际提示词。",
+    "演示图与排版沿用1.0.0；旧版保留可读，升级不自动覆盖账号偏好。"
+  ],
+  "read_order": [
+    "SKILL.md",
+    "references/WRITING.md",
+    "references/VISUAL_METHOD.md",
+    "references/IMAGE_PROMPTS.md",
+    "references/FORMATTING.md",
+    "references/EXAMPLE_PROMPTS.md",
+    "example/article.md",
+    "example/source.html",
+    "example/article.css",
+    "example/metadata.json",
+    "references/CHANGES.md",
+    "LICENSE.md"
+  ],
+  "assets": [
+    {
+      "file": "assets/cover.jpg",
+      "mime": "image/jpeg",
+      "width": 1921,
+      "height": 819
+    },
+    {
+      "file": "assets/process.jpg",
+      "mime": "image/jpeg",
+      "width": 1659,
+      "height": 948
+    }
+  ],
+  "files": {
+    "LICENSE.md": {
+      "sha256": "615d5dd9dda6cd05eb6060dc74f8652c38580cd45767b70d05a6403826aa7bba",
+      "bytes": 645,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "SKILL.md": {
+      "sha256": "329e403aef50868d6a2299938046d3239436fd50ab4465888c5ada8947d02c02",
+      "bytes": 1832,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "assets/cover.jpg": {
+      "sha256": "b6e88eb9b69a4dfa98b90718c7b110998eebeea5c8e14171bf492b12f2f1b91a",
+      "bytes": 468019,
+      "chunks": 10,
+      "mime": "image/jpeg"
+    },
+    "assets/process.jpg": {
+      "sha256": "a0e82c4a65ca5670b108497411500245fa5598a588fb7423b148bcdb59ac51a0",
+      "bytes": 383735,
+      "chunks": 8,
+      "mime": "image/jpeg"
+    },
+    "example/article.css": {
+      "sha256": "0e6c4064cbf89017e971b6c718db2005eb103c8379255f7e490b95850c9cde50",
+      "bytes": 529,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "example/article.md": {
+      "sha256": "2e30d787fac04e543f3aec931bf3fd7a6e4bfc14fa358c06d2ba5652af1c96c8",
+      "bytes": 1166,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "example/metadata.json": {
+      "sha256": "b043031e6cfa730700ecf606a340cfa9923e32c2daad0ab2ca41121e8670c220",
+      "bytes": 480,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "example/source.html": {
+      "sha256": "010c61ddd37cc2711e0653758451bf086e80560ab5d2c3444663b9e0e6a8805c",
+      "bytes": 3037,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "references/CHANGES.md": {
+      "sha256": "c2129a3df8b92e65723fce0c9d039e37e349383ba06b26f93f83510fd045c74c",
+      "bytes": 1317,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "references/EXAMPLE_PROMPTS.md": {
+      "sha256": "ee7e4b9b9578a71b011670d9e0251458a9bfad98c1140511414cfcd7f5479725",
+      "bytes": 3156,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "references/FORMATTING.md": {
+      "sha256": "f21b67d864834c56812f8e079bab52e2e0d79829fd7b03741cdf5ae97d77bfbe",
+      "bytes": 1184,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "references/IMAGE_PROMPTS.md": {
+      "sha256": "047302bf919dedc52d64ab12891a9d31e53be04d38d44004eb72ec39012c7cad",
+      "bytes": 5622,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "references/VISUAL_METHOD.md": {
+      "sha256": "e3b56a4e1dd1e3eec0b29e63a06a2c7f4edf9ff2253576be5c0d6842fc64d3c6",
+      "bytes": 5303,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    },
+    "references/WRITING.md": {
+      "sha256": "918ca69d1d1652cbb2a9cfce2914491597aa3e28b886508b1ba6343c11606fb2",
+      "bytes": 1425,
+      "chunks": 1,
+      "mime": "text/plain;charset=utf-8"
+    }
+  },
+  "supplements": {
+    "voice": "可选创作模板「灵感手记」：围绕具体问题、用事实和例子展开，语言自然，区分结论与推断；已有自定义要求优先。",
+    "image_preferences": "可选模板1.0.1配图方法：先从文章具体读者问题和已核依据确定各图信息任务，清楚表达可辨主体、行为/因果/顺序、前后变化与环境，再选场景、实物/界面、机制、对照、流程或数据表达；封面和正文图分工，左安全区保护缩略识别，右侧自然延展，不设固定图数或风格。完整方法与实际提示词见所选模板；本号既有自定义要求优先。",
+    "visual_layout": "可选模板排版：16px正文、1.8行高、0.5px字距、18px段距、16px侧边距；26px独立主旨、20px小标题、图片随宽度自适应。以本号已有要求优先，具体HTML/CSS见所选模板。"
+  }
+}

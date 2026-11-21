@@ -1,20 +1,20 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "wechat-ecosystem",
-  "version": "0.6.98",
-  "description": "OpenAhoy is an account and content workspace for WeChat Official Accounts, X, and Xiaohongshu in Codex.",
+  "version": "0.6.99",
+  "description": "Jiusera is a creative workspace in Codex for making content and publishing to WeChat Official Accounts, X, and Xiaohongshu.",
   "extensions": {
     "com.openai": {
       "requires_local_executor": true,
       "interface": {
-        "displayName": "OpenAhoy",
-        "shortDescription": "公众号、X 和小红书的账号与内容工作台。",
-        "brandColor": "#026364",
-        "composerIcon": "./assets/openahoy-v1/openahoy-host-light-128.png",
-        "logo": "./assets/openahoy-v1/openahoy-host-light-128.png",
-        "brandColorDark": "#FC5B4A",
-        "composerIconDark": "./assets/openahoy-v1/openahoy-host-dark-128.png",
-        "logoDark": "./assets/openahoy-v1/openahoy-host-dark-128.png"
+        "displayName": "Jiusera",
+        "shortDescription": "在 Codex 创作内容、管理账号并发布。",
+        "brandColor": "#BE2026",
+        "composerIcon": "./assets/jiusera/jiusera-host-light-128.png",
+        "logo": "./assets/jiusera/jiusera-host-light-128.png",
+        "brandColorDark": "#F2BB23",
+        "composerIconDark": "./assets/jiusera/jiusera-host-dark-128.png",
+        "logoDark": "./assets/jiusera/jiusera-host-dark-128.png"
       }
     }
   }

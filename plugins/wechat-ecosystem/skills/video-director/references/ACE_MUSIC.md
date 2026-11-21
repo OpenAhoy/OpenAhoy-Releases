@@ -2,7 +2,7 @@
 
 ACE Music 适用于用户明确选择该供应商，或已由 [歌曲与视频配乐](MUSIC_WORKFLOW.md) 读取本机设置并选中该供应商的任务。旧任务沿其原供应商和回执。
 
-在 OpenAhoy「Jiusera → 音频」的 ACE Music 卡查看授权状态、账户和曲库。创作调用当前聊天独立的官方 MCP，连接名为 `ace-music`，生产地址为 `https://acemusic.ai/mcp`。通过 Codex 官方入口登记这一条，保持已有 MCP 设置和连接名。账号本人在 ACE Music 官方页面完成 OAuth，面板可等待、取消和核对授权。无需 API key。换账号时在 ACE Music 卡点「重新连接 ACE Music」，在官方浏览器页面确认使用目标账号。授权返回后重新读取账号和曲库。
+在 Jiusera「Jiusera → 音频」的 ACE Music 卡查看授权状态、账户和曲库。创作调用当前聊天独立的官方 MCP，连接名为 `ace-music`，生产地址为 `https://acemusic.ai/mcp`。通过 Codex 官方入口登记这一条，保持已有 MCP 设置和连接名。账号本人在 ACE Music 官方页面完成 OAuth，面板可等待、取消和核对授权。无需 API key。换账号时在 ACE Music 卡点「重新连接 ACE Music」，在官方浏览器页面确认使用目标账号。授权返回后重新读取账号和曲库。
 
 ## 创作与原任务
 

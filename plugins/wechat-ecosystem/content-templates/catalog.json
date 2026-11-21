@@ -3,13 +3,20 @@
   "templates": [
     {
       "id": "openahoy-editorial-notebook",
+      "version": "1.0.2",
+      "name": "灵感手记",
+      "description": "从文章的问题与依据出发，设计清楚的主体关系、变化和完整画面，再选择适合的视觉表达。",
+      "manifest_sha256": "8623ecb83086b9bbfbbd4210f48e4f7de27dc8e988f6d6519a60de6cbe01f0d0"
+    }
+  ],
+  "archived_templates": [
+    {
+      "id": "openahoy-editorial-notebook",
       "version": "1.0.1",
       "name": "灵感手记",
       "description": "从文章的问题与依据出发，设计清楚的主体关系、变化和完整画面，再选择适合的视觉表达。",
       "manifest_sha256": "274ab349848c04dc3cf0c677da3d1b9b8dac5a0f13e27e350e008692994af928"
-    }
-  ],
-  "archived_templates": [
+    },
     {
       "id": "openahoy-editorial-notebook",
       "version": "1.0.0",

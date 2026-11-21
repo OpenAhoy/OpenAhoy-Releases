@@ -139,7 +139,7 @@ class Support:
         if not clean['description']:
             clean['description']='功能异常或使用问题（自动诊断反馈）'
         rid=uuid.uuid4().hex
-        title='[OpenAhoy '+self.version+'] '+clean['description'].splitlines()[0][:100]
+        title='[Jiusera '+self.version+'] '+clean['description'].splitlines()[0][:100]
         environment={'version':self.version,'platform':selected_platform,
             'system':platform.system() if platform.system() in {'Darwin','Windows','Linux'} else 'Other',
             'architecture':platform.machine() if platform.machine() in {'arm64','x86_64','aarch64','AMD64'} else 'Other'}
@@ -185,7 +185,7 @@ class Support:
     def diagnostics(self):
         rid=uuid.uuid4().hex
         return self._put({'report_id':rid,'kind':'diagnostics','repository':self.repository,
-            'title':'OpenAhoy 脱敏诊断日志','body':json.dumps(self.logs.snapshot(),ensure_ascii=False,indent=2)+'\n'})
+            'title':'Jiusera 脱敏诊断日志','body':json.dumps(self.logs.snapshot(),ensure_ascii=False,indent=2)+'\n'})
 
     def _result(self, row):
         result={key:row.get(key)for key in ('report_id','digest','state','url')}
@@ -211,7 +211,7 @@ class Support:
         if not self.github.available():
             url='https://github.com/'+self.repository+'/issues/new?'+urllib.parse.urlencode({'title':row['title'],'body':row.get('web_body',row['body'])})
             # Browsers have finite URL carriers; preserve full report for copy/export.
-            if len(url)>7500:url='https://github.com/'+self.repository+'/issues/new?'+urllib.parse.urlencode({'title':row['title'],'body':'请粘贴 OpenAhoy 反馈预览中的已脱敏内容。\n\n<!-- '+MARKER+report_id+' -->'})
+            if len(url)>7500:url='https://github.com/'+self.repository+'/issues/new?'+urllib.parse.urlencode({'title':row['title'],'body':'请粘贴 Jiusera 反馈预览中的已脱敏内容。\n\n<!-- '+MARKER+report_id+' -->'})
             with self._db()as db:db.execute('UPDATE reports SET state=?,url=? WHERE id=? AND state=?',('WEB_DRAFT',url,report_id,'PREPARED'))
             return self._result(self._get(report_id,digest))
         with self._db()as db:
@@ -245,9 +245,11 @@ class Support:
 
     def export(self, report_id, digest, action):
         if action not in {'write','query'}:raise ValueError('SUPPORT_EXPORT_INVALID')
-        row=self._get(report_id,digest);raw=row['body'].encode();filename='OpenAhoy-诊断-'+report_id+'.txt'
+        from .own_configuration_export import preserve_existing_export
+        row=self._get(report_id,digest);raw=row['body'].encode()
         directory=_directory(self.downloads)
         try:
+            filename=preserve_existing_export(directory, 'Jiusera-诊断-'+report_id+'.txt')
             try:
                 fd=os.open(filename,os.O_RDONLY|os.O_NOFOLLOW,dir_fd=directory)
             except FileNotFoundError:

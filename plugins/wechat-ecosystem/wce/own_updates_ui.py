@@ -32,7 +32,7 @@ body.oa-management[data-color-scheme=dark] .oa-software-update{--update-text:#b7
 """
 
 UPDATE_HTML = """
-<strong class="oa-update-version">OpenAhoy</strong>
+<strong class="oa-update-version">Jiusera</strong>
 <dl class="oa-update-versions">
  <div><dt>当前运行</dt><dd class="oa-update-running"></dd></div>
  <div class="oa-update-installed-row" hidden><dt>已安装</dt><dd></dd></div>
@@ -55,7 +55,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
  'use strict';
  const ui=globalThis.OAUI||globalThis.OAPlainUI;
  const repository='OpenAhoy/OpenAhoy-Releases',versionPattern=/^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$/;
- const box=document.createElement('section');box.className='oa-software-update';ui.attr(box,'aria-label','OpenAhoy 软件更新');box.dataset.state='NOT_CHECKED';
+ const box=document.createElement('section');box.className='oa-software-update';ui.attr(box,'aria-label','Jiusera 软件更新');box.dataset.state='NOT_CHECKED';
  box.innerHTML=__UPDATE_HTML__;
  const slot=document.getElementById('softwareUpdateSlot');if(!slot)throw new Error('UPDATE_VIEW_UNAVAILABLE');slot.append(box);ui.scan?.(box);
  const node=suffix=>box.querySelector('.oa-update-'+suffix);
@@ -158,7 +158,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
  const messages={
   CHECKING:'正在核对已选版本…',DOWNLOADING:'正在下载更新…',VERIFYING:'正在校验更新文件…',
   STAGED:'更新文件已校验，正在准备安装…',
-  WAITING_FOR_IDLE:'正在等待 OpenAhoy 业务空闲…',INSTALLING:'正在通过 Codex 安装…',
+  WAITING_FOR_IDLE:'正在等待 Jiusera 业务空闲…',INSTALLING:'正在通过 Codex 安装…',
   INSTALLED_RELOAD_REQUIRED:'重启 Codex 后启用 {0}。',
   LOADED:'新版本已启用。',
   INSTALL_UNKNOWN:'上次安装结果待核实。确认后可继续升级。',
@@ -363,7 +363,7 @@ def decorate(value, installed_version, uri):
             "const $=id=>document.getElementById(id),bridge=window.parent,pending=new Map();\n const softwareUpdates=OASoftwareUpdates.mount(rpc," + json.dumps(installed_version).replace('<', '\\u003c') + ');',
         'function dispose(){': 'function dispose(){softwareUpdates.dispose();',
         'buttons();await refresh();': 'softwareUpdates.ready(hostCapabilities);buttons();await refresh();',
-        'startupReady=true;syncIntro();': 'startupReady=true;softwareUpdates.startAutomatic();syncIntro();',
+        'if(closed||!ready)return;\n     syncIntro();': 'if(closed||!ready)return;\n     softwareUpdates.startAutomatic();syncIntro();',
     }
     for before, after in seams.items():
         if text.count(before) != 1:

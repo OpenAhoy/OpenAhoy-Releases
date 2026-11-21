@@ -13,7 +13,7 @@ from .x_keychain import XKeychain
 
 class RelayKeychain(XKeychain):
     service = 'com.readysteadyscience.openahoy.video.comfyui-relay.v1'
-    label = 'OpenAhoy · Video relay'
+    label = 'Jiusera · Video relay'
     scope = sha256(service.encode()).hexdigest()
 
 

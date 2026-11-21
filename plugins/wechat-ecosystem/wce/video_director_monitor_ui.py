@@ -4,7 +4,7 @@ HTML = '''
 <section id="directorMonitor" aria-label="导演台" hidden>
  <section class="dm-panel dm-main" aria-labelledby="dmScreenTitle">
   <header class="dm-heading">
-   <div class="dm-heading-copy"><h2 id="dmScreenTitle">监看</h2><p id="dmNow"></p><span id="dmPlaybackState" class="dm-state" hidden></span></div>
+   <div class="dm-heading-copy"><h2 id="dmScreenTitle">监看</h2><p id="dmNow"></p><p id="dmShotStage" role="status"></p><span id="dmPlaybackState" class="dm-state" hidden></span></div>
    <div class="dd-actions">
     <button id="dmFilm" type="button" hidden>作品成片</button>
     <button id="dmGoCanvas" type="button">去画布</button>
@@ -33,8 +33,8 @@ STYLE = '''
 .dm-main,.dm-sidebar{display:grid;min-width:0;gap:10px;align-content:start}
 .dm-heading{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .dm-heading-copy{min-width:0}
-#dmNow,#dmShotCount{color:var(--muted);font-size:11px;overflow-wrap:anywhere}
-#dmNow:empty{display:none}
+#dmNow,#dmShotCount,#dmShotStage{color:var(--muted);font-size:11px;overflow-wrap:anywhere}
+#dmNow:empty,#dmShotStage:empty{display:none}
 #videoDirectorDesk #dmCandidateLabel:not([hidden]){display:flex;align-items:center;gap:7px}
 #dmCandidateLabel>select{flex:1;min-width:0;text-overflow:ellipsis}
 #dmScreen{min-width:0}
@@ -150,8 +150,14 @@ function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
                  work.inbox?inbox:(focus?.rows||[]);
    const category=sources===films?'film':work.inbox?'inbox':focus?.shot.id;
    const active=sources.find(row=>row.id===selection.candidates.get(category))||preferred(sources);
-   const visibleTitle=sources===films?active?.title:work.inbox?active?.title:focus?.title;
+   const revision=focus&&context.revision;
+   const visibleTitle=sources===films?active?.title:work.inbox?active?.title:revision?.title;
    OAUI.raw(now,visibleTitle||'');
+   const storyboard=revision&&[revision.notes,revision.purpose,revision.opening,revision.action,revision.ending,
+     revision.composition,revision.camera,revision.lighting].some(part=>part?.trim());
+   const evidence=revision&&[storyboard?OAUI.format('分镜已保存'):'',
+     revision.images.length?OAUI.format('参考图已关联'):''].filter(Boolean);
+   OAUI.raw($('dmShotStage'),evidence?.length?['v'+revision.number,...evidence].join(' · '):'');
    const state=$('dmPlaybackState'),[message,tone]=phase(active);
    state.hidden=!active;
    if(active){state.dataset.tone=tone;OAUI.set(state,message);}
@@ -230,13 +236,13 @@ function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
  }
  function targetFor(focus,context){
    if(!focus||!context)return null;
-   const revision=focus.shot.cover_revision||(context.revision?.images?.length?context.revision.id:null);
+   const revision=context.revision?.images?.length?context.revision.id:focus.shot.cover_revision;
    return revision?{...model.scope,scene_id:focus.scene.id,shot_id:focus.shot.id,revision_id:revision}:null;
  }
  function clear(){
    closeScreen();model=null;scope='';choiceEpoch++;choosing=false;thumbs.clear();shotKey='';taskKey='';optionKey='';
    delete screen.dataset.kind;
-   OAUI.raw(now,'');OAUI.raw($('dmShotCount'),'');
+   OAUI.raw(now,'');OAUI.raw($('dmShotCount'),'');OAUI.raw($('dmShotStage'),'');
    $('dmPlaybackState').hidden=true;film.hidden=true;
    $('dmCandidateLabel').hidden=true;selector.replaceChildren();
    shotList.replaceChildren();taskList.replaceChildren();go.disabled=true;$('dmTasksLink').disabled=true;

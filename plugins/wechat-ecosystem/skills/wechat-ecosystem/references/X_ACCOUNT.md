@@ -6,7 +6,7 @@
 
 内嵌管理页选择 X，点击「绑定 X 账号」，填写本人 X Developer Console 中启用读写的 Native App 的名称和公开 OAuth 2.0 Client ID，然后由本人在 X 官网页面授权。回调地址以页面显示为准。已有账号从对应卡片的「X Developer Console」进入本号开发者设置，可查看连接状态、进入官方控制台或展开账单与余额。连接或更换开发者应用时可展开「手动配置 Client ID 和回调」，再授权同一账号。授权后的凭据保存在本机钥匙串，按 Client ID 和 X 用户 ID 隔离。
 
-需要新建或配置开发者应用时，点「让 Codex 协助创建 X 应用」，或在聊天使用 `$wechat-ecosystem:x-developer-app-setup`。Skill 随 OpenAhoy 安装和升级，使用 Codex 内置浏览器协助填写 X 官方控制台。
+需要新建或配置开发者应用时，点「让 Codex 协助创建 X 应用」，或在聊天使用 `$wechat-ecosystem:x-developer-app-setup`。Skill 随 Jiusera 安装和升级，使用 Codex 内置浏览器协助填写 X 官方控制台。
 
 选择X即显示该平台已实现能力与实际条件，不依赖是否绑定。授权等待期间页面自动检查本地状态，返回页面时自动刷新；成功后更新账号与头像。切到其他平台或关闭页面停止界面检查，不取消已发官方授权。手动“检查授权结果”保留作恢复入口；失败/取消/过期不自动重发授权或业务。
 

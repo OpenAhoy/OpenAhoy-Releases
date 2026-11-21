@@ -11,6 +11,7 @@ import tempfile
 
 from .contracts import WCEError
 from .prepared_contracts import ID, DIGEST
+from .own_contracts import SPECS as ARTICLE_SPECS
 from .tools import schema
 from .html_document import NORMAL_ARTICLE
 from .service import canonical
@@ -20,8 +21,11 @@ _METADATA={k:deepcopy(NORMAL_ARTICLE['properties'][k]) for k in
 HTML_SOURCE=schema({'absolute_path':{'type':'string','minLength':1,'maxLength':4096},
     'expected_sha256':DIGEST,'article_id':deepcopy(NORMAL_ARTICLE['properties']['id'])}, {'metadata_title':{'type':'string','minLength':1,'maxLength':128},
     'metadata':schema({},_METADATA)})
-ARGUMENTS=schema({'connection_id':ID,'request_key':ID,
+ORIGINAL_ARGUMENTS=schema({'connection_id':ID,'request_key':ID,
     'html_sources':{'type':'array','minItems':1,'maxItems':8,'items':HTML_SOURCE}})
+ARGUMENTS=deepcopy(ORIGINAL_ARGUMENTS)
+ARGUMENTS['properties'].update({name:ARTICLE_SPECS['own.articles.read']['properties'][source]
+    for name,source in (('bundle_id','bundle_id'),('expected_version','version'))})
 
 
 def _key(request_key,article_index,role,position):
@@ -41,6 +45,8 @@ def prepare(policy, arguments, send, scratch_root=None):
     from .own_connection_registry import mkdir
     from .prepared_contracts import strict_validate
     strict_validate(arguments,ARGUMENTS,-16)
+    if ('bundle_id' in arguments) != ('expected_version' in arguments):
+        raise WCEError('OWN_VERSION_CONFLICT')
     if len({s['article_id'] for s in arguments['html_sources']})!=len(arguments['html_sources']):
         raise WCEError('DOCUMENT_INVALID')
     policy.check()
@@ -87,4 +93,5 @@ def prepare(policy, arguments, send, scratch_root=None):
         normalize(document);policy.check()
         # Exactly one prepare for all 1..8 articles. No single-article split.
         return send('own.documents.prepare',{'connection_id':arguments['connection_id'],
-            'request_key':arguments['request_key'],'document':document})
+            'request_key':arguments['request_key'],'document':document} |
+        {key:arguments[key] for key in ('bundle_id','expected_version') if key in arguments})

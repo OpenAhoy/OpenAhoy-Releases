@@ -77,6 +77,22 @@ def canvas_state(work):
 def engine_node_id(work, shot_id):
     return digest(['engine_node', work['id'], shot_id])[:32]
 
+def reference_node_id(work, shot_id):
+    return digest(['shot_reference', work['id'], shot_id])[:32]
+
+
+def primary_reference_index(images):
+    return next((index for index, row in enumerate(images) if row['role'] == 'composition'), 0)
+
+
+def revision_overview(revision):
+    result = {key: revision[key] for key in
+              ('id', 'number', 'title', 'notes', 'start_ms', 'end_ms', 'origin')}
+    if images := revision['images']:
+        item = images[primary_reference_index(images)]
+        result['reference_sha256'] = item['file']['sha256']
+    return result
+
 
 def canvas_edit(work, args, verify_node):
     canvas = canvas_state(work)
@@ -107,7 +123,10 @@ def canvas_edit(work, args, verify_node):
         engine_nodes = {engine_node_id(work, shot['id']) for scene in work['scenes'].values()
                         for shot in scene['shots'].values()
                         if shot['revisions'][shot['head_revision']].get('configuration')}
-        require(node_id in shots or node_id in canvas['nodes'] or node_id in engine_nodes or movable_video(work, node_id),
+        references = {reference_node_id(work, shot['id']) for scene in work['scenes'].values()
+                      for shot in scene['shots'].values() if any(rev['images'] for rev in shot['revisions'].values())}
+        require(node_id in shots or node_id in canvas['nodes'] or node_id in engine_nodes
+                or node_id in references or movable_video(work, node_id),
                 'DIRECTOR_CANVAS_NODE_NOT_FOUND')
         canvas['positions'][node_id] = args['position']
         receipt = {'node_id': node_id}
@@ -134,11 +153,11 @@ def work_view(work):
         {**{key: val for key, val in scene.items() if key != 'shots'},
          'shots': [
              {**{key: value for key, value in shot.items() if key != 'revisions'},
-              'revisions': [{key: rev[key] for key in
-                             ('id', 'number', 'title', 'notes', 'start_ms', 'end_ms', 'origin')}
-                            for rev in sorted(shot['revisions'].values(), key=lambda row: row['number'])],
+              'revisions': [revision_overview(rev) for rev in
+                            sorted(shot['revisions'].values(), key=lambda row: row['number'])],
               'engine': engine_view(shot['revisions'][shot['head_revision']].get('configuration')),
               'engine_node_id': engine_node_id(work, shot['id']),
+              'reference_node_id': reference_node_id(work, shot['id']),
               'cover_revision': (shot['adopted_revision'] or shot['head_revision'])
               if shot['revisions'][shot['adopted_revision'] or shot['head_revision']]['images'] else None}
              for shot in in_order(scene['shots'])
@@ -235,7 +254,9 @@ class Director:
         current = lookup(data['works'], selected, 'DIRECTOR_WORK_NOT_FOUND') if selected else None
         return {
             'project_id': project_id, 'version': data['version'],
-            'works': [{'id': row['id'], 'title': row['title']} for row in in_order(data['works'])],
+            'works': [{'id': row['id'], 'title': row['title']} |
+                      ({'kind': 'article'} if row.get('kind') == 'article' else {})
+                      for row in in_order(data['works'])],
             'work': work_view(current) if current else None,
         }
 
@@ -287,7 +308,7 @@ class Director:
         root, pin = self.project(project_id)
         for_chat = args['action'] == 'start_work'
         operation = ('start:' if for_chat else '') + args['operation_id']
-        location = self.storage(root, pin, create=for_chat or args['action'] == 'create_work')
+        location = self.storage(root, pin, create=for_chat or args['action'] in ('create_work', 'register_article'))
         require(location.is_dir(), 'DIRECTOR_WORK_NOT_FOUND')
         location_pin = path_check(location, True)
         state_path = location / 'storyboards.json'
@@ -320,6 +341,19 @@ class Director:
 
     def apply(self, state, args, root, scratch, verify_revision, verify_canvas_node=None, jobs=None):
         action = args['action']
+        if action == 'register_article':
+            pointer = args['article']
+            existing = next((row for row in state['works'].values() if row.get('article') == pointer), None)
+            if existing:
+                return {'work_id': existing['id'], 'kind': 'article'}
+            work_id = secrets.token_hex(16)
+            state['works'][work_id] = self.new_work_fields(args['fields']) | {
+                'id': work_id, 'position': len(state['works']), 'kind': 'article',
+                'article': pointer, 'scenes': {}, 'focus': None,
+            }
+            if not state['selected_work']:
+                state['selected_work'] = work_id
+            return {'work_id': work_id, 'kind': 'article'}
         if action in ('create_work', 'start_work'):
             work_id = secrets.token_hex(16)
             values = self.new_work_fields(args['fields'])
@@ -330,6 +364,8 @@ class Director:
             return {'work_id': work_id}
         work_id = args['work_id']
         work = lookup(state['works'], work_id, 'DIRECTOR_WORK_NOT_FOUND')
+        if work.get('kind') == 'article':
+            require(action == 'select_work', 'ARTICLE_WORK_USE_ARTICLE_TOOLS')
         if action in ('canvas_add', 'canvas_view', 'canvas_move', 'canvas_remove', 'canvas_note_edit'):
             return canvas_edit(work, args, lambda node: verify_canvas_node(node, root, state['project_id']))
         if action == 'track_generation':

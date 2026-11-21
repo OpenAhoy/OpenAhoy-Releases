@@ -123,7 +123,7 @@ globalThis.OAUI=(()=>{
  }
  function render(){
   document.documentElement.lang=language;
-  document.title=format('OpenAhoy · 平台管理');
+  document.title=format('Jiusera · 工作台');
   for(const [node,{key,values}]of nodes){
    if(!node.isConnected)nodes.delete(node);
    else node.textContent=format(key,values);

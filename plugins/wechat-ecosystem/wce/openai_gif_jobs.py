@@ -338,10 +338,12 @@ class GifJobs:
         return {'offset': offset, 'next': end, 'total': size, 'data': b64encode(data).decode()}
 
     def export(self, attempt, project_id, directory=None):
+        from .own_configuration_export import preserve_existing_export
+
         row, artifact, pin = self.available(attempt, project_id)
-        name = self.filename(row)
         folder = _directory(Path(directory) if directory is not None else Path.home() / 'Downloads')
         try:
+            name = preserve_existing_export(folder, f'Jiusera-{attempt}-{row["asset"]["sha256"][:12]}.gif')
             self.videos._copy_original(artifact, row['asset'], pin, folder, name, source_root=self.root)
         except (OSError, WCEError):
             raise WCEError('GIF_EXPORT_UNAVAILABLE') from None

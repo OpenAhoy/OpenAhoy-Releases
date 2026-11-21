@@ -1,7 +1,7 @@
 {
   "name": "openahoy-distribution",
   "interface": {
-    "displayName": "OpenAhoy"
+    "displayName": "Jiusera"
   },
   "plugins": [
     {

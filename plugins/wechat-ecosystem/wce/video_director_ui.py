@@ -1,8 +1,10 @@
-"""Director desk in the native OpenAhoy media workspace."""
+"""Director desk in the native Jiusera media workspace."""
 from .video_director_canvas_ui import HTML as CANVAS_HTML
 from .character_library_ui import PAGE as CHARACTER_PAGE
+from .asset_catalog_ui import HTML as ASSET_CATALOG
 from .media_monitor_ui import HTML as ASSET_MEDIA
 from .video_director_monitor_ui import HTML as MONITOR_HTML
+from .article_work_ui import STYLE as ARTICLE_STYLE, SCRIPT as ARTICLE_SCRIPT
 
 HTML = '''
 <section id="videoDirectorDesk" aria-labelledby="directorTitle" hidden>
@@ -11,9 +13,14 @@ HTML = '''
   <div class="dd-actions">
    <button id="directorSound" type="button" aria-label="预览声音" aria-pressed="false">声音关</button>
    <button id="directorToolBack" type="button" hidden>返回</button>
-   <button id="directorAssetBack" type="button" hidden>回到画布</button>
-   <details id="directorMore" class="dd-more"><summary>更多</summary>
+   <button id="directorShowcase" data-wb-route="studio-showcase" type="button" hidden>演播室案例</button>
+   <button id="directorAssetBack" type="button" hidden>返回资产库</button>
+   <details id="directorMore" class="dd-more"><summary>
+      <svg class="oa-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h5m4 0h9M3 12h11m4 0h3M3 18h2m4 0h12"/><circle cx="10" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="7" cy="18" r="2"/></svg>
+      <span id="directorMoreLabel">作品工具</span></summary>
     <div class="dd-more-menu">
+     <button type="button" id="directorChatWorkMenu">在 Codex 开始创作</button>
+     <button type="button" id="directorRefreshMenu">刷新</button>
      <button type="button" id="directorNewWork">手动新建作品</button>
      <button type="button" id="directorRecoverWork">找回聊天作品</button>
      <button type="button" id="directorStopFollowing" hidden>停止等待聊天结果</button>
@@ -37,7 +44,10 @@ HTML = '''
  </div>
  <p id="directorWorkHint" class="dd-work-hint" hidden></p>
  ''' + MONITOR_HTML + '''
+ <section id="articleWork" aria-label="图文作品" hidden></section>
  <div id="directorBoard" class="dd-board" hidden>
+  ''' + CANVAS_HTML + '''
+  <div id="wbCanvasDetails" aria-label="镜头详情">
   <aside class="dd-panel dd-scenes" aria-label="场次">
    <div class="dd-heading"><h2>场次</h2><button id="directorNewScene" type="button">新建场次</button></div>
    <label class="dd-scene-select">当前场 <select id="directorSceneSelect"></select></label>
@@ -48,7 +58,6 @@ HTML = '''
     <button id="directorPrevious" type="button">上一场</button><button id="directorNext" type="button">下一场</button>
    </div></div>
    <button id="directorNewShot" type="button">新建镜头</button>
-   ''' + CANVAS_HTML + '''
    <details class="dd-shot-shelf"><summary>本场镜头</summary><div id="directorShots" aria-label="本场镜头条"></div></details>
   </section>
   <aside class="dd-panel dd-inspector" aria-labelledby="directorShotTitle">
@@ -66,6 +75,7 @@ HTML = '''
       <button type="button" id="directorSendImage">交给 Codex 改图片</button><button type="button" id="directorCopyContext">复制上下文</button></div>
    </details>
   </aside>
+  </div>
  </div>
  <section id="directorCardPage" class="dd-card-page" aria-label="提示词库" hidden>
   <div class="dd-toolbar">
@@ -76,13 +86,7 @@ HTML = '''
   </div>
   <div class="dd-card-grid"><div id="directorCardList"></div><article id="directorCardDetail" class="dd-panel"></article></div>
  </section>
- <nav id="directorAssetKinds" aria-label="资产类型" hidden>
-  <button type="button" data-asset-kind="characters" aria-controls="characterLibrary">形象资产</button>
-  <button type="button" data-asset-kind="video" aria-controls="mediaMonitor">视频</button>
-  <button type="button" data-asset-kind="gif" aria-controls="mediaMonitor">动图</button>
-  <button type="button" data-asset-kind="audio" aria-controls="mediaMonitor">音频</button>
- </nav>
- ''' + CHARACTER_PAGE + ASSET_MEDIA + '''
+ ''' + ASSET_CATALOG + CHARACTER_PAGE + ASSET_MEDIA + '''
  <footer class="dd-footer">
   <p id="directorStatus" role="status" aria-live="polite"></p>
   <textarea id="directorCopy" rows="3" aria-label="可复制内容" readonly hidden></textarea>
@@ -95,7 +99,7 @@ HTML = '''
 </section>
 '''
 
-STYLE = '''
+STYLE = ARTICLE_STYLE + '''
 #videoDirectorDesk[hidden],#videoDirectorDesk [hidden]{display:none!important}
 #videoDirectorDesk{display:flex;min-height:0;min-width:0;flex:1;flex-direction:column;gap:10px;overflow:auto;
  color:var(--ink);font-size:13px;scrollbar-gutter:stable}
@@ -203,7 +207,7 @@ STYLE = '''
 }
 '''
 
-SCRIPT = r'''
+SCRIPT = ARTICLE_SCRIPT + r'''
 function OADirector(tool, send, canSend, navigation){
  const $=id=>document.getElementById(id);
  const root=$('videoDirectorDesk'), project=$('directorProject'), workSelect=$('directorWork');
@@ -277,6 +281,12 @@ function OADirector(tool, send, canSend, navigation){
  const workKey=scope=>scope.project_id+':'+scope.work_id;
  const engineModes={...modeLabels,subject:'主体参考',workflow:'多图多音频工作流'};
  const engineChannel={...providers,relay:'AutoDL'};
+ const legacyWorkflow='minimax_h3_zm_nono';
+ const workflowLabels={reference_images:'参考图片公开 HTTPS 链接',reference_audio:'参考音频公开 HTTPS 链接',
+   first_frame:'首帧公开 HTTPS 链接',last_frame:'尾帧公开 HTTPS 链接',reference_video:'参考视频公开 HTTPS 链接',
+   duration:'时长（秒）',audio_duration:'音频时长（秒）',resolution:'分辨率',seed:'随机种子',
+   quality_mode:'画质模式',style_preset:'风格预设',video_subject_to_replace:'要替换的视频主体'};
+ const exactSeedHint='这个种子超出面板的精确整数范围。请在 Codex 聊天通过 MCP 设置原始整数。';
  const engineName=engine=>engine.model+' · '+txt(engineChannel[engine.provider]||engine.provider||'渠道未记录');
  let watch=null,watchTimer=null,player=null,reading=0,visual=0,writing=false,dialogWrite=null;
  let explicitProject='',selection=0,projectLoad=0,chatRequest=null,readingRequest=false,ticking=false;
@@ -395,6 +405,9 @@ function OADirector(tool, send, canSend, navigation){
       throw Error('DIRECTOR_REVISION_NOT_FOUND');
    data=result;sceneID=sceneRow?.id||null;context=view;
    if(scope)preferredWorks.set(id,scope.work_id);
+   if(active&&!active.inbox&&mainView()){
+     try{localStorage.setItem('jiusera.workbench.last-work',JSON.stringify({project:id,work:active.id}));}catch(_){}
+   }
    if(scope&&target)preferredShots.set(workKey(scope),target);
    render();if(mode==='cards'&&cardData)renderCards();
    if(!overview&&(mode==='monitor'||mode==='desk'))await syncWorkspace();
@@ -416,27 +429,38 @@ function OADirector(tool, send, canSend, navigation){
  }
  function render(){
    if(mode!=='desk'&&mode!=='monitor')return;
-   const work=present(),editing=mode==='desk';
+   const work=present(),editing=mode==='desk',article=work?.kind==='article';
+   document.body.toggleAttribute('data-workbench-has-work',!!work&&!work.inbox);
    $('directorWorkbar').hidden=false;
-   $('directorWorkSettings').hidden=!editing;
-   board.hidden=!editing;
-   $('directorMonitor').hidden=editing;
+   $('directorWorkSettings').hidden=!editing||article;
+   board.hidden=!editing||article;
+   $('directorMonitor').hidden=editing||article;
+   $('directorSound').hidden=article;
+   document.body.toggleAttribute('data-workbench-article',article);
    const works=data?.works||[];
    optionsFor(workSelect,[[ '',works.length?'选择作品':'暂无作品'],
-     ...works.map(row=>[row.id,row.title,!!row.inbox])],work?.id||'');
+     ...works.map(row=>[row.id,row.kind==='article'?[row.title,
+       row.account_label&&row.account_label+' · '+row.account_hint].filter(Boolean).join(' / '):row.title,!!row.inbox])],work?.id||'');
    workSelect.disabled=!works.length;
    $('directorNewWork').disabled=!pid();
    const pending=chatRequest&&chatRequest.selection===selection;
    $('directorStopFollowing').hidden=!pending;
    $('directorChatWork').disabled=!!pending||!canSend();
+   $('directorChatWorkMenu').disabled=$('directorChatWork').disabled;
    OAUI.set($('directorChatWork'),pending?'等待聊天中的作品':'在 Codex 开始创作');
    const hint=$('directorWorkHint');
    hint.hidden=!!work&&!pending;
    OAUI.set(hint,pending?'已保留原请求，作品就绪后会显示在这里。':
-     canSend()?'从当前聊天开始，或在「更多」手动新建。':'当前宿主无法发送聊天请求，可在「更多」手动新建。');
+     canSend()?'从当前聊天开始，也可手动新建作品。':'当前宿主无法发送聊天请求，可用作品工具手动新建。');
    const scope=work&&workScope(),cached=scope&&workspaceRows.get(workKey(scope));
+   if(article){
+     review.clear();canvas.suspend();
+     void articleStage.show(scope,mode);
+     return;
+   }
+   articleStage.hide();
    if(editing){
-     canvas.render(scope?workKey(scope):'',work,context?.shot_id);
+     canvas.render(scope?workKey(scope):'',work,context?.shot_id,context?.revision||null);
      if(cached)canvas.setDeliveries(workKey(scope),cached.cards,cached.version);
    }else review.render({work,scope,context,cards:cached?.cards||[]});
    $('directorCanvasEngine').disabled=!context;
@@ -445,6 +469,15 @@ function OADirector(tool, send, canSend, navigation){
    for(const id of ['directorCanvasNote','directorCanvasImage','directorNewScene'])$(id).disabled=!editable;
    if(!editing)return;
    const scene=currentScene();
+   const start=$('wbCanvasStart');
+   const action=editable?(scene?'新建镜头':'新建场次'):canSend()?'在 Codex 开始创作':pid()?'手动新建作品':'登记项目';
+   OAUI.attr(start,'aria-label',action);OAUI.attr(start,'title',action);
+   start.disabled=!editable&&!!pending;
+   start.onclick=()=>{
+     const id=editable?(scene?'directorNewShot':'directorNewScene'):
+       canSend()?'directorChatWork':pid()?'directorNewWork':'directorProjectSettings';
+     $(id).click();
+   };
    const scenes=work?.scenes||[];
    const at=scenes.indexOf(scene);
    $('directorPrevious').disabled=at<=0;$('directorNext').disabled=at<0||at>=scenes.length-1;
@@ -783,6 +816,8 @@ function OADirector(tool, send, canSend, navigation){
        pane=node('div','dd-form'),cols=node('div','dd-pairs');
      const provider=select(cols,'供应商',Object.entries(engineChannel),draft?.provider||config.provider);
      const pickedModel=select(cols,'模型',[],config.model),kind=select(cols,'模式',[],config.mode);
+     const workflow=select(cols,'AutoDL 工作流',[],config.workflow_id||'');
+     workflow.dataset.engineField='workflow_id';
      const duration=select(cols,'时长（秒）',[],config.duration);
      const resolution=select(cols,'分辨率',[],config.resolution);
      const ratio=select(cols,'画幅',[],config.ratio);
@@ -797,10 +832,12 @@ function OADirector(tool, send, canSend, navigation){
        imagesUrl=textarea(urls,'参考图片公开 HTTPS 链接',config.reference_images?.join('\n')||'',3),
        audioUrl=textarea(urls,'参考音频公开 HTTPS 链接',config.reference_audio?.join('\n')||'',2),
        subjectUrl=input(urls,'主体图片公开 HTTPS 链接',config.subject_image_url||'','url');
-     const inputArea=node('div','dd-form'),connection=label('p',''),hint=label('p','');
+     const inputArea=node('div','dd-form'),workflowForm=node('div','dd-pairs'),connection=label('p',''),hint=label('p','');
      const rowName=label('h3','');
-     let originals=[],sourcePending=false,localFields=[];
-     pane.append(rowName,connection,cols,inputArea,sourceArea,urls,hint);
+     let originals=[],sourcePending=false,localFields=[],workflowFields=[],previousWorkflow='',workflowChoice=config.workflow_id||'';
+     const workflowDrafts=new Map();
+     const split=value=>value.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
+     pane.append(rowName,connection,cols,inputArea,sourceArea,urls,workflowForm,hint);
      pane.oninput=pane.onchange=()=>{engineDirty=true;};
      const modelRow=()=>catalog.models[provider.value]?.find(row=>row.id===pickedModel.value);
      const profile=()=>modelRow()?.profiles?.[kind.value];
@@ -874,18 +911,75 @@ function OADirector(tool, send, canSend, navigation){
          ...choices.map(n=>[String(n),n===-1?'自适应时长':String(n),n===-1])],keep);
        show(duration,!!choices.length);
      }
+     const sameSavedEngine=()=>provider.value===config.provider&&pickedModel.value===config.model&&kind.value===config.mode;
+     function workflowList(){
+       return (profile()?.workflows||[]).filter(item=>item.id!==legacyWorkflow||item.id===config.workflow_id);
+     }
+     function explicitWorkflow(){
+       return profile()?.url_inputs==='relay'&&(workflow.value||(!workflow.options.length&&sameSavedEngine()&&config.workflow_id)||'');
+     }
+     const hasLargeSavedSeed=id=>sameSavedEngine()&&id===config.workflow_id&&
+       config.seed!=null&&!Number.isSafeInteger(Number(config.seed));
+     function showWorkflowFields(){
+       if(previousWorkflow)workflowDrafts.set(previousWorkflow,Object.fromEntries(workflowFields.map(({name,control})=>[name,control.value])));
+       const active=profile(),id=explicitWorkflow(),entry=workflowList().find(item=>item.id===id);
+       workflowForm.replaceChildren();workflowFields=[];previousWorkflow=id;
+       workflowForm.hidden=!entry;
+       show(prompt,!entry||Boolean(entry.fields.prompt));
+       const saved=workflowDrafts.get(id)||(id===config.workflow_id?config:{});
+       for(const [name,field] of Object.entries(entry?.fields||{})){
+         if(!Object.hasOwn(workflowLabels,name))continue;
+         const caption=workflowLabels[name];
+         const value=saved[name];
+         const defaultLabel=field.default==null?'服务商默认':'服务商默认 '+String(field.default);
+         const numeric=field.type==='integer'||field.type==='number';
+         const largeSeed=name==='seed'&&hasLargeSavedSeed(id);
+         let control;
+         if(field.enum?.length){
+           control=select(workflowForm,caption,[['',defaultLabel],...field.enum.map(choice=>[String(choice),String(choice),false])],String(value??''));
+         }else if(field.type==='array'){
+           control=textarea(workflowForm,caption,Array.isArray(value)?value.join('\n'):value,2);
+         }else{
+           const url=['first_frame','last_frame','reference_video'].includes(name);
+           const limits=Object.fromEntries(Object.entries({min:field.minimum,max:field.maximum}).filter(([,limit])=>limit!=null));
+           if(numeric)limits.step=field.type==='integer'?'1':'any';
+           if(largeSeed)limits.placeholder=txt('使用 Codex 设置原始整数');
+           else if(field.default!=null)limits.placeholder=String(field.default);
+           control=input(workflowForm,caption,largeSeed?'':value??'',url?'url':numeric?'number':'text',limits);
+         }
+         control.dataset.engineField=name;
+         if(field.required)control.setAttribute('aria-required','true');
+         control.disabled=!fresh||largeSeed;
+         control.oninput=()=>control.setCustomValidity('');
+         workflowFields.push({name,control,field});
+       }
+       if(entry?.fields?.seed&&entry.fields.seed.maximum>Number.MAX_SAFE_INTEGER){
+         workflowForm.append(label('small',largeSavedSeedHint(id)));
+       }
+       show(imagesUrl,active?.url_inputs==='relay'&&!id);show(audioUrl,active?.url_inputs==='relay'&&!id);
+       show(subjectUrl,active?.url_inputs==='subject');
+       urls.hidden=!active?.url_inputs||Boolean(id);
+       durations();
+       if(id)show(duration,false);
+       show(resolution,!id&&!!Object.keys(active?.resolutions||{}).length);
+     }
+     const largeSavedSeedHint=id=>hasLargeSavedSeed(id)?exactSeedHint:'超大整数种子可在 Codex 聊天通过 MCP 设置。';
      function outputs(){
        const row=modelRow(),active=profile(),sizes=Object.keys(active?.resolutions||{});
        optionsFor(resolution,[...(active?.optional_output?[['','服务商默认']]:[]),...sizes.map(value=>[value,value,false])],resolution.value||config.resolution);
        optionsFor(ratio,(active?.ratios||[]).map(value=>[value,value==='adaptive'?'自适应':value,value==='adaptive']),ratio.value||config.ratio);
-       show(resolution,!!sizes.length);show(ratio,!!active?.ratios.length);show(audio,!!active?.audio);
+       show(ratio,!!active?.ratios.length);show(audio,!!active?.audio);
        if(!active?.audio)audio.checked=false;
-       durations();localInputs();
+       localInputs();
        sourceArea.hidden=!active?.source;direction.parentElement.hidden=!active?.direction;
        if(active?.source)void addSources();
-       show(imagesUrl,active?.url_inputs==='relay');show(audioUrl,active?.url_inputs==='relay');
-       show(subjectUrl,active?.url_inputs==='subject');
-       urls.hidden=!active?.url_inputs;
+       const list=active?.url_inputs==='relay'?workflowList():[];
+       const options=list.map(item=>[item.id,item.name||item.id,false]);
+       if(list.length&&sameSavedEngine()&&config.workflow_id&&!list.some(item=>item.id===config.workflow_id))
+         options.push([config.workflow_id,config.workflow_id,false]);
+       optionsFor(workflow,options.length?[['','默认参考工作流'],...options]:[],workflowChoice);
+       show(workflow,!!options.length);
+       showWorkflowFields();
        OAUI.raw(rowName,row?engineName({provider:provider.value,model:row.id}):'');
        OAUI.set(hint,active?.url_inputs?'使用已有公开链接。链接和模型账号的访问尚未核验。':'');
        OAUI.set(connection,provider.value==='tokenhex'&&row?.visibility!=='VISIBLE'?'Token Hex 型号可见性待核':
@@ -902,24 +996,45 @@ function OADirector(tool, send, canSend, navigation){
        modes();
      }
      provider.onchange=()=>modelsForProvider();pickedModel.onchange=()=>modes();kind.onchange=outputs;resolution.onchange=durations;
-     modelsForProvider(draft?.model);
+     workflow.onchange=()=>{workflowChoice=workflow.value;showWorkflowFields();};
      const prompt=textarea(pane,'完整生成提示词',rev.prompt,5);
+     modelsForProvider(draft?.model);
      for(const control of pane.querySelectorAll('input,textarea,select'))if(!fresh)control.disabled=true;
-     const split=value=>value.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
      if(fresh)pane.append(button('保存提示词与配置',async()=>{
        const active=profile();
        if(!active)return;
        const link=originals.find(row=>row.generation_attempt_id===source.value);
        const request={provider:provider.value,model:pickedModel.value,mode:kind.value};
-       if(duration.value!=='')request.duration=Number(duration.value);
-       if(resolution.value)request.resolution=resolution.value;
+       const workflowID=explicitWorkflow();
+       if(!workflowID&&duration.value!=='')request.duration=Number(duration.value);
+       if(!workflowID&&resolution.value)request.resolution=resolution.value;
        if(active.ratios.length&&ratio.value)request.ratio=ratio.value;
        if(active.audio)request.audio=audio.checked;
        if(active.source&&link)request.source={project_id:pid(),attempt_id:link.generation_attempt_id,
          sha256:link.asset.sha256,...(asset.value.trim()?{reference_asset:asset.value.trim()}:{})};
        if(active.direction)request.direction=direction.value;
        if(active.url_inputs==='subject'&&subjectUrl.value.trim())request.subject_image_url=subjectUrl.value.trim();
-       if(active.url_inputs==='relay'){
+       if(workflowID){
+         if(hasLargeSavedSeed(workflowID)){say(exactSeedHint,true);return;}
+         const known=workflowList().some(item=>item.id===workflowID);
+         if(!known&&sameSavedEngine()&&workflowID===config.workflow_id)Object.assign(request,config);
+         request.workflow_id=workflowID;
+         for(const {name,control,field} of workflowFields){
+           const value=control.value.trim();
+           if(!value)continue;
+           control.setCustomValidity('');
+           if(field.type==='integer'&&!Number.isSafeInteger(Number(value)))control.setCustomValidity(txt(exactSeedHint));
+           if(field.type==='array'){
+             const urls=split(value);
+             if(urls.length<(field.minItems??0)||urls.length>(field.maxItems??Infinity))
+               control.setCustomValidity(txt('请核对链接数量')+` (${field.minItems??0}–${field.maxItems??'∞'})`);
+             request[name]=urls;
+           }
+           if(!control.reportValidity())return;
+           if(field.type==='integer'||field.type==='number')request[name]=Number(value);
+           else if(field.type!=='array')request[name]=value;
+         }
+       }else if(active.url_inputs==='relay'){
          if(split(imagesUrl.value).length)request.reference_images=split(imagesUrl.value);
          if(split(audioUrl.value).length)request.reference_audio=split(audioUrl.value);
        }
@@ -1029,7 +1144,7 @@ function OADirector(tool, send, canSend, navigation){
    const ctx=context,snapshot=exact(),instruction=$('directorInstruction').value.trim();
    const task=kind==='image'?'给该镜制作或选择一张项目内图片分镜，保留已采用的其他图片及角色。':
       '修改该镜的文字分镜，保留与请求无关的字段和现有素材。';
-   return '请按 OpenAhoy 随包 video-director Skill 接手当前分镜。'+task+'\n'
+   return '请按 Jiusera 随包 video-director Skill 接手当前分镜。'+task+'\n'
      +(instruction?'我的修改要求：'+instruction+'\n':'')
      +'作品：'+ctx.work.title+'｜场次：'+ctx.scene.title+'｜镜头：'+ctx.revision.title+'\n'
      +'用 video.director.read action=context 读取以下精确定位，再核对当前 head_revision。\n'
@@ -1138,15 +1253,20 @@ function OADirector(tool, send, canSend, navigation){
    OAUI.set($('directorTitle'),({monitor:'导演台',desk:'工作画布',assets:'资产库',cards:'提示词库',
      tasks:'任务详情',providers:'供应商设置'})[mode]);
    $('directorMore').open=false;
+   OAUI.set($('directorMoreLabel'),mode==='desk'?'画布工具':mode==='assets'?'资产工具':'作品工具');
    $('directorMore').hidden=!main&&mode!=='assets';
    $('directorToolBack').hidden=!['cards','tasks','providers'].includes(mode);
-   $('directorAssetKinds').hidden=mode!=='assets';
-   $('directorAssetBack').hidden=mode!=='assets';
+   $('directorShowcase').hidden=mode!=='assets';
    $('directorCardPage').hidden=mode!=='cards';
    $('directorWorkbar').hidden=!main;
    if(mode!=='desk')board.hidden=true;
    if(mode!=='monitor')$('directorMonitor').hidden=true;
-   if(!main)$('directorWorkHint').hidden=true;
+   if(!main){
+     $('directorSound').hidden=mode!=='assets';
+     $('directorWorkHint').hidden=true;
+     articleStage.hide();
+     document.body.removeAttribute('data-workbench-article');
+   }
    if(mode==='cards')void loadCards().catch(error);
    if(main){render();void tickWorkspace();}
  }
@@ -1158,11 +1278,27 @@ function OADirector(tool, send, canSend, navigation){
    project.disabled=!list.length;
    project.title=list.find(row=>row.id===project.value)?.label||'';
  }
- async function refreshProjects(){
+ async function refreshProjects({restore=false}={}){
    guideRead=0;navigation.guideChanged?.();
    const epoch=++projectLoad,intent=selection,current=pid(),{projects:list}=await read('projects');
    if(epoch!==projectLoad||intent!==selection||!mode)return;
-   setProjectList(list,current);
+   let saved=null;
+   if(restore&&!current&&mainView()){
+     try{saved=JSON.parse(localStorage.getItem('jiusera.workbench.last-work'));}catch(_){}
+   }
+   const remembered=saved&&list.some(row=>row.id===saved.project)?saved.project:'';
+   const initial=current||remembered||(restore&&mainView()&&list.length===1?list[0].id:'');
+   setProjectList(list,initial);
+   if(remembered&&typeof saved.work==='string'){
+     const request=reading+1;
+     try{await readWork({work:saved.work});return;}
+     catch(problem){
+       if(problem.message!=='DIRECTOR_WORK_NOT_FOUND')throw problem;
+       if(request!==reading||intent!==selection||pid()!==remembered||!mode)return;
+       preferredWorks.delete(remembered);
+       resetWork();
+     }
+   }
    await readWork({keep:true});
  }
  function resetWork(){
@@ -1172,7 +1308,7 @@ function OADirector(tool, send, canSend, navigation){
    root.hidden=false;
    view(target);
    if(!workspaceTimer)workspaceTimer=setInterval(tickWorkspace,2600);
-   try{await refreshProjects();await checkChatRequest();}
+   try{await refreshProjects({restore:true});await checkChatRequest();}
    catch(problem){if(mode)error(problem);}
  }
  function startPrompt(id){
@@ -1251,7 +1387,8 @@ function OADirector(tool, send, canSend, navigation){
    }finally{ticking=false;}
  }
  function close(){
-   navigation.closeCharacterPicker();imageDraft=null;canvas.suspend();review.clear();
+   navigation.closeCharacterPicker();imageDraft=null;canvas.suspend();review.clear();articleStage.hide();
+   document.body.removeAttribute('data-workbench-article');
    clearInterval(workspaceTimer);workspaceTimer=null;polled.clear();engineDraft=null;engineDirty=false;
    mode='';root.hidden=true;projectLoad++;reading++;visual++;clearPreview();stopWatch();say('');
    if($('directorCanvasPreview').open)$('directorCanvasPreview').close();
@@ -1306,6 +1443,8 @@ function OADirector(tool, send, canSend, navigation){
    });
  };
  $('directorChatWork').onclick=startChatWork;
+ $('directorChatWorkMenu').onclick=()=>{$('directorMore').open=false;void startChatWork();};
+ $('directorRefreshMenu').onclick=()=>{$('directorMore').open=false;$('directorRefresh').click();};
  $('directorRecoverWork').onclick=recoverChatWork;
  $('directorStopFollowing').onclick=()=>{chatRequest=null;render();say('');navigation.guideChanged?.();};
  $('directorProjectSettings').onclick=navigation.project;
@@ -1327,6 +1466,14 @@ function OADirector(tool, send, canSend, navigation){
  $('directorToolBack').onclick=navigation.back;
  $('directorTabs').querySelectorAll('button').forEach(pick=>pick.onclick=()=>{tab=pick.dataset.tab;renderInspector();});
  for(const id of ['directorCardQuery','directorCardCategory','directorCardSubjects','directorCardModel'])$(id).oninput=renderCards;
+ async function goToArticle(row){
+   const checked=await read('overview',{project_id:row.project_id,work_id:row.work_id});
+   if(checked.project_id!==row.project_id||checked.work?.id!==row.work_id||checked.work.kind!=='article')
+     throw Error('ARTICLE_WORK_NOT_FOUND');
+   selection++;explicitProject=row.project_id;setProjectList(projects,row.project_id);
+   await navigation.go('desk');
+   await readChosenWork(row.work_id,checked);
+ }
  function shotLink(){return context?.shot_id?{shot_id:context.shot_id}:{};}
  function canAttach(row){return mode==='assets'&&!!present()&&!present().inbox&&row.project===pid()&&!!row.asset?.sha256;}
  async function attach(row){
@@ -1399,11 +1546,18 @@ function OADirector(tool, send, canSend, navigation){
    }
    return true;
  }
+ async function canvasImage(row,thumbnail){
+   const scope=workScope();
+   const response=row.kind==='shot_reference'?await media('image',{...scope,scene_id:row.scene,
+       shot_id:row.shot_id,revision_id:row.revision,thumbnail}):
+       await media('canvas_image',{...scope,node_id:row.id,thumbnail});
+   if(response.sha256!==(row.sha256||row.file?.sha256))throw Error('DIRECTOR_ASSET_CHANGED');
+   return response;
+ }
  async function canvasPicture(row){
-   const response=row.kind==='shot'?await media('image',{...workScope(),scene_id:row.scene,
-       shot_id:row.id,revision_id:row.cover,thumbnail:true}):
-       await media('canvas_image',{...workScope(),node_id:row.id,thumbnail:true});
-   const slot=node('div');attachImage(slot,response,true);return slot.firstChild;
+   const slot=node('div');
+   attachImage(slot,await canvasImage(row,true),true);
+   return slot.firstChild;
  }
  function playCanvasVideo(slot,row,scope=workScope()){
    const args={...scope,delivery_id:row.id,sha256:(row.asset||row).sha256};
@@ -1430,6 +1584,7 @@ function OADirector(tool, send, canSend, navigation){
    await selectShot(row.scene,row.shot_id||row.id,row.revision);
    if(row.kind==='engine'&&context?.shot_id===row.shot_id){tab='generation';renderInspector();}
  }
+ let canvasPreviewRead=0;
  async function showCanvasNode(row){
    if(row.kind==='asset'){
      const asset=row.asset;
@@ -1437,17 +1592,19 @@ function OADirector(tool, send, canSend, navigation){
      return;
    }
    const preview=$('directorCanvasPreview'),body=$('directorCanvasPreviewBody');
+   const readID=++canvasPreviewRead,scope=workKey(workScope());
+   const current=()=>readID===canvasPreviewRead&&preview.open&&mode==='desk'&&present()&&workKey(workScope())===scope;
    OAUI.raw($('directorCanvasPreviewTitle'),row.title);
    const editNote=$('directorCanvasNoteEdit');
    editNote.hidden=row.kind!=='note';
    editNote.onclick=()=>{preview.close();noteDialog(row);};
    body.replaceChildren(row.kind==='note'?raw('p',row.text):label('p','正在读取图片…'));
    preview.showModal();
-   if(row.kind==='image'){
+   if(row.kind==='image'||row.kind==='shot_reference'){
      try{
-       const rendered=await media('canvas_image',{...workScope(),node_id:row.id});
-       if(preview.open)attachImage(body,rendered);
-     }catch(problem){if(preview.open){body.replaceChildren(label('p','当前图片不可用'));error(problem);}}
+       const rendered=await canvasImage(row,false);
+       if(current())attachImage(body,rendered);
+     }catch(problem){if(current()){body.replaceChildren(label('p','当前图片不可用'));error(problem);}}
    }
  }
  function acceptDeliveries(scope,payload){
@@ -1467,6 +1624,7 @@ function OADirector(tool, send, canSend, navigation){
    const current=()=>['desk','monitor'].includes(mode)&&pid()===scope.project_id&&present()?.id===scope.work_id;
    workspaceBusy=true;
    try{
+     if(present()?.kind==='article'){await articleStage.show(scope,mode);return;}
      const payload=await read('deliveries',scope);
      if(!current()||!acceptDeliveries(scope,payload))return;
      const idle=()=>current()&&!writing&&!watch&&!readingWork&&reading===readEpoch;
@@ -1491,6 +1649,8 @@ function OADirector(tool, send, canSend, navigation){
    }catch(_){/* Keep the last verified visible cards across a temporary read failure. */}
    finally{workspaceBusy=false;}
  }
+ OAArticleLibrary($('articleAssetLibrary'),read,media,navigation.openLink,goToArticle);
+ const articleStage=OAArticleWork($('articleWork'),read,media,navigation.openLink);
  const canvas=OADirectorCanvas(canvasCommit,selectCanvasNode,showCanvasNode,canvasPicture,engineName,
    playCanvasVideo,adoptCanvasVideo);
  const review=OADirectorMonitor({
@@ -1521,6 +1681,6 @@ function OADirector(tool, send, canSend, navigation){
    },
    play:playCanvasVideo,
  });
- return {open,close,view,canAttach,attach,guideContext};
+ return {open,close,view,canAttach,attach,guideContext,goToArticle};
 }
 '''

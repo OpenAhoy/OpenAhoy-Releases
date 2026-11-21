@@ -1,7 +1,7 @@
 """Optional bundled material UI, isolated from the accepted account layout."""
 HTML = r'''
 <section id="creativeTemplates" class="panel" hidden aria-label="创作模板">
-<div class="template-top"><div><h3>官方创作模板</h3><p class="help">OpenAhoy 维护 · 可选创作方案。新模板随插件更新，使用左侧全局「检查更新」。</p></div><button id="templateReload">刷新模板</button></div>
+<div class="template-top"><div><h3>官方创作模板</h3><p class="help">Jiusera 维护 · 可选创作方案。新模板随插件更新，使用左侧全局「检查更新」。</p></div><button id="templateReload">刷新模板</button></div>
 <p id="templateNotice" class="notice" role="status" aria-live="polite"></p>
 <div id="templateCards" class="template-cards"></div>
 <section id="templatePreview" hidden aria-label="模板效果预览">
@@ -119,7 +119,7 @@ window.OACreativeTemplates={mount(rules,host){
     const cover=document.createElement('img');cover.src=await image(m,m.assets[0]);cover.alt=m.name+'封面演示';
     if(captured!==epoch||!ready)return;
     const body=document.createElement('div'),title=document.createElement('h3'),desc=document.createElement('p'),change=document.createElement('p'),state=document.createElement('p'),actions=document.createElement('div');
-    set(title,'{0} · {1} · OpenAhoy官方',m.name,m.version);desc.textContent=m.description;desc.className='help';change.textContent=m.changelog.join(' ');change.className='help';state.className='template-target';
+    set(title,'{0} · {1} · Jiusera官方',m.name,m.version);desc.textContent=m.description;desc.className='help';change.textContent=m.changelog.join(' ');change.className='help';state.className='template-target';
     const prior=refs.filter(r=>r.id===m.id).at(-1);set(state,!t?'预览和下载无需绑定；应用前请选择公众号。':prior?.manifest_sha256===m.manifest_sha256?'「{0}」已采用此版本':prior?'「{0}」已有 {1}；此版本可用，应用后保留已有自定义。':'应用目标：「{0}」',t?.name,prior?.version);actions.className='actions';
     for(const [text,action,apply] of [['预览效果',()=>preview(m),false],['下载完整模板',()=>download(m),false],['应用到此公众号',async()=>{const chosen=target();if(!chosen)throw Error('TEMPLATE_ACCOUNT_REQUIRED');const out=await rules.applyTemplate(m,{connection_id:chosen.connection_id,name:chosen.name,isCurrent:chosen.isCurrent});if(out?.verified||out?.alreadyApplied){set(state,'「{0}」已采用此版本',chosen.name);say(out.alreadyApplied?'本号已采用此版本，没有重复追加。':'模板已应用，八项有效规则及继承关系已独立读回。');}else say(out?.pending?'原保存结果待确认，请在生产规则中查询原操作，不要重复应用。':'应用尚未确认，请查看生产规则提示。');},true]]){
      const b=document.createElement('button');set(b,text);b.dataset.apply=String(apply);if(apply)b.className='primary';b.addEventListener('click',()=>run(action));actions.append(b);

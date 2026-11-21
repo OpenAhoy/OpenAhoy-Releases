@@ -102,7 +102,7 @@ def descriptors():
         'x.articles.draft.create': 'Create one native X Article draft from ordered text and image blocks. Use successful upload attempts from this exact connection for cover and images. Keep the original attempt_id, including for UNKNOWN. This does not publish.',
         'x.articles.publish': 'Publish a currently authorized X Article by its original successful local draft_attempt_id. Sends at most once for the native Article ID. Save the returned post_id and read it separately.',
         'x.articles.status': 'Read original locally recorded X Article draft and publication. With readback=true, independently GET the known post ID and compare article fields. A missing original post ID or incomplete response never triggers another write.',
-        SETUP: 'Put a verified public OAuth 2.0 Client ID and app name into the one-time OpenAhoy setup handoff from this chat. Draft only; cannot change a binding or start OAuth. Never send secrets.',
+        SETUP: 'Put a verified public OAuth 2.0 Client ID and app name into the one-time Jiusera setup handoff from this chat. Draft only; cannot change a binding or start OAuth. Never send secrets.',
         UI: 'App-only public Client ID settings and official OAuth launch. No model credential or consent entry.',
     }
     writes = {'x.media.upload', 'x.posts.create', 'x.posts.reply',

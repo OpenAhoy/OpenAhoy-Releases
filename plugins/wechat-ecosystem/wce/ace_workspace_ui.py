@@ -181,7 +181,7 @@ function OAAcePanel(invoke,request,openLink,stopOther){
  $('aceGuide').onclick=()=>void go('https://acemusic.ai/help/articles/connect-ace-music-to-your-ai-assistant/');
  $('aceAdd').onclick=event=>{
    if(!event.isTrusted)return;
-   void request('请先用官方 Codex MCP 配置核对是否已有独立的 ace-music。仅在该条目不存在时添加固定的 Streamable HTTP 地址 https://acemusic.ai/mcp，保留既有连接；同名若指向其他端点，请先告诉我。使用 Codex 官方支持的会话重载方式，回读当前聊天是否有该服务器工具。有 OAuth 时复用；需要授权时让我在 OpenAhoy 音频面板本人完成。只检查目录和配置；不生成、上传或下载。',notice);
+   void request('请先用官方 Codex MCP 配置核对是否已有独立的 ace-music。仅在该条目不存在时添加固定的 Streamable HTTP 地址 https://acemusic.ai/mcp，保留既有连接；同名若指向其他端点，请先告诉我。使用 Codex 官方支持的会话重载方式，回读当前聊天是否有该服务器工具。有 OAuth 时复用；需要授权时让我在 Jiusera 音频面板本人完成。只检查目录和配置；不生成、上传或下载。',notice);
  };
  $('aceCreate').onclick=event=>{
    if(!event.isTrusted)return;

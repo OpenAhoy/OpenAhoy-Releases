@@ -27,8 +27,8 @@ CHAT_SPECS = {
     STATUS: schema(RECEIPT),
 }
 CHAT_DESCRIPTIONS = {
-    PREVIEW: 'Prepare a local OpenAhoy feedback preview with sanitized diagnostics. Use only the relevant issue summary. This does not send anything.',
-    SEND: 'Submit the existing OpenAhoy feedback preview. Use only when the user explicitly asked to submit this feedback. May open a public GitHub Issue. Reuse the exact preview receipt. If the result is uncertain, use status.',
+    PREVIEW: 'Prepare a local Jiusera feedback preview with sanitized diagnostics. Use only the relevant issue summary. This does not send anything.',
+    SEND: 'Submit the existing Jiusera feedback preview. Use only when the user explicitly asked to submit this feedback. May open a public GitHub Issue. Reuse the exact preview receipt. If the result is uncertain, use status.',
     STATUS: 'Check the original conversation feedback receipt. Returns the actual Issue URL, a GitHub draft link, or the current submission state. Does not create an Issue.',
 }
 # readOnlyHint does not exclude refresh-token rotation or metadata writes.
@@ -42,7 +42,7 @@ def refreshes_director_catalog(name, arguments):
 
 
 def descriptor():
-    return {'name':ACTION,'title':'OpenAhoy 反馈与脱敏诊断',
+    return {'name':ACTION,'title':'Jiusera 反馈与脱敏诊断',
         'description':'App-only local support preview/export and explicit user-clicked GitHub Issue submission. Never auto-sends logs. No account/configuration/publication mutation.',
         'inputSchema':{'type':'object','properties':{'operation':{'type':'string','enum':['READ','PREVIEW','DIAGNOSTICS','SEND','STATUS','OPEN','EXPORT']},'arguments':{'type':'object'}},'required':['operation','arguments'],'additionalProperties':False},
         'outputSchema':{'type':'object'},'annotations':{'readOnlyHint':False,'destructiveHint':False,'openWorldHint':True,'idempotentHint':False},'_meta':{'ui':{'visibility':['app']}}}

@@ -121,6 +121,16 @@ def _directory(path):
         raise
 
 
+def preserve_existing_export(folder, filename):
+    # Prior exports keep their external filename and are verified by their original reader.
+    old_name = 'OpenAhoy-' + filename.removeprefix('Jiusera-')
+    try:
+        os.stat(old_name, dir_fd=folder, follow_symlinks=False)
+    except FileNotFoundError:
+        return filename
+    return old_name
+
+
 def _read(folder, filename, raw, binding, temporary=None):
     fd = os.open(filename, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
     try:
@@ -176,8 +186,8 @@ def export(value, rows, *, downloads=None, platform_id='wechat_official_account'
             or name == '未命名公众号 · ' + str((selected or {}).get('account_id', ''))[-8:]):
         raise WCEError('CONFIG_EXPORT_ACCOUNT_MISMATCH')
     nonce = value['export_id'].removeprefix('config-')
-    filename = ('OpenAhoy-X-Skill-' + nonce + '.md' if artifact == 'skill'
-                else 'OpenAhoy-配置-' + nonce + '.json')
+    filename = ('Jiusera-X-Skill-' + nonce + '.md' if artifact == 'skill'
+                else 'Jiusera-配置-' + nonce + '.json')
     temporary = '.openahoy-' + nonce + '.partial'
     directory = Path(downloads) if downloads is not None else Path.home() / 'Downloads'
     folder = None
@@ -191,6 +201,10 @@ def export(value, rows, *, downloads=None, platform_id='wechat_official_account'
             if (current.st_dev, current.st_ino) != (folder_pin.st_dev, folder_pin.st_ino):
                 raise WCEError('CONFIG_EXPORT_DIRECTORY_CHANGED')
         check_directory()
+        preferred = filename
+        filename = preserve_existing_export(folder, filename)
+        if filename != preferred and artifact == 'skill':
+            raw = skill(config, legacy=True).encode('utf-8')
         try:
             prior = _read(folder, filename, raw, binding, temporary)
             if prior.st_nlink == 2:

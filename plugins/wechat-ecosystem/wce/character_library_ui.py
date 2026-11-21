@@ -67,6 +67,7 @@ STYLE = r'''
  color:var(--cl-gray);font-size:12px;white-space:normal;text-align:center}
 .cl-picture img{display:block;width:100%;height:100%;object-fit:contain;min-height:0}
 .cl-card-copy{display:grid;align-content:start;gap:5px;padding:10px 11px;min-width:0;white-space:normal}
+.cl-card[aria-pressed=true]{outline:2px solid var(--cl-accent);outline-offset:-2px}
 .cl-card-copy strong{font-size:16px;line-height:1.2;overflow-wrap:anywhere}
 .cl-card-meta{display:flex;align-items:center;flex-wrap:wrap;gap:5px;color:var(--muted);font-size:12px}
 .cl-badge{border-radius:5px;background:var(--cl-gray-bg);color:var(--cl-gray);padding:2px 6px;font-size:11px}
@@ -170,6 +171,17 @@ function OACharacterLibrary(tool,openProjectSettings){
      t('索引的 {0} 有误。{1}',field,t(error(problem)));
  }
  let projects=[],refreshID=0,pickerSession=null,detailResource=null,detailEpoch=0,detailTrigger=null,importPlan=null,importEpoch=0;
+ const browserStorage='jiusera.assets.characters';
+ let retained={}, restoreBrowser=false, browserDetail=false;
+ try{retained=JSON.parse(localStorage.getItem(browserStorage))||{};}catch(_){}
+ function keepBrowser(){
+   if(page.hidden||restoreBrowser)return;
+   retained={project:browser.project,series:browser.series,status:browser.status,query:browser.search.value,
+     scroll:browser.main.scrollTop,detailScroll:browserDetail?detail.scrollTop:0,
+     selected:retained.selected,show:browserDetail};
+   try{localStorage.setItem(browserStorage,JSON.stringify(retained));}catch(_){}
+ }
+ const exactKey=row=>JSON.stringify([row.file.project_id,row.id,row.file.sha256]);
  const jobs=[];let running=0;
  function drain(){
    while(running<3&&jobs.length){
@@ -213,7 +225,7 @@ function OACharacterLibrary(tool,openProjectSettings){
    seriesLabel.append(node('span','','系列'),seriesSelect);
    filters.append(seriesLabel);
    count.setAttribute('role','status');main.append(header,filters,count,grid);shell.append(side,main);host.append(shell);
-   const view={side,title,search,projectButtons:new Map(),seriesSelect,statusButtons:[],count,grid,
+   const view={side,main,title,search,projectButtons:new Map(),seriesSelect,statusButtons:[],count,grid,
      project:'',series:'',status:'all',picking};
    for(const [id,label] of [['all','全部版本'],...Object.entries(stateText)]){
      const filter=button(label,()=>{view.status=id;render(view);});filter.dataset.filter=id;filters.append(filter);
@@ -221,7 +233,7 @@ function OACharacterLibrary(tool,openProjectSettings){
    }
    seriesSelect.onchange=()=>{view.series=seriesSelect.value;render(view);};
    syncProjects(view);syncSeries(view);
-   search.oninput=()=>render(view);return view;
+   search.oninput=()=>render(view);if(!picking)main.onscroll=keepBrowser;return view;
  }
  const browser=makeView(page,false),selection=makeView($('clPickerLibrary'),true),views=[browser,selection];
  function syncProjects(view){
@@ -297,6 +309,8 @@ function OACharacterLibrary(tool,openProjectSettings){
    for(const figure of view.grid.querySelectorAll('.cl-picture'))thumbnails.unobserve(figure);
    view.grid.replaceChildren(...rows.map(row=>{
      const card=button(row.character.name,()=>showDetail(view,row,card));card.className='cl-card';card.dataset.version=row.id;
+     card.dataset.exact=exactKey(row);
+     if(!view.picking)card.setAttribute('aria-pressed',String(retained.selected===card.dataset.exact));
      const figure=node('span','cl-picture','正在读取原图…'),copy=node('span','cl-card-copy');
      const meta=node('span','cl-card-meta');
      meta.append(node('span','',useText[row.use]),badge(row));
@@ -304,6 +318,7 @@ function OACharacterLibrary(tool,openProjectSettings){
      card.replaceChildren(figure,copy);
      observed.set(figure,row);thumbnails.observe(figure);return card;
    }));
+   if(!view.picking)keepBrowser();
  }
  async function refresh(){
    const id=++refreshID;
@@ -312,10 +327,24 @@ function OACharacterLibrary(tool,openProjectSettings){
      const result=await action('character_library');
      if(id!==refreshID)return;
      projects=result.projects;
+     if(restoreBrowser&&!page.hidden){
+       browser.project=retained.project||'';browser.series=retained.series||'';
+       browser.status=retained.status||'all';browser.search.value=retained.query||'';
+     }
      for(const view of views){
        if(!projects.some(row=>row.id===view.project)){view.project='';view.series='';}
        syncProjects(view);syncSeries(view);
        render(view);
+     }
+     if(restoreBrowser&&!page.hidden){
+       const previous=retained;
+       browser.main.scrollTop=Number(previous.scroll)||0;
+       restoreBrowser=false;
+       if(previous.show){
+         [...browser.grid.querySelectorAll('.cl-card')].find(card=>card.dataset.exact===previous.selected)?.click();
+         detail.scrollTop=Number(previous.detailScroll)||0;
+       }
+       keepBrowser();
      }
    }catch(problem){
      if(id===refreshID)for(const view of views)view.count.textContent=t(error(problem));
@@ -329,6 +358,7 @@ function OACharacterLibrary(tool,openProjectSettings){
  }
  detail.addEventListener('close',()=>{
    if(detail.open)return;
+   if(browserDetail){browserDetail=false;keepBrowser();}
    clearDetail();
    if(detailTrigger?.isConnected&&!pickerSession?.closing)detailTrigger.focus();
    detailTrigger=null;
@@ -418,6 +448,13 @@ function OACharacterLibrary(tool,openProjectSettings){
    });projectSettings.hidden=true;actions.append(projectSettings);
    content.append(top,frame,fields,feedback,actions);
    detailTrigger=trigger;if(!detail.open)detail.showModal();
+   browserDetail=!view.picking;
+   if(browserDetail){
+     retained.selected=exactKey(row);
+     for(const card of browser.grid.querySelectorAll('.cl-card'))
+       card.setAttribute('aria-pressed',String(card.dataset.exact===retained.selected));
+     detail.onscroll=keepBrowser;keepBrowser();
+   }
    media('character_thumbnail',row).then(value=>{
      if(!alive()||value.sha256!==row.file.sha256||!value.data?.startsWith('/9j/'))return;
      const img=node('img');img.alt=row.character.name;img.src='data:image/jpeg;base64,'+value.data;
@@ -531,9 +568,15 @@ function OACharacterLibrary(tool,openProjectSettings){
    const trigger=pickerSession?.trigger;pickerSession=null;if(trigger?.isConnected)trigger.focus();
  });
  return {
-   open(){page.hidden=false;render(browser);void refresh();},
+   open(){
+     if(!page.hidden)return;
+     restoreBrowser=true;page.hidden=false;void refresh();
+   },
    focus(){browser.title.focus();},
-   close(){page.hidden=true;closeDetail();if(picker.open)picker.close();if(importer.open)importer.close();},
+   close(){
+     if(!page.hidden){keepBrowser();restoreBrowser=false;page.hidden=true;browserDetail=false;}
+     closeDetail();if(picker.open)picker.close();if(importer.open)importer.close();
+   },
    closePicker(){if(picker.open){closeDetail();picker.close();}},
    choose,
  };

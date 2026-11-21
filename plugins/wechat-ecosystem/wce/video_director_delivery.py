@@ -8,6 +8,7 @@ import stat
 
 from .bounded_file import FileSource, file_state
 from .contracts import WCEError
+from . import video_autodl_catalog as autodl
 from .own_connection_policy import read_optional
 from .service import digest
 from .video_director import display_name, lookup, require
@@ -46,14 +47,17 @@ def receipt_witness(revision, project):
     config = revision['configuration']
     profile = validate_config(config, project, ready=True)
     prompt = revision['prompt']
-    require(prompt.strip(), 'DIRECTOR_PROMPT_REQUIRED')
     mode = config['mode']
+    if mode != 'workflow' or 'workflow_id' not in config:
+        require(prompt.strip(), 'DIRECTOR_PROMPT_REQUIRED')
     if mode == 'subject':
         return {'request_sha256': sha256(subject_body(prompt, config['subject_image_url'])).hexdigest()}
     if mode == 'workflow':
-        body = workflow_body({'prompt': prompt, **{k: config[k] for k in (
-            'reference_images', 'reference_audio', 'duration', 'resolution') if k in config}})
-        return {'request_sha256': sha256(body).hexdigest()}
+        body = workflow_body(autodl.director_inputs(config, prompt))
+        witness = {'request_sha256': sha256(body).hexdigest()}
+        if 'workflow_id' in config:
+            witness['workflow_id'] = config['workflow_id']
+        return witness
     roles = profile['local_roles']
     images = revision['images']
     if profile['reference_count']:
@@ -83,7 +87,8 @@ def generation_scope(row, spec):
     require(actual_mode == spec['mode'], 'DIRECTOR_GENERATION_SCOPE_CHANGED')
     witness = spec['witness']
     if 'request_sha256' in witness:
-        require(row.get('request_sha256') == witness['request_sha256'], 'DIRECTOR_GENERATION_SCOPE_CHANGED')
+        require(row.get('request_sha256') == witness['request_sha256']
+                and source.get('workflow_id') == witness.get('workflow_id'), 'DIRECTOR_GENERATION_SCOPE_CHANGED')
     else:
         fields = witness['request']
         require(all(source.get(k, False if k == 'audio' else None) == value for k, value in fields.items())

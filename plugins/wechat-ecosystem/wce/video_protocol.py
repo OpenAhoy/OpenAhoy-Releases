@@ -1,4 +1,4 @@
-"""OpenAhoy video tools with credential entry in the embedded management card."""
+"""Jiusera video tools with credential entry in the embedded management card."""
 from copy import deepcopy
 
 from .contracts import WCEError
@@ -14,6 +14,7 @@ from .video_inline_credential import InlineVideoCredential
 from .video_keychain import PROVIDERS, status
 from .video_minimax import H3, H3_MODELS, SUBJECT_MODEL, V1_MODELS, H3_MODES, RATIOS, SITES
 from .video_relay import RESOLUTIONS
+from . import video_autodl_catalog as autodl
 from .video_provider_ui import directory as provider_directory
 from .video_relay_keychain import relay_status
 from .video_tokenhex import TOKENHEX_PROVIDER, tokenhex_status
@@ -154,12 +155,18 @@ SPECS = {
     TOKENHEX_CHECK: schema({}),
     TOKENHEX_SUBMIT: schema(ARK_GENERATION | ARK_MODEL | {'configuration': schema(ARK_OPTIONS | {
         'mode': {'type': 'string', 'enum': ['text', 'frames', 'reference']}})}),
-    RELAY_SUBMIT: schema(JOB | {'prompt': RELAY_PROMPT, 'reference_images': RELAY_IMAGES}, RELAY_OPTIONS),
     CONNECTION: schema({}),
     GIF_SUBMIT: schema(JOB | {'reference_image': FRAME, 'prompt': PROMPT}),
     GIF_STATUS: schema(JOB),
     GIF_CONFIG: schema({}),
-    RELAY_SUBMIT: schema(JOB | {'prompt': RELAY_PROMPT, 'reference_images': RELAY_IMAGES}, RELAY_OPTIONS),
+    RELAY_SUBMIT: {'oneOf': [
+        schema(JOB | {'prompt': RELAY_PROMPT, 'reference_images': RELAY_IMAGES}, RELAY_OPTIONS),
+        *[schema(
+            JOB | {'workflow_id': {'type': 'string', 'const': row['id']}}
+            | {key: rule for key, rule in row['fields'].items() if rule['required']},
+            {key: rule for key, rule in row['fields'].items() if not rule['required']})
+          for row in autodl.options()],
+    ]},
     CONNECTION: schema({}),
     CREDENTIAL: {'oneOf': [
         action('begin', {}, {'provider': {'type': 'string', 'enum': KEY_PROVIDERS}}),
@@ -193,7 +200,7 @@ DESCRIPTIONS = {
     AUDIO_IMPORT: 'Copy and decode an existing WAV, MP3 or M4A from the registered project. Requires a relative path and SHA-256. Provider and ID link a confirmed official download. Runs locally without calling any provider.',
     AUDIO_MIX: 'Create a new local soundtrack MP4 for a completed video, reusing imported project audio. Timeline positions and fades are milliseconds; gain is a percentage. Original media is retained. A different mix uses a new local attempt; uses no provider credits.',
     AUDIO_COVER: 'Create a local H.264/AAC MP4 from a project song and a project PNG or JPEG cover. Requires the cover SHA-256. Returns its project-relative file; does not publish it.',
-    MUSIC_PROVIDER: 'Read the current device-wide OpenAhoy default music provider (Suno or ACE Music). Call before planning new songs or newly generated video scores when the user did not name a provider. Apply only the returned provider. If unavailable, or if that provider is disconnected, surface the issue and do not fall back or generate. Existing assets and explicit provider choices are independent.',
+    MUSIC_PROVIDER: 'Read the current device-wide Jiusera default music provider (Suno or ACE Music). Call before planning new songs or newly generated video scores when the user did not name a provider. Apply only the returned provider. If unavailable, or if that provider is disconnected, surface the issue and do not fall back or generate. Existing assets and explicit provider choices are independent.',
     AUDIO_HISTORY: 'List the songs and soundtrack assets already saved in a project.',
     AUDIO_VIDEO: 'Read facts for a specific project video and its SHA-256. Pass frame_start to receive up to four timecoded JPEGs as images, at 8 fps. Set include_audio_evidence for optional first-track RMS timings. Levels do not identify dialogue. No supplier upload.',
     TOKENHEX_CHECK: 'Read supported model IDs visible under the locally configured Token Hex video credential using GET /v1/models. Read only. Visibility does not verify the native video route.',
@@ -201,7 +208,7 @@ DESCRIPTIONS = {
     GIF_SUBMIT: 'When the user requests an animated GIF with their configured OpenAI Key, submit one authorized billable GPT-Image-2.6 Flare image edit for a registered project. Provide a selected original static PNG/JPEG/WebP project-relative path, its SHA-256, and a motion/loop prompt. Reuse the exact attempt and arguments only to read its existing result or finish an interrupted local copy. Never resubmit an unknown request. Use image.openai.gif.status to read the local receipt; there is no remote poll.',
     GIF_STATUS: 'Read the original local animated GIF receipt. ASSET_READY returns the exact project file path and its SHA-256. This tool does not call OpenAI.',
     GIF_CONFIG: 'Read whether the separate OpenAI GIF Key is configured. Does not verify GIF preview access or return the Key.',
-    RELAY_SUBMIT: 'Submit one authorized billable AutoDL · MiniMax H3 workflow task. Use 1–9 ordered HTTPS reference image URLs and optionally up to 3 HTTPS audio URLs accessible to the configured relay. Optional duration: 1–15 seconds. Resolution is a provider enum. This workflow offers reference images, with no dedicated first/last frame roles. Reuse the original generation_attempt_id. Query video.ark.generation.status with the original project and attempt. Never replace an unknown submission.',
+    RELAY_SUBMIT: 'Submit one authorized billable AutoDL video workflow. Read video.director.read action=models for exact workflow IDs, media roles and options. Set workflow_id for new intent-based requests: text, ordered single/multiple references, paired first_frame and last_frame, lip sync, multi-image/audio or motion transfer. The published catalogue has no standalone first-frame-only workflow. Use HTTPS input URLs. Omission keeps the legacy reference workflow for existing clients. Query video.ark.generation.status with the original project and attempt. Never replace an unknown submission.',
     CONNECTION: 'Read local Ark credential configuration state. Does not verify model access or return the API Key.',
     CREDENTIAL: 'App-only local video and OpenAI GIF Key configuration. Accepts only a one-use encrypted envelope, never a plaintext Key.',
     WORKSPACE: 'App-only project video history, previews, library and export. Supports legacy panel requests.',
@@ -346,8 +353,7 @@ class VideoRouter:
             row = self.video_jobs.submit(attempt, project, None, None, arguments['prompt'],
                                          model=arguments['model'], workspace=arguments['configuration'], tokenhex=True)
         elif name == RELAY_SUBMIT:
-            inputs = {key: arguments[key] for key in ('prompt', 'reference_images', *RELAY_OPTIONS)
-                      if key in arguments}
+            inputs = {key: arguments[key] for key in ('prompt', *autodl.FIELDS) if key in arguments}
             row = self.video_jobs.submit_relay(attempt, project, inputs)
         elif name == H3_SUBMIT and arguments.get('model') == SUBJECT_MODEL:
             row = self.video_jobs.submit_subject(attempt, project, arguments['provider_site'],

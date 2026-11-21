@@ -1,6 +1,6 @@
 # Token Hex · 方舟视频
 
-OpenAhoy「视频生成 → 模型设置」有独立 Token Hex 卡片。地址为 `https://api.tokenhex.com`，专用 Token 在卡片输入并手动保存。点击「查询可见模型」使用同一 Token 执行只读 `GET /v1/models`。目录只列本插件已有请求契约的具体 Seedance ID，模型别名须先有站点契约并验证后才能接入。
+Jiusera「视频生成 → 模型设置」有独立 Token Hex 卡片。地址为 `https://api.tokenhex.com`，专用 Token 在卡片输入并手动保存。点击「查询可见模型」使用同一 Token 执行只读 `GET /v1/models`。目录只列本插件已有请求契约的具体 Seedance ID，模型别名须先有站点契约并验证后才能接入。
 
 从可见的受支持 Seedance 模型中选择一个并点「选用模型」。状态为「已选用模型，待实测」。目录只证明当前 Token 能看到这个模型。首次使用无需已有视频任务。成功生成、原任务查询与 MP4 入库后标为「视频通路已实测」。更换 Token 后重新读取目录和选用。
 

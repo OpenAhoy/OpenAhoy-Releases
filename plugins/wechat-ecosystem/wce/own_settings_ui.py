@@ -832,7 +832,7 @@ SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '公众号默认
 
 PAGE = ('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<title>OpenAhoy · 公众号管理</title><style>' + STYLE + '</style>'
+        '<title>Jiusera · 公众号管理</title><style>' + STYLE + '</style>'
         + page_body(LOGO, RULES_HTML, technical_html(), routes_html())
         + '<script>' + SCRIPT + '</script></body></html>')
 

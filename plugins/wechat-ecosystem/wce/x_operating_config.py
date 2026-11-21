@@ -63,13 +63,14 @@ def configuration(raw):
         raise WCEError('X_CONFIG_INVALID') from None
 
 
-def skill(value):
+def skill(value, *, legacy=False):
     """Readable, lossless method derived from the exact saved configuration."""
     p = value['profile']
+    brand = 'OpenAhoy' if legacy else 'Jiusera'
     lines = ['---', 'name: x-account-creation',
         'description: 依本号已保存运营配置创作 X 内容；不授予发布、互动或调度权限。', '---',
         '# X 本号创作方法', '适用显示名称：' + (value['account_name'] or '由加载时选定的账号决定'),
-        '来源：OpenAhoy X 运营配置 v1；配置 SHA256 ' + digest(value),
+        f'来源：{brand} X 运营配置 v1；配置 SHA256 ' + digest(value),
         '这是内容方法，不是任务授权。与当前适用 AGENTS、选用 Skills 和补充偏好一起读取；'
         '本号具体内容选择优先于通用创作建议。真实权限及本人本次委托另行核对，冲突不得静默覆盖。',
         '## 定位与表达']
@@ -97,7 +98,7 @@ def skill(value):
     lines.append('配置中的本机目录只是用户选择的参考，不证明文件存在或可跨机使用。'
                  '特殊栏目缺资料按该栏目处理，普通新帖不因此全部阻断；人物仅在选用时读取实际身份参考。')
     item('其他约定', p['notes'])
-    lines.extend(['## 执行接缝', '当前 Codex 负责内容与生成图片；使用已授权的本机原图和OpenAhoy官方媒体/发帖/读回通路。'
+    lines.extend(['## 执行接缝', f'当前 Codex 负责内容与生成图片；使用已授权的本机原图和{brand}官方媒体/发帖/读回通路。'
         '不要求图床、额外模型API Key或角色签字，不复用历史稿冒新创作。'
         '制作阶段核对事实和成图，不另造发表许可。未知结果查询原请求，不补发。'])
     return '\n\n'.join(lines) + '\n'

@@ -15,7 +15,7 @@ def human_recover(case, source, output):
     session = RecoverySession(case)
     try:
         review = session.prepare()
-        output.write('TRUSTED OpenAhoy：仅恢复下列既有账号的本机身份绑定。\n')
+        output.write('TRUSTED Jiusera：仅恢复下列既有账号的本机身份绑定。\n')
         output.write('TRUSTED 保留原密钥范围、历史草稿、未知结果和已用额度；已断开账号保持断开。\n')
         output.write('TRUST 观察前历史及整机回滚未被证明；本轮不连接微信、不上传、不保存草稿。\n')
         output.write('DATA | ' + json.dumps(review, ensure_ascii=True, sort_keys=True) + '\n')

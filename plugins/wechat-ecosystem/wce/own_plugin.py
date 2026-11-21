@@ -14,7 +14,7 @@ from .own_contracts import list_tools, validate
 
 # Codex budgets the namespace instructions once per model-facing tool.
 # The packaged Skill holds the shared account, authorization and retry rules.
-INSTRUCTIONS = 'OpenAhoy Skill.'
+INSTRUCTIONS = 'Jiusera Skill.'
 
 PUBLICATION_DESCRIPTIONS = {
     'own.publications.current.dispatch': (
@@ -46,8 +46,15 @@ def _mcp_tools(catalog):
             # the explicit native thread and global entrypoints.
             row.get('_meta', {}).get('ui', {}).pop('resourceUri', None)
         if row['name'] == 'wce.settings.manage':
+            row['title'] = 'Jiusera'
             row['icons'] = list(host_icons())
+        if row['name'] in {'wce.ui.show_management', 'wce.ui.open_management_page'}:
+            row['title'] = row['title'].replace('OpenAhoy', 'Jiusera').replace('WeChat Ecosystem', 'Jiusera')
         spec = row.get('inputSchema', {})
+        if row['name'] == 'own.documents.prepare':
+            from .normal_html_entry import ARGUMENTS, ORIGINAL_ARGUMENTS
+            spec['oneOf'] = [deepcopy(ARGUMENTS) if branch == ORIGINAL_ARGUMENTS else branch
+                             for branch in spec.get('oneOf', ())]
         if 'type' not in spec and spec.get('oneOf'):
             if not all(branch.get('type') == 'object' for branch in spec['oneOf']):
                 raise ValueError('MCP_INPUT_OBJECT_REQUIRED')
@@ -74,7 +81,7 @@ def _server_info():
     name,version=metadata.get('name'),metadata.get('version')
     if name!='wechat-ecosystem' or type(version) is not str or not version:
         raise ValueError('Invalid plugin identity metadata')
-    return {'name':name,'title':'OpenAhoy','version':version}
+    return {'name':name,'title':metadata['extensions']['com.openai']['interface']['displayName'],'version':version}
 
 
 def _discovery_info(catalog, server_info):
@@ -244,7 +251,7 @@ class PersonalStdioServer(OperatorStdioServer):
             return deepcopy(self._management_resources[uri])
         if method == 'resources/list' and not params:
             return {'resources': [{'uri': UPDATE_RESOURCE, 'name': 'openahoy-management',
-                'title': 'OpenAhoy · 账号管理', 'mimeType': MIME}]}
+                'title': 'Jiusera', 'mimeType': MIME}]}
         return resource(method, params)
 
     def serve(self, source, destination):

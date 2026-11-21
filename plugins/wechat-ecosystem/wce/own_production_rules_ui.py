@@ -383,7 +383,7 @@ JS = r'''
       }
     }
     const dirty=cid=>{const identity=scopeKey(cid),value=cid===selected&&meta?inputs():buffers.get(identity);return !!value&&loaded.has(identity)&&JSON.stringify(value)!==JSON.stringify(loaded.get(identity));};
-    const configMessage=code=>({RULES_CONFIG_ACCOUNT_MISMATCH:'配置名称与所选账号不一致，请选择该账号自己的配置文件。',RULES_CONFIG_ACCOUNT_UNAVAILABLE:'账号名称当前无法唯一确认，请先核对账号显示资料。',RULES_SECRET_NOT_ALLOWED:'配置包含疑似秘密；只能填写非秘密生产偏好。',RULES_CONFIG_INVALID:'配置格式、版本、平台或字段不正确。',RULES_CONFIG_JSON:'文件不是有效 JSON，请修正语法后重试。',RULES_CONFIG_DUPLICATE:'JSON 含重复字段，请移除重复项后重试。',RULES_CONFIG_KEYS:'配置根字段不正确；只能包含 format、schema_version、platform、account_name 和 fields。',RULES_CONFIG_FORMAT:'文件不是 OpenAhoy 生产偏好配置。',RULES_CONFIG_VERSION:'配置版本不兼容，当前仅支持 schema_version 1。',RULES_CONFIG_PLATFORM:'配置不属于公众号平台。',RULES_CONFIG_FIELDS:'fields 必须包含标准的八个字段，并且每项都是字符串。',RULES_CONFIG_TEXT:'配置含无效 Unicode 或不支持的控制字符。',RULES_CONFIG_ENCODING:'文件无法读取或不是有效 UTF-8 编码。',RULES_CONFIG_TARGET_CHANGED:'选择或填写已变化，原规则与草稿已保留，请重新选择文件。',RULES_CONFIG_DIRTY:'本号有未保存编辑，请先保存后再加载；全部编辑已保留。',RULES_VERSION_CONFLICT:'规则版本已变化，当前填写已保留；可用最新规则重新填写。'}[code]||'配置未能完成，原规则与填写已保留。');
+    const configMessage=code=>({RULES_CONFIG_ACCOUNT_MISMATCH:'配置名称与所选账号不一致，请选择该账号自己的配置文件。',RULES_CONFIG_ACCOUNT_UNAVAILABLE:'账号名称当前无法唯一确认，请先核对账号显示资料。',RULES_SECRET_NOT_ALLOWED:'配置包含疑似秘密；只能填写非秘密生产偏好。',RULES_CONFIG_INVALID:'配置格式、版本、平台或字段不正确。',RULES_CONFIG_JSON:'文件不是有效 JSON，请修正语法后重试。',RULES_CONFIG_DUPLICATE:'JSON 含重复字段，请移除重复项后重试。',RULES_CONFIG_KEYS:'配置根字段不正确；只能包含 format、schema_version、platform、account_name 和 fields。',RULES_CONFIG_FORMAT:'文件不是 Jiusera 生产偏好配置。',RULES_CONFIG_VERSION:'配置版本不兼容，当前仅支持 schema_version 1。',RULES_CONFIG_PLATFORM:'配置不属于公众号平台。',RULES_CONFIG_FIELDS:'fields 必须包含标准的八个字段，并且每项都是字符串。',RULES_CONFIG_TEXT:'配置含无效 Unicode 或不支持的控制字符。',RULES_CONFIG_ENCODING:'文件无法读取或不是有效 UTF-8 编码。',RULES_CONFIG_TARGET_CHANGED:'选择或填写已变化，原规则与草稿已保留，请重新选择文件。',RULES_CONFIG_DIRTY:'本号有未保存编辑，请先保存后再加载；全部编辑已保留。',RULES_VERSION_CONFLICT:'规则版本已变化，当前填写已保留；可用最新规则重新填写。'}[code]||'配置未能完成，原规则与填写已保留。');
     const copied=value=>JSON.parse(JSON.stringify(value));
     function settleBuffer(context,identity){starter?.forget(identity);if(context?.editorBuffer)buffers.set(identity,copied(context.editorBuffer));else buffers.delete(identity);}
     async function readConfigurationFile(file){
@@ -507,7 +507,7 @@ JS = r'''
     }
     function configurationFilename(name){
       let stem=name.replace(/[\\/<>:"|?*\x00-\x1f\x7f]/g,'_').replace(/^\.+|[. ]+$/g,'')||'公众号配置';
-      const suffix='.openahoy.json';while(encoder.encode(stem+suffix).length>255)stem=Array.from(stem).slice(0,-1).join('');return stem+suffix;
+      const suffix='.jiusera.json';while(encoder.encode(stem+suffix).length>255)stem=Array.from(stem).slice(0,-1).join('');return stem+suffix;
     }
     async function downloadCreator(){
       const d=creator,epoch=creatorEpoch;if(!creatorCurrent(d)||busy||d.downloading)return;

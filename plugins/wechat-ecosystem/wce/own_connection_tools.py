@@ -13,7 +13,7 @@ from .tools import schema
 from .wechat_analytics import BoundAnalytics, TOOL as ANALYTICS
 
 SPECS = deepcopy(LEGACY | DOCUMENT_SPECS)
-from .normal_html_entry import ARGUMENTS as HTML_ARGUMENTS
+from .normal_html_entry import ARGUMENTS as HTML_ARGUMENTS, ORIGINAL_ARGUMENTS as ORIGINAL_HTML_ARGUMENTS
 SPECS['own.documents.prepare']={'oneOf':[SPECS['own.documents.prepare'],HTML_ARGUMENTS]}
 from .own_editor_preferences import VALUES as EDITOR_VALUES, MAX_REVISION
 
@@ -111,6 +111,10 @@ class ConnectionRouter:
         return {'runtime': 'personal_account_connection', 'platform_ready': False, 'platform_verified': False}
 
     def list_tools(self):
+        # The management migration verifies its exact historical input catalog.
+        # Public MCP discovery adds the two optional HTML revision selectors.
+        catalog = SPECS | {'own.documents.prepare': {'oneOf': [
+            DOCUMENT_SPECS['own.documents.prepare'], ORIGINAL_HTML_ARGUMENTS]}}
         return [{'name': name, 'inputSchema': deepcopy(spec), 'description':
             ('Publish an explicitly requested draft using its original successful save attempt_id; '
              'dispatch submits once without follower push; status is local; poll queries the original task. '
@@ -122,7 +126,7 @@ class ConnectionRouter:
              if name == 'own.drafts.inventory' else
              'Select one human-enabled personal connection. Explicit user-requested images and drafts only; '
              'no public publication, credentials or enablement tool. Query original keys after uncertain results. '
-             'UNKNOWN blocks the original and related article intents; never resend with a new key.')} for name, spec in SPECS.items() if name != ANALYTICS]
+             'UNKNOWN blocks the original and related article intents; never resend with a new key.')} for name, spec in catalog.items() if name != ANALYTICS]
 
     def call(self, name, arguments):
         validate(name, arguments)

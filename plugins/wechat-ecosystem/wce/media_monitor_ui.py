@@ -130,14 +130,43 @@ function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged}){
    if((row.group==='pending'||row.group==='failed')&&stageName[row.state])OAUI.attr(node,'data-oa-hint',stageName[row.state]);
    return node;
  }
- function saveSelection(){
-   try{sessionStorage.setItem('openahoy.media.monitor',JSON.stringify({kind,selected}));}catch(_){}
- }
+ const preferenceKey='jiusera.assets.media';
+ const preferences=new Map();
+ let restoring=null;
  try{
-   const saved=JSON.parse(sessionStorage.getItem('openahoy.media.monitor'));
-   if(saved&&['all',...Object.keys(medium)].includes(saved.kind))kind=saved.kind;
-   if(typeof saved?.selected==='string')selected=saved.selected;
+   const saved=JSON.parse(localStorage.getItem(preferenceKey));
+   for(const name of ['all',...Object.keys(medium)]){
+     if(typeof saved?.[name]?.selected==='string')preferences.set(name,saved[name]);
+   }
+   const legacy=JSON.parse(sessionStorage.getItem('openahoy.media.monitor'));
+   if(legacy&&['all',...Object.keys(medium)].includes(legacy.kind)&&
+       !preferences.has(legacy.kind)&&typeof legacy.selected==='string')
+     preferences.set(legacy.kind,{selected:legacy.selected});
  }catch(_){}
+ function saveSelection(){
+   const last=preferences.get(kind)||{};
+   preferences.set(kind,{state,selected,digest:byKey(selected)?.asset.sha256||'',compare,query:search.value,
+     showDetail:root.dataset.detail==='true',
+     listScroll:list.getClientRects().length?list.scrollTop:last.listScroll,
+     detailScroll:detail.getClientRects().length?detail.scrollTop:last.detailScroll});
+   try{localStorage.setItem(preferenceKey,JSON.stringify(Object.fromEntries(preferences)));}catch(_){}
+ }
+ function loadSelection(){
+   const value=preferences.get(kind)||{};
+   state=value.state||'';selected=value.selected||'';compare=value.compare||'';search.value=value.query||'';
+   root.dataset.detail=String(!!value.showDetail);
+   restoring=value;
+ }
+ function settleSelection(){
+   const value=restoring;restoring=null;
+   if(!value)return;
+   if(value.digest&&byKey(selected)?.asset.sha256!==value.digest){
+     selected='';compare='';root.dataset.detail='false';
+   }
+   renderFiltered(false);
+   list.scrollTop=Number(value.listScroll)||0;detail.scrollTop=Number(value.detailScroll)||0;
+   saveSelection();
+ }
  function matches(){
    const query=search.value.trim().toLocaleLowerCase();
    return rows.filter(row=>(kind==='all'||kind===row.kind)&&(!state||state===row.group)
@@ -296,13 +325,14 @@ function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged}){
  }
  function jump(ref,run){
    const next=byKey(key(ref));if(!next)return;
+   saveSelection();
    history.push({kind,state,selected,compare,search:search.value,listScroll:list.scrollTop,detailScroll:detail.scrollTop});
    if(kind!=='all'&&kind!==next.kind){kind=next.kind;typeChanged(kind);}
    state='';search.value='';choose(next,true,true,run);
  }
  function restore(){
    const previous=history.pop();if(!previous)return;
-   kind=previous.kind;typeChanged(kind);state=previous.state;selected=previous.selected;compare=previous.compare;search.value=previous.search;
+   saveSelection();kind=previous.kind;typeChanged(kind);state=previous.state;selected=previous.selected;compare=previous.compare;search.value=previous.search;
    makeList();renderDetail(true);list.scrollTop=previous.listScroll;detail.scrollTop=previous.detailScroll;detail.focus({preventScroll:true});saveSelection();
  }
  function interval(rel){
@@ -451,18 +481,19 @@ function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged}){
  }
  function choose(row,openDetail=false,focus=false,run=false){
    if(!row)return;
+   saveSelection();
    if(selected!==key(row))compare='';
    selected=key(row);root.dataset.detail=String(openDetail);makeList();renderDetail(false,run);saveSelection();
    if(openDetail)detail.scrollTop=0;
    if(focus)detail.focus({preventScroll:true});
  }
- function renderFiltered(){
+ function renderFiltered(remember=true){
    const matching=matches();
    if(!matching.some(row=>key(row)===selected)){
-     selected=key(matching.find(playable)||matching[0]||{});compare='';
+     selected=key(matching.find(playable)||matching[0]||{});compare='';root.dataset.detail='false';
    }
    if(!matching.length){selected='';root.dataset.detail='false';}
-   makeList();renderDetail();saveSelection();
+   makeList();renderDetail();if(remember)saveSelection();
  }
  async function refresh(){
    if(!active||loading)return;
@@ -481,7 +512,8 @@ function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged}){
    }}
    finally{
      if(active&&request===readSequence){
-       loading=false;control.removeAttribute('aria-busy');control.disabled=false;renderFiltered();
+       loading=false;control.removeAttribute('aria-busy');control.disabled=false;
+       if(restoring)settleSelection();else renderFiltered();
        if(routedTarget){
          const target=routedTarget;routedTarget=null;
          const row=byKey(key(target));
@@ -496,27 +528,34 @@ function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged}){
    }
  }
  for(const control of filters.querySelectorAll('button'))control.onclick=()=>{
-   kind=control.dataset.kind;state='';root.dataset.detail='false';renderFiltered();list.scrollTop=0;
+   saveSelection();kind=control.dataset.kind;loadSelection();settleSelection();
  };
  search.oninput=()=>{renderFiltered();list.scrollTop=0;};
  $('monitorListBack').onclick=()=>{
-   root.dataset.detail='false';renderDetail();(Array.from(list.querySelectorAll('button')).find(item=>item.dataset.asset===selected)||list).focus({preventScroll:true});
+   saveSelection();root.dataset.detail='false';renderDetail();
+   list.scrollTop=Number(preferences.get(kind)?.listScroll)||0;saveSelection();
+   (Array.from(list.querySelectorAll('button')).find(item=>item.dataset.asset===selected)||list).focus({preventScroll:true});
  };
  $('monitorRelationBack').onclick=restore;
  narrow.addEventListener('change',()=>{if(active)renderDetail();});
  $('monitorRefresh').onclick=()=>void refresh();
+ list.onscroll=detail.onscroll=()=>{if(active&&!restoring)saveSelection();};
  return {open(target,asset=null){
    const changed=kind!==target;
+   if(active&&changed&&!restoring)saveSelection();
    kind=target;filters.hidden=target!=='all';root.hidden=false;
-   if(changed||asset){
-     state='';search.value='';compare='';history=[];root.dataset.detail='false';
-   }
+   if(changed||!active){loadSelection();history=[];}
    routedTarget=asset;
-   if(active){renderFiltered();if(asset)void refresh();return;}
-   active=true;loaded='';root.dataset.detail='false';void refresh();
+   if(active){
+     if(!loading){if(restoring)settleSelection();else renderFiltered();}
+     if(asset)void refresh();
+     return;
+   }
+   active=true;loaded='';void refresh();
  },close(){
    if(!active)return;
-   routedTarget=null;active=false;loading=false;readSequence++;history=[];clearPlayers();loaded='';
+   if(!restoring)saveSelection();
+   restoring=null;routedTarget=null;active=false;loading=false;readSequence++;history=[];clearPlayers();loaded='';
    $('monitorRefresh').removeAttribute('aria-busy');root.hidden=true;
  }};
 

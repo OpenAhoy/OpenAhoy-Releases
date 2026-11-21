@@ -1,9 +1,9 @@
 ---
 name: video-director
-description: Plan and produce social videos in OpenAhoy. Use when Codex should turn a brief into a shot list, generate or select image assets, write Seedance or MiniMax H3 prompts, or render and review clips.
+description: Plan and produce social videos in Jiusera. Use when Codex should turn a brief into a shot list, generate or select image assets, write Seedance or MiniMax H3 prompts, or render and review clips.
 ---
 
-# OpenAhoy 视频导演
+# Jiusera 视频导演
 
 1. 从委托和项目规则确定发布平台、画幅、时长、受众、已有资产和最终交付。先说清观众第一眼看到什么、最后记住什么。按关键动作切分镜头，每个镜头承担一个主要变化。
 2. 读 [分镜、镜头与提示词](references/DIRECTION.md)，根据控制要求选模式。开头和结尾必须对齐图片时用两张严格首尾帧。中间也必须对齐时拆段并共用边界帧。用多图参考复用人物、场景、道具或风格，每张图绑定一个可解释的用途，按上传顺序引用。时间码指导节奏。

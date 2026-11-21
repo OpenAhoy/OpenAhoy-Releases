@@ -33,7 +33,7 @@ SCRIPT = r'''
  const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.workspace','video.director.read','video.director.edit','wce.ui.video.director.media','wce.ui.wechat.storage_recovery','wce.ui.wechat.analytics']);
 
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
- let view='home',initialView='',explicitNavigation=false,guide=null,accountRead=false;
+ let view='startup',initialView='',explicitNavigation=false,guide=null,accountRead=false;
  let wechatPage='monitor';
  const isWechat=()=>view==='platform'&&activePlatform==='wechat_official_account';
  const notice=(text,error=false,...values)=>{OAUI.set($('notice'),text,...values);$('notice').className='notice'+(error?' error':'');};
@@ -48,27 +48,19 @@ SCRIPT = r'''
    ['x','管理 X 账号、创作规则和开发者应用。'],
    ['xiaohongshu','绑定小红书账号并管理笔记发布。']
  ]);
+ const assetLabels={characters:'形象',images:'图片',gif:'动图',video:'视频',audio:'音频',articles:'文章'};
  const studioRoutes=new Map([
    ['jiusera-monitor',{section:'monitor'}],['jiusera-canvas',{section:'desk'}],['jiusera-assets',{section:'assets'}],
-   ['media',{section:'monitor'}],['characters',{section:'assets',kind:'characters'}],
-   ...['video','gif','audio'].map(kind=>[kind,{section:'assets',kind}])
+   ['media',{section:'monitor'}],...Object.keys(assetLabels).map(kind=>[kind,{section:'assets',kind}])
  ]);
  const studioURLs={monitor:'jiusera-monitor',desk:'jiusera-canvas',assets:'jiusera-assets'};
- function route(value){return value==='home'||studioRoutes.has(value)||platformNames.has(value)?value:'';}
+ function route(value){
+   if(value==='home')return 'published';
+   return value==='about'||value==='published'||value==='studio-showcase'||studioRoutes.has(value)||platformNames.has(value)?value:'';
+ }
  function routeFromURL(){
    const query=new URLSearchParams(location.search),fragment=new URLSearchParams(location.hash.slice(1));
-   return route(query.get('view')||query.get('platform')||fragment.get('view')||fragment.get('platform'));
- }
- function rememberView(target){
-   try{
-     const url=new URL(location.href);
-     if(url.protocol!=='http:'&&url.protocol!=='https:')return;
-     const fragment=new URLSearchParams(url.hash.slice(1));
-     fragment.delete('platform');
-     fragment.set('view',target);
-     url.hash=fragment.toString();url.searchParams.delete('view');url.searchParams.delete('platform');
-     history.replaceState(history.state,'',url);
-   }catch(_){}
+   return route(fragment.get('view')||fragment.get('platform')||query.get('view')||query.get('platform')||location.hash.slice(1));
  }
  const initializedEditors=new Set();let binding=null,xManagement=null,xhsManagement=null,projectContext=null,contextOpen=false;
  const localExports=new Map(),selectedByPlatform=new Map();let selectEpoch=0,platformEpoch=0,selectionIntent=0,pendingSelection=null;
@@ -125,7 +117,7 @@ SCRIPT = r'''
     if(value.state==='CONFIG_EXPORT_NOT_FOUND'){localExports.delete(row.connection_id);return value;}
     if(value.state!=='CONFIG_EXPORTED')return {state:'CONFIG_EXPORT_PENDING'};
     const bytes=new TextEncoder().encode(original.configuration),expected=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(v=>v.toString(16).padStart(2,'0')).join('');
-    if(value.sha256!==expected||value.utf8_bytes!==bytes.length||value.destination!=='Downloads'||value.filename!=='OpenAhoy-配置-'+original.export_id.slice(7)+'.json')throw new Error('CONFIG_EXPORT_RESULT_UNKNOWN');
+    if(value.sha256!==expected||value.utf8_bytes!==bytes.length||value.destination!=='Downloads'||!['Jiusera-配置-','OpenAhoy-配置-'].some(prefix=>value.filename===prefix+original.export_id.slice(7)+'.json'))throw new Error('CONFIG_EXPORT_RESULT_UNKNOWN');
     localExports.delete(row.connection_id);return {...value,from_query:query};
    }catch(error){
     if(['CONFIG_EXPORT_INVALID','CONFIG_EXPORT_ACCOUNT_MISMATCH'].includes(error.message)){localExports.delete(row.connection_id);throw new Error(error.message);}
@@ -134,7 +126,7 @@ SCRIPT = r'''
   }
  })]));
  function applyHostTheme(context){if(context?.theme==='light'||context?.theme==='dark')document.body.dataset.colorScheme=context.theme;}
- function dispose(){homeIntro?.close();showMedia('');studioSound.close();video.dispose();binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
+ function dispose(){showcase.show(false);homeIntro?.close();showMedia('');studioSound.close();video.dispose();binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
    for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('VIEW_CLOSED'));}pending.clear();
    for(const el of document.querySelectorAll('button,input,select,textarea'))el.disabled=true;
  }
@@ -405,23 +397,6 @@ SCRIPT = r'''
  addEventListener('resize',()=>{if(view==='platform'){closeFloatingMenus();syncAccountNavigation();}});
  accountList.addEventListener('scroll',()=>closeFloatingMenus(),{passive:true});
  accountPanel.addEventListener('scroll',()=>closeFloatingMenus(),{passive:true});
- const compactUpdates=matchMedia('(max-width:799px), (max-height:740px)');
- const updateToggle=$('wechatCompactUpdates'),updateSlot=$('softwareUpdateSlot');
- function syncPlatformUpdates(){
-   const compact=(view==='platform'||view==='studio')&&compactUpdates.matches&&typeof updateSlot.showPopover==='function';
-   updateToggle.hidden=!compact;
-   const sidebar=updateSlot.parentElement,support=sidebar.querySelector('.oa-support-links');
-   if(compact&&!updateSlot.hasAttribute('popover')){
-     updateSlot.setAttribute('popover','auto');updateSlot.classList.add('oa-workspace-popover');
-   }else if(!compact)unmountWorkspacePopover(updateSlot);
-   if(support&&support.parentElement!==(compact?updateSlot:sidebar))(compact?updateSlot:sidebar).append(support);
- }
- compactUpdates.addEventListener('change',syncPlatformUpdates);
- updateToggle.onclick=()=>{
-   if(updateSlot.matches(':popover-open'))updateSlot.hidePopover();
-   else{closeAccountNavigation({compactOnly:true});updateSlot.showPopover();placeWorkspacePopover(updateToggle,updateSlot);}
- };
- updateSlot.addEventListener('toggle',()=>updateToggle.setAttribute('aria-expanded',String(updateSlot.matches(':popover-open'))));
  $('accountRemoveCancel').onclick=()=>removalDialog.close();
  removalDialog.addEventListener('close',()=>{removalTarget=null;});
  $('accountRemoveConfirm').onclick=async event=>{
@@ -447,7 +422,7 @@ SCRIPT = r'''
        const stillVisible=rows.some(item=>key(item)===key(row));
        if(view==='platform'&&activePlatform===row.platform_id){
          const verified=confirmed||(disconnected&&!stillVisible);
-         notice(verified?'已从 OpenAhoy 移除账号。':'请刷新核对账号状态，移除结果尚未确认。',!verified);
+         notice(verified?'已从 Jiusera 移除账号。':'请刷新核对账号状态，移除结果尚未确认。',!verified);
        }
      }
    }
@@ -680,21 +655,24 @@ SCRIPT = r'''
    syncAccountNavigation();
  }
  function renderFeatures(){
-   const grid=$('homeFeatures');
-   for(const card of grid.querySelectorAll('[data-home-platform]'))card.remove();
+   const grid=$('homeFeatures'),links=$('wbPlatformLinks');
+   grid.replaceChildren();links.replaceChildren();
    for(const [id,copy] of featureCopy){
      if(!directory.some(p=>p.id===id&&p.binding_supported))continue;
      const card=document.createElement('button'),title=document.createElement('span'),description=document.createElement('span');
      card.type='button';card.className='oa-home-card';card.dataset.homePlatform=id;
      title.className='oa-home-card-title';OAPlatformBranding.decorate(title,id,platformName(id),OAUI);
      description.className='oa-home-card-description';OAUI.set(description,copy);
-     card.append(title,description,$('homeMediaStudio').lastElementChild.cloneNode(true));
+     card.append(title,description);
      card.onclick=()=>openView(id,{user:true,focus:true});grid.append(card);
+     const link=document.createElement('button');
+     link.type='button';link.dataset.wbRoute=id;
+     OAPlatformBranding.decorate(link,id,platformName(id),OAUI);links.append(link);
    }
  }
  let refreshTask=null;
  function refresh({afterWrite=false}={}){
-   if(!ready||closed||launching)return Promise.resolve();
+   if(!ready||closed||launching||view==='studio-showcase')return Promise.resolve();
    if(refreshTask)return afterWrite?refreshTask.then(()=>refresh()):refreshTask;
    refreshTask=readAccounts().finally(()=>{refreshTask=null;refreshing=false;if(!closed)buttons();guide?.render();});
    return refreshTask;
@@ -724,6 +702,7 @@ SCRIPT = r'''
        return JSON.stringify(old)===JSON.stringify(row)?old:row;
      });
      accountRead=true;
+     workbench.paintAccounts(rows,directory);
      if(directoryChanged){renderPlatforms();renderFeatures();if(view==='platform')showSettings(activePlatform);}
      for(const [id,editor]of editors){
        const own=rows.filter(row=>row.platform_id===id);
@@ -742,7 +721,7 @@ SCRIPT = r'''
    }catch(error){
      if(sameView()){
        notice(error.message==='HOST_TIMEOUT'?'账号刷新超时，仍显示上次读取结果。':'账号刷新失败，仍显示上次读取结果。',true);
-       if(view==='home')OAUI.set($('homeStatus'),'暂时无法读取平台。');
+       if(view==='about')OAUI.set($('homeStatus'),'暂时无法读取平台。');
      }
    }
  }
@@ -835,14 +814,18 @@ SCRIPT = r'''
    xManagement.openAuthorization(existing,existing);await xManagement.activate();
  }
  async function secure(){if(!ready||!bindingPlatform()?.binding_supported)return;if(activePlatform==='xiaohongshu'){await xhsManagement.begin();return;}if(activePlatform==='x'){await openXAuthorization(false);return;}await binding.open();}
- const analytics=OAWechatAnalytics(async args=>{
+ async function readAnalytics(args){
    const result=await tool('wce.ui.wechat.analytics',args);
    if(result?.isError){
      const code=result.structuredContent?.error||result.content?.[0]?.text;
      throw new Error(typeof code==='string'&&/^[A-Z0-9_]{1,96}$/.test(code)?code:'WECHAT_ANALYTICS_UNAVAILABLE');
    }
    return content(result);
- },openXLink);
+ }
+ const analytics=OAWechatAnalytics(readAnalytics,openXLink);
+ const workbench=OAWorkbench({open:target=>openView(target,{user:true,focus:true}),
+   readAnalytics,openLink:openXLink,platformName,platformDirectoryIcon:(node,id,label)=>OAPlatformBranding.decorate(node,id,label,OAUI),
+   accountName:row=>name(row)||row.label||row.account_id||''});
  const video = OAVideoCredential((name,args)=>tool(name,args).then(content),()=>ready&&!closed);
  const mediaTool=async(name,args)=>{
    const result=await tool(name,args);
@@ -882,27 +865,79 @@ SCRIPT = r'''
  $('monitorGifProvider').onclick=()=>showMediaProvider('gif');
  $('monitorAudioProvider').onclick=()=>showMediaProvider('audio');
  const studioEntries=$('jiuseraEntries'), studioParent=$('openMediaStudio'), assetKinds=$('directorAssetKinds');
+ let showcaseBack='jiusera-canvas';
+ const showcase=OAStudioShowcase((action,args)=>mediaTool('wce.ui.video.director.media',{action,...args}),
+   ()=>void openView(showcaseBack,{user:true,focus:true}));
  const studioSound=OAStudioPreviewSound($('directorSound'));
- let studioExpanded=false,mediaView='',mainStudio='monitor',assetKind='characters';
+ let studioExpanded=false,mediaView='',mainStudio='monitor',assetKind='';
+ const assetRoute=kind=>kind||'jiusera-assets';
+ function updateAssetURL(target){
+   try{
+     if(!['http:','https:','file:'].includes(location.protocol))return;
+     const url=new URL(location.href);
+     const old=routeFromURL();
+     if(!target&&studioRoutes.get(old)?.section!=='assets')return;
+     if(studioRoutes.get(url.searchParams.get('view'))?.section==='assets')url.searchParams.delete('view');
+     url.hash=target?'view='+target:'';
+     history.replaceState(history.state,'',url);
+   }catch(_){}
+ }
  const paintAssetKind=kind=>{
-   assetKind=kind;
-   for(const button of assetKinds.querySelectorAll('[data-asset-kind]'))
-     button.setAttribute('aria-pressed',String(button.dataset.assetKind===kind));
+   const active=mediaView==='assets';
+   assetKind=active?kind:'';
+   assetKinds.hidden=!active||!!kind;
+   $('directorAssetBack').hidden=!active||!kind;
+   if(active)OAUI.set($('directorTitle'),assetLabels[kind]||'资产库');
  };
+ const imageAssets=OAImageAssets(mediaTool);
  const monitor=OAMediaMonitor((action,args)=>mediaTool('wce.ui.video.workspace',{action,...args}),sendChatRequest,
    {sound:studioSound,canAttach:row=>director.canAttach(row),attach:row=>director.attach(row),
-    typeChanged:kind=>{if(mediaView==='assets')paintAssetKind(kind);}});
- function showAssetKind(kind,asset=null){
-   paintAssetKind(kind);
-   if(kind==='characters'){
-     monitor.close();characters.open();
-   }else{
-     characters.close();monitor.open(kind,asset);
+    typeChanged:kind=>{if(mediaView==='assets'){paintAssetKind(kind);updateAssetURL(assetRoute(kind));}}});
+ let countVersion=0;
+ async function readAssetCounts(){
+   const token=++countVersion;
+   for(const button of assetKinds.querySelectorAll('button'))button.querySelector('.ja-count').textContent='';
+   const display=(kind,total,partial=false)=>{
+     if(token!==countVersion||mediaView!=='assets'||assetKind)return;
+     const counter=assetKinds.querySelector('[data-asset-kind="'+kind+'"] .ja-count');
+     counter.textContent=partial?OAUI.format('{0} 已读取',[total]):String(total);
+   };
+   const checks=[
+     mediaTool('video.director.read',{action:'character_library'}).then(data=>
+       display('characters',data.projects.reduce((n,row)=>n+row.assets.length,0),data.projects.some(row=>row.unavailable))),
+     mediaTool('wce.ui.video.director.media',{action:'asset_image_library'}).then(data=>
+       display('images',data.projects.reduce((n,row)=>n+row.images.length,0),data.projects.some(row=>row.unavailable))),
+     mediaTool('video.director.read',{action:'article_catalog'}).then(data=>
+       display('articles',data.articles.length,data.articles.some(row=>row.error))),
+     mediaTool('wce.ui.video.workspace',{action:'media_monitor'}).then(data=>{
+       for(const kind of ['audio','video','gif'])display(kind,data.rows.filter(row=>row.kind===kind&&row.asset).length,
+         data.unavailable.some(row=>row.family===kind));
+     }),
+   ];
+   await Promise.allSettled(checks);
+ }
+ function showAssetKind(kind='',asset=null){
+   if(kind!==assetKind){
+     switch(assetKind){
+       case 'characters': characters.close();break;
+       case 'images': imageAssets.close();break;
+       case 'articles': $('articleAssetLibrary').hidden=true;break;
+       case 'video': case 'audio': case 'gif':
+         if(!['video','audio','gif'].includes(kind))monitor.close();
+     }
    }
+   paintAssetKind(kind);
+   const articlePage=$('articleAssetLibrary');
+   articlePage.hidden=kind!=='articles';
+   if(!kind)void readAssetCounts();
+   document.dispatchEvent(new CustomEvent('jiusera:asset-category',{detail:{kind,asset}}));
+   if(kind==='characters')characters.open();
+   else if(kind==='images')imageAssets.open();
+   else if(['video','audio','gif'].includes(kind))monitor.open(kind,asset);
  }
  for(const button of assetKinds.querySelectorAll('[data-asset-kind]'))
-   button.onclick=()=>showAssetKind(button.dataset.assetKind);
- $('directorAssetBack').onclick=()=>enterStudio('desk',{user:true,focus:true});
+   button.onclick=()=>enterStudio('assets',{kind:button.dataset.assetKind,user:true,focus:true});
+ $('directorAssetBack').onclick=()=>enterStudio('assets',{user:true,focus:true});
  async function openProjectSettings(){
    await openView(activePlatform||'wechat_official_account',{focus:true});
    setWechatPage('settings');
@@ -922,11 +957,10 @@ SCRIPT = r'''
         throw Error('DIRECTOR_INVALID_SOURCE');
       return openXLink(target.href);
     },
-    project:openProjectSettings,
+    project:openProjectSettings,openLink:openXLink,
  });
  const intro=$('homeIntroPlayer'),introToggle=$('homeIntroToggle');
- const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
- let introPreference=null,startupReady=false;
+ let introPreference=false;
  const homeIntro=intro?OAFramePlayer(intro,async start=>{
    OAUI.set($('homeIntroStatus'),'');
    return content(await tool('wce.ui.video.workspace',{action:'intro_frames',start}));
@@ -937,35 +971,38 @@ SCRIPT = r'''
  }}):null;
  function syncIntro(){
    if(!homeIntro)return;
-   const visible=ready&&startupReady&&!closed&&view==='home'&&!document.hidden;
-   if(visible&&(introPreference??!reduceMotion.matches))homeIntro.play();
+   const visible=ready&&!closed&&view==='about'&&!document.hidden;
+   if(visible&&introPreference)homeIntro.play();
    else if(homeIntro.isPlaying())homeIntro.pause();
    introToggle.disabled=!visible;
    OAUI.set(introToggle,homeIntro.isPlaying()?'暂停':'播放');
  }
  if(introToggle){
    introToggle.onclick=()=>{introPreference=!homeIntro.isPlaying();syncIntro();};
-   reduceMotion.addEventListener('change',()=>{introPreference=null;syncIntro();});
    document.addEventListener('visibilitychange',syncIntro);
  }
- function showMedia(section,{kind,asset}={}){
+ function showMedia(section,{kind='',asset}={}){
    const before=mediaView;
    if(!before&&!section)return;
    if(before!==section){
      navigationEpoch++;
-     if(before==='assets'){characters.close();monitor.close();}
+     if(before==='assets'){
+       characters.close();monitor.close();imageAssets.close();$('articleAssetLibrary').hidden=true;
+       document.dispatchEvent(new CustomEvent('jiusera:asset-category',{detail:{kind:'',asset:null}}));
+     }
      if(before==='tasks')monitor.close();
      if(before==='providers')showMediaProvider('');
    }
    mediaView=section;
    $('mediaStudio').hidden=!section;
    document.body.classList.toggle('oa-video-open',!!section);
+   if(section!=='assets')paintAssetKind('');
    if(!section){director.close();return;}
    if(!before){
      closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();
      void director.open(section);
    }else director.view(section);
-   if(section==='assets'&&(before!==section||kind||asset))showAssetKind(kind||assetKind,asset);
+   if(section==='assets'&&(before!==section||kind!==assetKind||asset))showAssetKind(kind,asset);
    if(section==='tasks'&&before!==section)monitor.open('all');
    if(section==='providers'&&before!==section)showMediaProvider('video');
  }
@@ -983,36 +1020,59 @@ SCRIPT = r'''
    }
    studioExpanded=true;
    if(section in studioURLs)mainStudio=section;
-   if(user){explicitNavigation=true;rememberView(studioURLs[mainStudio]);}
+   if(user){
+     explicitNavigation=true;
+     if(section==='assets')updateAssetURL(assetRoute(kind));
+     else if(mediaView==='assets')updateAssetURL('');
+   }
    showMedia(section,{kind,asset});renderView();renderPlatforms();
    if(focus&&!asset)$('directorTitle').focus({preventScroll:true});
  }
  function renderView(){
    document.body.classList.toggle('oa-platform-view',view==='platform');
-   syncPlatformUpdates();
    renderWechatWorkspace();
    syncIntro();
-   $('openAhoyHome').hidden=view!=='home';
+   $('openAhoyHome').hidden=view!=='about';
    $('nativeWorkspace').hidden=view!=='platform'||!$('inlineBinding').hidden;
-   $('openHome').setAttribute('aria-current',view==='home'?'page':'false');
+   showcase.show(view==='studio-showcase');
+   const screen=view==='studio'?(mediaView==='desk'?'canvas':mediaView):view;
+   workbench.paint(screen,{showCanvas:screen==='canvas'});
    paintStudioNavigation();
    guide?.render();
  }
  async function openView(target,{user=false,focus=false}={}){
    closeFloatingMenus();
    if(closed||!ready||!$('inlineBinding').hidden)return;
+   if(target==='studio-showcase'){
+     if(view!=='studio-showcase'){
+       showcaseBack=view==='studio'?(mediaView==='assets'?assetRoute(assetKind):studioURLs[mediaView]||'jiusera-canvas'):
+         view==='platform'?(activePlatform||'jiusera-canvas'):view==='startup'?'jiusera-canvas':view;
+       platformEpoch++;selectionIntent++;selectEpoch++;navigationEpoch++;
+       closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();
+       view=target;showMedia('');renderView();
+     }
+     if(user)explicitNavigation=true;
+     if(focus)$('scTitle').focus({preventScroll:true});
+     return;
+   }
+   if(view==='studio-showcase'&&!accountRead){
+     view='startup';
+     showcase.show(false);
+     void refresh();
+   }
    if(studioRoutes.has(target)){
      const {section,kind}=studioRoutes.get(target);
      enterStudio(section,{kind,user,focus});
      return;
    }
+   if(user&&mediaView==='assets')updateAssetURL('');
    if(activePlatform!==target||view!=='platform')notice('');
-   if(user){explicitNavigation=true;rememberView(target);}
-   if(target==='home'){
+   if(user)explicitNavigation=true;
+   if(target==='about'||target==='published'){
      platformEpoch++;selectionIntent++;selectEpoch++;navigationEpoch++;
      closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();
      view=target;showMedia('');renderView();renderPlatforms();
-     if(focus)$('homeTitle').focus();
+     if(focus)$(target==='about'?'homeTitle':'wbPublishedTitle').focus();
      return;
    }
    if(view==='platform'&&activePlatform===target)return;
@@ -1059,14 +1119,13 @@ SCRIPT = r'''
      return true;
    }
  });
- $('openHome').onclick=()=>openView('home',{user:true,focus:true});
+ $('openHome').onclick=()=>openView('jiusera-canvas',{user:true,focus:true});
  studioParent.onclick=()=>{
    if(mediaView){studioExpanded=!studioExpanded;paintStudioNavigation();return;}
    void openView('media',{user:true,focus:true});
  };
  for(const button of studioEntries.querySelectorAll('[data-studio-page]'))
    button.onclick=()=>enterStudio(button.dataset.studioPage,{user:true,focus:true});
- $('homeMediaStudio').onclick=()=>openView('media',{user:true,focus:true});
  $('refresh').addEventListener('click',()=>void refresh());$('showAdd').addEventListener('click',secure);
  $('accountCreate').addEventListener('click',async()=>{
    const row=current(),original=selected,editor=row&&editors.get(row.platform_id);if(!editor||!platform(row.platform_id)?.settings_supported)return;
@@ -1108,15 +1167,15 @@ SCRIPT = r'''
  rpc('ui/initialize',{appInfo:{name:'openahoy-management',version:'3.0.0'},protocolVersion:'2026-01-26',appCapabilities:{availableDisplayModes:['inline','fullscreen']}})
  .then(async host=>{if(closed||host?.protocolVersion!=='2026-01-26'||!host.hostCapabilities?.serverTools)throw new Error('NO_SERVER_TOOLS');
    hostCapabilities=host.hostCapabilities;ready=true;applyHostTheme(host.hostContext);projectContext.setReady(true,!!hostCapabilities.message?.text);bridge.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized'},'*');
-   $('homeMediaStudio').disabled=false;
-   const startup=initialView||routeFromURL();if(startup)void openView(startup);else renderView();
+   const startup=initialView||routeFromURL()||'jiusera-canvas';
+   void openView(startup);
    buttons();await refresh();
-   // Give the account and navigation paint a frame before optional startup work.
+   // Optional host checks run after the first paint.
    requestAnimationFrame(()=>requestAnimationFrame(()=>{
      if(closed||!ready)return;
-     startupReady=true;syncIntro();
+     syncIntro();
    }));
- }).catch(()=>{ready=false;buttons();notice('当前宿主管理工具桥不可用，未进行任何账号操作。',true);OAUI.set($('homeStatus'),'当前宿主管理工具桥不可用，未进行任何账号操作。');});
+ }).catch(()=>{ready=false;buttons();notice('当前宿主管理工具桥不可用，未进行任何账号操作。',true);workbench.failed();});
 })();
 
 '''
@@ -1128,6 +1187,7 @@ def resource():
     from .management_workspace_ui import NATIVE_FINISH_STYLE, PLATFORM_ACCOUNT_NAV_STYLE
     from .management_interactions import STYLE as interaction_style, SCRIPT as interaction_script
     from .workflow_guide_ui import STYLE as guide_style, SCRIPT as guide_script
+    from .workbench_ui import STYLE as workbench_style, SCRIPT as workbench_script, trend_resource
     from .own_wechat_management import settings_html, settings_script
     from .own_inline_binding_ui import SCRIPT as binding_script
     from .video_inline_ui import SCRIPT as video_script
@@ -1142,6 +1202,8 @@ def resource():
     from .video_director_ui import STYLE as director_style, SCRIPT as director_script
     from .video_director_monitor_ui import STYLE as review_style, SCRIPT as review_script
     from .character_library_ui import STYLE as characters_style, SCRIPT as characters_script
+    from .asset_catalog_ui import STYLE as assets_style, SCRIPT as assets_script
+    from .studio_showcase_ui import STYLE as showcase_style, SCRIPT as showcase_script
     from .video_frame_player import STYLE as frame_style, SCRIPT as frame_script
     from .x_management_ui import HTML as x_html, SCRIPT as x_script
     from .xhs_management_ui import HTML as xhs_html, SCRIPT as xhs_script
@@ -1152,10 +1214,10 @@ def resource():
     from .x_operating_ui import STYLE as operating_style, SCRIPT as operating_script
     html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<title>OpenAhoy · Platform management</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + review_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + PLATFORM_ACCOUNT_NAV_STYLE + guide_style + '</style>'
+        '<title>Jiusera · Workspace</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
+        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + review_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + PLATFORM_ACCOUNT_NAV_STYLE + guide_style + workbench_style + assets_style + showcase_style + trend_resource('css') + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
-        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + characters_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + guide_script + SCRIPT + '</script></body></html>')
+        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + characters_script + assets_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + guide_script + trend_resource('js') + workbench_script + showcase_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
         '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://cdn1.suno.ai',
                                                                  'https://cdn2.suno.ai', 'https://suno-data-uploads.s3.amazonaws.com', 'https://acemusic.ai'], 'frameDomains': []}},

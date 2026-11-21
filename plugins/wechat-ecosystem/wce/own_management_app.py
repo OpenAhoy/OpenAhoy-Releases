@@ -219,11 +219,11 @@ class ManagementApp:
                 + 'const EXPECTED_GENERATION=' + json.dumps(self.generation) + ';\n' + SHELL_SCRIPT)
             html = ('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
                 '<meta name="viewport" content="width=device-width,initial-scale=1">'
-                '<title>OpenAhoy · 公众号管理</title><style>' + SHELL_STYLE + '</style>'
+                '<title>Jiusera · 公众号管理</title><style>' + SHELL_STYLE + '</style>'
                 '<body><div class="shell-tools"><span id="status" role="status">正在连接管理工具…</span>'
                 '<button id="retry">重新打开管理页</button></div>'
                 '<details><summary>页面加载信息</summary><pre id="frameContext"></pre></details>'
-                '<iframe id="frame" title="OpenAhoy 公众号管理" '
+                '<iframe id="frame" title="Jiusera 公众号管理" '
                 'sandbox="allow-scripts allow-same-origin allow-popups" referrerpolicy="no-referrer"></iframe>'
                 '<script>' + script + '</script></body></html>')
             return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,

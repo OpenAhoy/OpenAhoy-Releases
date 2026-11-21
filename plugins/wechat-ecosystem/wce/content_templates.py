@@ -121,16 +121,16 @@ class Templates:
 
     def export(self, template_id, version, manifest_sha256, action, *, directory=None):
         """Fixed content-addressed ZIP; uncertain result is queried, never renamed."""
-        from .own_configuration_export import _directory
+        from .own_configuration_export import _directory, preserve_existing_export
         need(action in ('write', 'query'))
         row, _, _ = self.materials(template_id, version)
         need(row['manifest_sha256'] == manifest_sha256, 'TEMPLATE_CHANGED')
         raw = self.bundle(template_id, version)
-        filename = 'OpenAhoy-'+template_id+'-'+version+'-'+sha(raw)[:16]+'.zip'
         folder = _directory(Path(directory) if directory is not None else Path.home()/'Downloads')
         temporary = '.openahoy-template-'+uuid.uuid4().hex
         created = False
         try:
+            filename = preserve_existing_export(folder, 'Jiusera-'+template_id+'-'+version+'-'+sha(raw)[:16]+'.zip')
             try:
                 fd = os.open(filename, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
             except FileNotFoundError:

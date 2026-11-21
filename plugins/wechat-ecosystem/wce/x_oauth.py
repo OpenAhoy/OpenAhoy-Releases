@@ -53,8 +53,8 @@ class OAuthFlow:
                     self.send_error(400)
                     return
                 if parsed.path == '/x/done' and not parsed.query:
-                    raw = ('<!doctype html><meta charset="utf-8"><title>OpenAhoy · X</title>'
-                           '<p>本次授权已处理，请返回 OpenAhoy 查看连接状态。</p>').encode()
+                    raw = ('<!doctype html><meta charset="utf-8"><title>Jiusera · X</title>'
+                           '<p>本次授权已处理，请返回 Jiusera 查看连接状态。</p>').encode()
                     self.send_response(200)
                     self.send_header('Content-Type', 'text/html; charset=utf-8')
                     self.send_header('Content-Length', str(len(raw)))

@@ -443,12 +443,12 @@ class Jobs:
             raise WCEError('VIDEO_ASSET_CHANGED')
 
     def export(self, attempt, project_id, *, directory=None):
-        from .own_configuration_export import _directory
+        from .own_configuration_export import _directory, preserve_existing_export
 
         source, asset, pin = self._playable(attempt, project_id)
-        filename = self._filename(attempt, asset)
         folder = _directory(Path(directory) if directory is not None else Path.home() / 'Downloads')
         try:
+            filename = preserve_existing_export(folder, f'Jiusera-{attempt}-{asset["sha256"][:12]}.mp4')
             self._copy_original(source, asset, pin, folder, filename)
         except OSError:
             raise WCEError('VIDEO_EXPORT_UNAVAILABLE') from None
@@ -704,7 +704,10 @@ class Jobs:
         row['director_binding'] = director_bind(row) if director_bind else {'kind': 'project_inbox', 'project_id': project}
         atomic_write(receipt, row, maximum=RECEIPT_MAX)
         try:
-            task = api.submit(key, body)
+            if workflow_id := row['request'].get('workflow_id'):
+                task = api.submit(key, body, workflow_id=workflow_id)
+            else:
+                task = api.submit(key, body)
         except RelaySubmitError as error:
             if error.rejected:
                 row['state'] = 'SUBMIT_REJECTED'
@@ -750,8 +753,9 @@ class Jobs:
         body = workflow_body(inputs)
         request_hash = sha256(body).hexdigest()
         identity = {'project_id': project_id, 'model': RELAY_MODEL, 'mode': 'workflow'}
-        if 'duration' in inputs:
-            identity['duration'] = inputs['duration']
+        for field in ('duration', 'audio_duration', 'workflow_id'):
+            if field in inputs:
+                identity[field] = inputs[field]
         self._directory()
         with locked(self.root / 'generation.lock'):
             old = read_optional(receipt, RECEIPT_MAX)

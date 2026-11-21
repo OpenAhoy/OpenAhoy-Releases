@@ -6,14 +6,18 @@ from pathlib import Path
 import tempfile
 
 from .contracts import WCEError
-from .prepared_contracts import strict_validate
+from .prepared_contracts import ID, strict_validate
+from .own_contracts import SPECS as ARTICLE_SPECS
 from .tools import schema
-from .video_director import Director, WORK_FIELDS, canvas_state, lookup, require, work_view
+from .video_director import Director, WORK_FIELDS, canvas_state, lookup, primary_reference_index, require, work_view
 from . import video_director_delivery as delivery
 from . import character_library as characters
+from . import asset_image_library as asset_images
+from . import studio_showcase
 from .video_director_media import (CATALOG, IMAGE_CHUNK, IMAGE_ROLES, compute_request, import_image_chunk, models, preview_image,
                                    preview_result, preview_whitebox, validate_revision)
-from .video_protocol import ATTEMPT, FRAME, FRAME_INDEX, HANDLE, PROJECT, RELAY_URL, RELAY_IMAGES, RELAY_AUDIO, action
+from .video_protocol import ATTEMPT, FRAME, FRAME_INDEX, HANDLE, PROJECT, RELAY_URL, action
+from .video_autodl_catalog import CONFIG_OPTIONS as AUTODL_OPTIONS
 from .video_seedance import MAX_REFERENCE_IMAGES
 from .video_jobs import FRAME_LIMIT
 
@@ -31,6 +35,9 @@ CHAT_ROOT = {'project_root': {'type': 'string', 'minLength': 1}}
 MS = {'type': 'integer', 'minimum': 0, 'maximum': 2**53 - 1}
 ORDINAL = {'type': 'integer', 'minimum': 0}
 TEXT = {'type': 'string', 'maxLength': 65536}
+ARTICLE_SELECTOR = {key: ARTICLE_SPECS['own.articles.read']['properties'][key]
+                    for key in ('connection_id', 'bundle_id', 'version')}
+ARTICLE_VERSION = ARTICLE_SELECTOR['version']
 TITLE = {'type': 'string', 'minLength': 1, 'maxLength': 240, 'x-wce-maxUtf8Bytes': 960}
 RATIO = {'type': 'string', 'enum': ['adaptive', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16']}
 SOURCE = schema(PROJECT_ARG | {'attempt_id': ATTEMPT, 'sha256': HANDLE})
@@ -47,7 +54,7 @@ CONFIG = schema({
     'mode': {'type': 'string', 'enum': ['text', 'first', 'last', 'frames', 'reference', 'edit', 'extend', 'subject', 'workflow']},
 }, {'duration': {'type': 'integer', 'minimum': -1, 'maximum': 30},
     'resolution': {'type': 'string', 'maxLength': 20, 'minLength': 1}, 'ratio': RATIO,
-    'subject_image_url': RELAY_URL, 'reference_images': RELAY_IMAGES, 'reference_audio': RELAY_AUDIO, 'audio': {'type': 'boolean'}, 'direction': {'type': 'string', 'enum': ['before', 'after']},
+    'subject_image_url': RELAY_URL, **AUTODL_OPTIONS, 'audio': {'type': 'boolean'}, 'direction': {'type': 'string', 'enum': ['before', 'after']},
     'source': schema(SOURCE['properties'], {'reference_asset': {
         'type': 'string', 'pattern': '^asset://[A-Za-z0-9_-]{1,128}$', 'maxLength': 136}})})
 WHITEBOX = schema({'mode': {'type': 'string', 'enum': ['none', 'plan', 'import']}},
@@ -85,6 +92,8 @@ SPECS = {
         action('character_library', {}),
         action('character_import_preview', PROJECT_ARG | {'source': characters.SOURCE}),
         action('overview', PROJECT_ARG, {'work_id': PROJECT}),
+        action('article_work', WORK_ARG, {'version': ARTICLE_VERSION, 'known_version': ARTICLE_VERSION}),
+        action('article_catalog', {}, PROJECT_ARG),
         action('context', TARGET),
         action('deliveries', WORK_ARG),
         action('preflight', TARGET),
@@ -95,6 +104,7 @@ SPECS = {
         action('character_import', PROJECT_ARG | {'source': characters.SOURCE, 'expected_revision': ORDINAL}),
         action('character_import_version', PROJECT_ARG | {'origin': characters.ORIGIN}),
         action('character_set_current', PROJECT_ARG | characters.SELECTOR, {'expected_current': characters.ID}),
+        action('register_article', PROJECT_ARG | WRITE | ARTICLE_SELECTOR | {'article_id': ID}),
         action('create_work', PROJECT_ARG | WRITE | {'fields': schema(NAME_FIELDS, WORK_OPTIONS)}),
         action('start_work', PROJECT_ARG | CHAT_ROOT | WRITE | {'fields': schema(NAME_FIELDS, WORK_OPTIONS)}),
         action('start_work', WORK_ARG | CHAT_ROOT | WRITE),
@@ -121,6 +131,10 @@ SPECS = {
     ]},
     SUBMIT: schema(TARGET | {'generation_attempt_id': ATTEMPT}),
     MEDIA: {'oneOf': [
+        action('showcase_index', {}),
+        action('showcase_blob', {'media_id': studio_showcase.MEDIA_ID, 'offset': ORDINAL}),
+        action('asset_image_library', {}),
+        action('asset_image_original', PROJECT_ARG | {'sha256': HANDLE, 'offset': ORDINAL}),
         action('character_manifest_files', PROJECT_ARG, {'directory': characters.PATH}),
         action('character_manifest_pick', PROJECT_ARG | {'path': characters.PATH}),
         action('character_thumbnail', PROJECT_ARG | characters.SELECTOR | {'sha256': HANDLE}),
@@ -133,6 +147,7 @@ SPECS = {
             'total': {'type': 'integer', 'minimum': 1, 'maximum': FRAME_LIMIT-1},
             'data': {'type': 'string', 'minLength': 4, 'maxLength': 4*((IMAGE_CHUNK+2)//3)},
         }),
+        action('article_image', WORK_ARG | {'version': ARTICLE_VERSION, 'slot': ID, 'offset': ORDINAL}),
         action('canvas_image', WORK_ARG | {'node_id': PROJECT}, {'thumbnail': {'type': 'boolean'}}),
         action('image', TARGET, {'index': ORDINAL, 'thumbnail': {'type': 'boolean'}}),
         action('whitebox', TARGET),
@@ -142,8 +157,8 @@ SPECS = {
     ]},
 }
 DESCRIPTIONS = {
-    READ: 'Read project storyboards, one exact shot revision, shared model/channel options, original-work delivery status, local preflight, built-in video-director cards, a work_request by its original operation_id, or registered character reference versions. Refresh Token Hex only when explicitly requested. Preflight only validates local input and encoding; no generation.',
-    EDIT: 'Create or revise a storyboard in a registered local project. For chat starts use start_work with the original operation_id and both the current chat’s verified project_root and its matched project_id. Pass either an exact existing work_id or fields for a new work. First read work_request to recover any earlier result. Manage canvas layout, exact shot generation bindings and work-level local MP4 delivery. Character_import records a verified project-local JSON index. Character_set_current changes one role pointer using the observed version. Adopt_video selects an exact verified take for one shot without changing its storyboard revision. Read deliveries for candidate IDs and the current adoption. Poll_delivery may query the original provider and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Use project-relative files with project_id and SHA-256.',
+    READ: 'Read account-scoped WeChat article works, their original draft/publish status, project storyboards, one exact shot revision, shared model/channel options, original-work delivery status, local preflight, built-in video-director cards, a work_request by its original operation_id, or registered character reference versions. Refresh Token Hex only when explicitly requested. Preflight only validates local input and encoding; no generation.',
+    EDIT: 'Create or revise a storyboard in a registered local project. The original own.documents.prepare HTML route automatically registers each article under its containing project. Use register_article with exact connection, bundle, version and article ID to recover a missing association. For chat starts use start_work with the original operation_id and both the current chat’s verified project_root and its matched project_id. Pass either an exact existing work_id or fields for a new work. First read work_request to recover any earlier result. Manage canvas layout, exact shot generation bindings and work-level local MP4 delivery. Character_import records a verified project-local JSON index. Character_set_current changes one role pointer using the observed version. Adopt_video selects an exact verified take for one shot without changing its storyboard revision. Read deliveries for candidate IDs and the current adoption. Poll_delivery may query the original provider and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Use project-relative files with project_id and SHA-256.',
     SUBMIT: 'Submit one expressly authorized billable video from the exact saved shot revision. Inputs and provider come from that immutable revision. Use the original project and attempt with video.ark.generation.status after any ambiguous result. The exact original attempt is linked to the Jiusera canvas before submission.',
     MEDIA: 'App-only local image import and verified storyboard image, whitebox or completed clip previews.',
 }
@@ -160,6 +175,7 @@ class DirectorRouter:
         self.jobs = inner.video_jobs
         self.director = Director(self.jobs.projects)
         self.characters = characters.CharacterLibrary(self.director)
+        self.registry = self.director.projects.registry
 
     def __getattr__(self, name):
         return getattr(self.inner, name)
@@ -187,7 +203,11 @@ class DirectorRouter:
 
     def call(self, name, args):
         if name not in SPECS:
-            return self.inner.call(name, args)
+            result = self.inner.call(name, args)
+            if name == 'own.documents.prepare' and 'html_sources' in args:
+                from .article_work import prepared_result
+                return prepared_result(self.director, self.registry, args, result)
+            return result
         strict_validate(args, SPECS[name])
         if name == SUBMIT:
             from .video_director_generation import submit
@@ -197,6 +217,21 @@ class DirectorRouter:
                     if key not in {'recipe', 'project_video_root', 'project_video_copy',
                                    'relay_connection', 'tokenhex_connection'}}
         command = args['action']
+        if command in {'article_work', 'article_image', 'article_catalog', 'register_article'}:
+            from . import article_work
+            if command == 'article_catalog':
+                return article_work.catalog(self.director, self.registry, args.get('project_id'))
+            if command == 'register_article':
+                return article_work.register(self.director, self.registry, args)
+            return article_work.read_work(self.director, self.registry, args, media=command == 'article_image')
+        if command == 'showcase_index':
+            return studio_showcase.index()
+        if command == 'showcase_blob':
+            return studio_showcase.chunk(args['media_id'], args['offset'])
+        if command == 'asset_image_library':
+            return asset_images.catalog(self.director)
+        if command == 'asset_image_original':
+            return asset_images.original(self.director, args)
         if command == 'character_library':
             return self.characters.list()
         if command == 'character_import_preview':
@@ -224,6 +259,18 @@ class DirectorRouter:
             root, pin = self.director.project(project)
             state = self.director.load(project, self.director.storage(root, pin))
             result = self.director.overview(project, None if work_id == inbox else work_id, state=state)
+            from . import article_work
+            for row in result['works']:
+                if row.get('kind') != 'article':
+                    continue
+                pointer = state['works'][row['id']]['article']
+                row['account_hint'] = pointer['connection_id']
+                try:
+                    meta = article_work.snapshot(pointer, self.registry)
+                    row.update(title=meta['title'], account_label=meta['account_label'],
+                               account_hint=meta['account_hint'])
+                except (OSError, WCEError):
+                    continue
             try:
                 incoming = delivery.inbox_rows(self.jobs, project, pin, state['works'])
             except (OSError, WCEError, KeyError):
@@ -295,8 +342,7 @@ class DirectorRouter:
         if command == 'image':
             images = revision['images']
             require(images, 'DIRECTOR_IMAGE_UNAVAILABLE')
-            index = args.get('index', next((i for i, row in enumerate(images)
-                                          if row['role'] == 'composition'), 0))
+            index = args.get('index', primary_reference_index(images))
             require(0 <= index < len(images), 'DIRECTOR_IMAGE_UNAVAILABLE')
             spec = images[index]['file']
             require(spec['project_id'] == args['project_id'], 'DIRECTOR_ASSET_WRONG_PROJECT')

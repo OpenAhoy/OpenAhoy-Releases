@@ -11,7 +11,7 @@ SERVICE = 'com.readysteadyscience.openahoy.x.oauth2.v1'
 
 class XKeychain(NativeKeychain):
     service = SERVICE
-    label = 'OpenAhoy X OAuth connection'
+    label = 'Jiusera X OAuth connection'
     @contextmanager
     def query(self, scope, value=None, reading=False, deleting=False):
         if type(scope) is not str or re.fullmatch('[a-f0-9]{64}', scope) is None:

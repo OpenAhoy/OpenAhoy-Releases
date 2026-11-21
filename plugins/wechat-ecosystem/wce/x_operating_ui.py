@@ -139,7 +139,7 @@ const OAXOperating=(()=>{
      if(preview.connection_id!==cid||preview.skill?.complete!==true||typeof preview.skill.text!=='string'||!preview.skill.text)throw new Error('X_CONFIG_PREVIEW_INVALID');
      a={connection_id:cid,configuration,export_id:op('config-'),artifact,raw:artifact==='skill'?preview.skill.text:configuration};exports.set(k,a);
     }
-    const filename=artifact==='skill'?'OpenAhoy-X-SKILL.md':'OpenAhoy-X-运营配置.json',raw=a.raw;
+    const filename=artifact==='skill'?'Jiusera-X-SKILL.md':'Jiusera-X-运营配置.json',raw=a.raw;
     validateClient(uniqueJSON(a.configuration),spec);const r=await downloadArtifact(raw,filename,{...a,queryOnly:!!a.sent,onDispatch:()=>{a.sent=true;}});
     if(r.state==='CONFIG_EXPORT_NOT_FOUND'){exports.delete(k);if(current(cid,t))say('原下载未写入，可再次点击发起。');}
     else if(r.state==='CONFIG_EXPORTED'){

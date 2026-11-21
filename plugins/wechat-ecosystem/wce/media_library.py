@@ -33,7 +33,7 @@ class MediaLibrary:
         elif not os.path.lexists(self.root):
             return None
         path_check(self.root, True)
-        return {'id': LIBRARY_ID, 'name': 'OpenAhoy', 'root': str(self.root)}
+        return {'id': LIBRARY_ID, 'name': 'Jiusera', 'root': str(self.root)}
 
     def _marker(self, kind, attempt):
         # Callers have already validated the exact media kind and attempt ID.
@@ -88,4 +88,4 @@ class MediaLibrary:
             if clean:
                 parts.append(clean.encode('utf-8')[:cap].decode('utf-8', 'ignore').strip(' .'))
         suffix = sha256(f'{attempt}\0{digest}'.encode()).hexdigest()[:12]
-        return ' · '.join(parts or ['OpenAhoy']) + '-' + suffix + extension
+        return ' · '.join(parts or ['Jiusera']) + '-' + suffix + extension

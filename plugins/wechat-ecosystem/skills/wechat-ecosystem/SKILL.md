@@ -1,15 +1,17 @@
 ---
 name: wechat-ecosystem
-description: Manage OpenAhoy accounts, produce illustrated WeChat articles, use official X tools and isolated standard-browser Xiaohongshu notes with original-result readback.
+description: Manage Jiusera accounts, produce illustrated WeChat articles, use official X tools and isolated standard-browser Xiaohongshu notes with original-result readback.
 ---
 
-# OpenAhoy
+# Jiusera
+
+Jiusera 是 Codex 中的创作工作台，可管理账号并交付平台内容。
 
 需要为当前运营项目配置通用生产规范时，按[初始化当前项目](references/PROJECT_INITIALIZATION.md)使用 `own.projects.initialize` 实际落盘 AGENTS 维护段与桥接 Skill，再由当前 Codex 显式读取并报告来源。内嵌页请求 ACK 不代表初始化完成；保留原账号、个人偏好和用户文件，原链路不以初始化为前置。
 
 使用当前实际加载的原生工具。微信公众号先区分正常内容生产、旧稿恢复、普通发表和群发；它们有各自真实权限和状态。X 单账号通路按[X 官方接入](references/X_ACCOUNT.md)执行，不能从页面入口或本地fixture通过推导实际账号/API已验证；不跨平台复用凭据、规则或媒体。小红书按[小红书标准浏览器接入](references/XIAOHONGSHU.md)操作：本人官方扫码、显式connection_id的隔离会话、本号笔记读取、原生图文一次提交和原任务链接读回；它不是已获官方发布API。其他平台和共享资产分发仍是后续方向。
 
-Seedance 生成和 X 单视频交付见 [Seedance 视频](references/SEEDANCE.md)。从创意准备分镜、画面资产和运镜提示词时，使用随包的 [OpenAhoy 视频导演](../video-director/SKILL.md)。
+Seedance 生成和 X 单视频交付见 [Seedance 视频](references/SEEDANCE.md)。从创意准备分镜、画面资产和运镜提示词时，使用随包的 [Jiusera 视频导演](../video-director/SKILL.md)。
 
 用户明确要求制作动图且已保存 OpenAI 动图 Key 时，默认走 [OpenAI GPT‑Image‑2.6 动图](../video-director/references/OPENAI_GIF.md)。Codex 继续制作静态参图，已有 GIF 仍沿对应平台原上传流程。
 
@@ -27,7 +29,7 @@ X 页的“立即生产并发布”通过现有宿主消息桥向当前聊天发
 
 已选官方模板1.0.1时，视觉设计先明确文章具体读者问题及各图信息任务，再依据原文决定主体关系、前后变化、表达方式和完整构图，按该版本VISUAL_METHOD/IMAGE_PROMPTS完整执行；只改标题与风格不算采用方法。旧模板引用保持原版本，不借软件升级静默覆盖或启动生产。
 
-在 OpenAhoy 内嵌页点「立即升级」，面板会核对公开发行源的固定版本及制品，通过本机 Codex CLI 安装并显示实际阶段。安装后面板会显示是否已加载新版。两个升级工具仅供面板调用。
+在 Jiusera 内嵌页点「立即升级」，面板会核对公开发行源的固定版本及制品，通过本机 Codex CLI 安装并显示实际阶段。安装后面板会显示是否已加载新版。两个升级工具仅供面板调用。
 
 先调用 `own.connections.list`，按用户意图选择真实 `connection_id`，之后整条文章链保持同号。名称只是显示信息，不能跨号借 token、素材、媒体、bundle、草稿或发表任务。只有目标确实不明时才询问账号。
 
@@ -41,7 +43,7 @@ X 页的“立即生产并发布”通过现有宿主消息桥向当前聊天发
 
 新增公众号校验失败时，页面展示固定安全错误分类，异步错误自动进入本人主动提交的脱敏反馈快照。原 UNKNOWN 只查询，不重放。若确认为原凭据未保存、绑定未提交且原任务已结束，安全页可提供“重新验证并继续绑定”：本人重新输入一次 Secret 后发起一个新的普通 stable_token 校验，原 UNKNOWN attempt 保留，沿原身份和目录继续。它不复用已销毁的密钥，不替换已绑定账号，不自动循环重试。新的恢复历史使用 schema3，须由支持该格式的版本继续；已有 schema2 账号不批量迁移。模型不得代填或代调 app-only 继续入口。
 
-在聊天里直接执行已授权的业务。发帖、入稿、发表和读回时都跳过管理工具，包括本聊天首次调用。管理界面从当前会话右侧的 OpenAhoy 原生入口打开，左侧「独立管理页」可用于全局整页管理。两处入口均由用户在宿主中打开。模型端保留兼容工具 `wce.ui.show_management`，其 `MANAGEMENT_VIEW_READY` 结果仅为文本状态。界面呈现、账号连接和业务结果分别核验。
+在聊天里直接执行已授权的业务。发帖、入稿、发表和读回时都跳过管理工具，包括本聊天首次调用。管理界面从当前会话右侧的 Jiusera 原生入口打开，左侧「独立管理页」可用于全局整页管理。两处入口均由用户在宿主中打开。模型端保留兼容工具 `wce.ui.show_management`，其 `MANAGEMENT_VIEW_READY` 结果仅为文本状态。界面呈现、账号连接和业务结果分别核验。
 
 原生 MCP 管理页左侧选择平台，右侧单一工作区呈现本平台账号、绑定入口和设置。微信公众号与X有各自明确适配，未知平台不回落调用微信工具。生产规则、官方通路、技术格式属于微信设置；X只显示其应用配置与官方授权。微信默认与本号覆盖、实际继承和未保存编辑分别保留。账号详情折叠，不常驻重复详情列。
 
@@ -68,6 +70,8 @@ X 页的“立即生产并发布”通过现有宿主消息桥向当前聊天发
 研究、写作、生图、排版和内容 QA 由用户指定的生产对话使用其现有工具完成；插件不另建生产者或调度。每篇交付一个完整、自包含、已嵌 PNG/JPEG dataURI 的 HTML；无需另交 Word、PDF、图片清单或独立图片文件。实际输入语言及手机排版参见随包 `HTML_INPUT.md`。未知样式应修正文档兼容实现，不能删正文、截断、降质或拆组冒充成功。
 
 1. 调用 `own.documents.prepare`，传 `connection_id`、稳定 `request_key` 和有序 `html_sources`。每项为准确 `absolute_path`、`expected_sha256`、稳定 `article_id`，可附标题及作者/摘要/来源等 metadata。不要同时传 `document`。插件内部按原顺序提取图片并绑定同号真实 refs，首图同时作为封面角色，重复显示位置和 alt 保留。
+在已登记的项目内制作时，直接沿上面的 HTML 入口。成功回执的 `workbench.works` 给出每篇的 `work_id`，可在工作画布、导演台和文章资产库读回。续改原稿时使用同一个 `bundle_id`、原 `article_id`、最新 `expected_version` 和此次修改的新 `request_key`，保存整组的当前内容。已有准备回执但暂未登记时，使用 `video.director.edit` 的 `register_article`，传确切的项目、连接、bundle、版本、article_id 和操作 ID；不重新入稿。
+
 2. 每组为 1–8 篇有序文章，一次 prepare、一次 save；8 是单组边界，不是每号、每日、时段或终身额度。超过8篇沿用户原分组有序处理，尾组照常，不等满8。不得将原六篇组拆成六条单篇草稿，或过滤冲突文章伪称全组完成。
    多篇组的每篇 `metadata.digest` 留空；自定义摘要保留在制作记录，用户要求单独编辑时明确标记 `editorial_intent.summary=manual_required`。平台补默认摘录应如实报告待处理，不填前段或隐形字符，也不为摘要拆组。
 3. 读取 `own.articles.read`，核对整组内容、顺序、版本和完整 assets。需要本机预览时使用该原 bundle/version 的 `own.documents.preview`；预览不取 token，不等于微信视觉验收。预览到期可对原版本重新生成，无需重导入/重存。

@@ -109,7 +109,7 @@ def builtin():
         path = root / 'integrations/codex/skills/wechat-ecosystem/SKILL.md'
     value = source(path, 'skill', 'plugin')
     value['id'] = 'builtin-openahoy'
-    value['name'] = 'OpenAhoy 通用 Skill'
+    value['name'] = 'Jiusera 通用 Skill'
     return value
 
 
