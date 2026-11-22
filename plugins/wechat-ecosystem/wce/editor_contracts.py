@@ -20,8 +20,14 @@ def fail():
     raise WCEError('DOCUMENT_EDITORIAL_METADATA')
 
 
-def crop_info(value, dimensions=None):
-    strict_validate(value, COVER_INFO)
+def crop_info(value, dimensions=None, *, additional_ratios=()):
+    contract = COVER_INFO
+    if additional_ratios:
+        ratios = CROP['properties']['ratio']['enum'] + list(additional_ratios)
+        item = schema({**CROP['properties'], 'ratio': {'type': 'string', 'enum': ratios}})
+        contract = schema({'crop_percent_list': {'type': 'array', 'minItems': 1,
+                                                    'maxItems': len(ratios), 'items': item}})
+    strict_validate(value, contract)
     ratios = set()
     for row in value['crop_percent_list']:
         if row['ratio'] in ratios:
@@ -36,7 +42,8 @@ def crop_info(value, dimensions=None):
         if dimensions is not None:
             width = (x2 - x1) * dimensions['width']
             height = (y2 - y1) * dimensions['height']
-            ratio = Decimal('2.35') if row['ratio'] == '2.35_1' else Decimal(1)
+            left, right = row['ratio'].split('_')
+            ratio = Decimal(left) / Decimal(right)
             if width < 1 or height < 1 or abs(width - height * ratio) > 1:
                 fail()
     return value

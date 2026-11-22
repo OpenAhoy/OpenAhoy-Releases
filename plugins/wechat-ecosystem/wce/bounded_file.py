@@ -8,6 +8,7 @@ import time
 from .contracts import WCEError
 
 MAX_ASSET_BYTES = 2 * 1024 * 1024
+MAX_WECHAT_VIDEO_BYTES = 10 * 1024 * 1024
 # Full delivered HTML can contain several bounded base64 images. This fixed
 # capability is used only by the trusted full-page importer, never a tool max.
 MAX_SOURCE_HTML_BYTES = 4 * 1024 * 1024
@@ -101,6 +102,9 @@ class FileSource:
         """Trusted source-page envelope; image and generic reads stay 2MiB."""
         return self._read(relative_path, MAX_SOURCE_HTML_BYTES)
 
+    def read_wechat_video(self, relative_path):
+        return self._read(relative_path, MAX_WECHAT_VIDEO_BYTES)
+
     def iter_html(self, relative_path, *, guard=lambda: None, expected_state=None, offset=0, length=None):
         """Normal HTML source stream; total image/page bytes are not a quota."""
         if (type(relative_path) is not str or not relative_path or len(relative_path)>4096
@@ -140,7 +144,7 @@ class FileSource:
         finally:self._close(descriptors)
 
     def _read(self, relative_path, maximum):
-        if type(maximum) is not int or maximum not in (MAX_ASSET_BYTES, MAX_SOURCE_HTML_BYTES):
+        if type(maximum) is not int or maximum not in (MAX_ASSET_BYTES, MAX_SOURCE_HTML_BYTES, MAX_WECHAT_VIDEO_BYTES):
             raise WCEError("LOCAL_FILE_LIMIT")
         if (not isinstance(relative_path, str) or not relative_path or len(relative_path) > 4096
                 or relative_path.startswith("/") or ":" in relative_path or "\x00" in relative_path):

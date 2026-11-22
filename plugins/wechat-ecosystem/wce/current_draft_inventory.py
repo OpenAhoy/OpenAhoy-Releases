@@ -390,7 +390,8 @@ def execute(service, arguments, deadline, cancel_guard=None, *, current_authorit
             return parse_page(send(request), token.token, offset)
 
         def get_draft(reference):
-            return wire.parse_get(send(wire.encode_get(reference, token.token)), token.token, reference)
+            return wire.parse_get(send(wire.encode_get(reference, token.token)), token.token, reference,
+                                  allow_picture=True)
 
         value = scan(get_page, get_draft, guard, offset=previous['observed_groups'] if previous else 0,
                      expected_total=previous['total_groups'] if previous else None, max_pages=1)
@@ -451,6 +452,10 @@ def public_result(handle, connection_id, page, targets):
         'titles': [row['title'] for row in target['projection']['response']['news_item']],
         'projection_sha256': target['projection_sha256']}
         for i, target in enumerate(targets)]
+    for group, target in zip(groups, targets):
+        rows = target['projection']['response']['news_item']
+        if any(row.get('article_type') == 'newspic' for row in rows):
+            group['article_types'] = [row.get('article_type', 'news') for row in rows]
     return {'inventory_handle': handle, 'profile': PROFILE,
         'connection_id': connection_id,
         'coverage': page['coverage'], 'platform_atomic': False,

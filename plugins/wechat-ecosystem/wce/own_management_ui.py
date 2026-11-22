@@ -146,8 +146,7 @@ def native_page_body(logo, platform_settings):
  <section class="wb-about-card" aria-labelledby="wbHelpTitle">
   <h2 id="wbHelpTitle">帮助与反馈</h2>
   <div id="wbSupportSlot"></div>
-  <div class="wb-context"><button type="button" id="oaLocale">English</button>
-  <button id="openWorkflowGuide" type="button" aria-expanded="false" aria-controls="workflowGuide">指导模式</button></div>
+  <div class="wb-context"><button id="openWorkflowGuide" type="button" aria-expanded="false" aria-controls="workflowGuide">指导模式</button></div>
  </section>
  ''' + writing_rules + '''
 </div>

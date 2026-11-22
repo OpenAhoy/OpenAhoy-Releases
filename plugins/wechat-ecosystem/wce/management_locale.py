@@ -78,6 +78,8 @@ SCRIPT = r'''
 globalThis.OAUI=(()=>{
  const en=__MESSAGES__,storageKey='openahoy.management.language';
  const nodes=new Map(),attributes=new Map();
+ const listeners=new Set();
+ const toggle=document.getElementById('oaLocale');
  let cleanupPending=false;
  let language='en';
  const message=(key,...values)=>({key,values});
@@ -132,15 +134,29 @@ globalThis.OAUI=(()=>{
    if(!node.isConnected)attributes.delete(node);
    else for(const [name,value]of Object.entries(fields))node.setAttribute(name,display(value));
   }
-  const toggle=document.getElementById('oaLocale');
-  if(toggle){toggle.textContent=language==='en'?'中文':'English';toggle.setAttribute('aria-label',language==='en'?'切换到中文':'Switch to English');}
+  if(toggle){
+   toggle.dataset.language=language;
+   const action=language==='en'?'切换到中文':'Switch to English';
+   toggle.setAttribute('aria-label',action);toggle.title=action;
+  }
  }
- function select(value){language=value;try{localStorage.setItem(storageKey,value);}catch(_){}render();}
+ function select(value,save=true){
+  if(language===value)return;
+  language=value;
+  if(save)try{localStorage.setItem(storageKey,value);}catch(_){}
+  render();
+  for(const notify of listeners)notify(language);
+ }
  scan(document);
- const toggle=document.getElementById('oaLocale');
- if(toggle)toggle.addEventListener('click',()=>select(language==='en'?'zh-CN':'en'));
+ if(toggle)toggle.addEventListener('click',event=>{
+  event.stopPropagation();
+  select(language==='en'?'zh-CN':'en');
+ });
+ window.addEventListener('storage',event=>{
+  if(event.key===storageKey&&(event.newValue==='zh-CN'||event.newValue==='en'))select(event.newValue,false);
+ });
  render();
- return {set,raw,attr,label,format,message,list,scan(root){scan(root);render();}};
+ return {set,raw,attr,label,format,message,list,onChange(notify){listeners.add(notify);},scan(root){scan(root);render();}};
 })();
 '''
 

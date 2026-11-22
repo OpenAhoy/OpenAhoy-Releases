@@ -84,7 +84,7 @@ def read_selected(policy, args, guard):
 
 
 @contextmanager
-def journal(policy, *, create=False):
+def journal(policy, *, create=False, writable=False):
     directory = policy.root / DIRECTORY
     if create and not directory.exists():
         directory.mkdir(mode=0o700)
@@ -100,11 +100,12 @@ def journal(policy, *, create=False):
         os.close(fd)
         sync_directory(directory)
     path_check(path)
-    db = sqlite3.connect(path) if create else sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
+    db = sqlite3.connect(path) if create or writable else sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
     try:
-        if create:
+        if create or writable:
             db.execute('PRAGMA synchronous=FULL')
             db.execute('PRAGMA journal_mode=DELETE')
+        if create:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS operations(handle TEXT PRIMARY KEY, row_json TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS request_keys(key TEXT PRIMARY KEY, handle TEXT NOT NULL);
@@ -159,6 +160,9 @@ def _release_unsent_or_rejected(db, row):
 
 
 def public(row):
+    if row.get('content_version') == 1:
+        from .wechat_content import public as content_result
+        return content_result(row)
     result = {k: deepcopy(row[k]) for k in ('operation_handle', 'kind', 'state', 'article_count',
         'titles', 'add_count', 'error_code', 'reason', 'preservation', 'original_preservation') if k in row}
     result['source_containers'] = [{'index': i, 'article_count': len(t['projection']['response']['news_item']),
@@ -193,6 +197,11 @@ def publication_source(policy, handle):
     """A real ADD+GET receipt, never an inserted or invented own_steps row."""
     with journal(policy) as db:
         row = _load(db, policy, handle=handle)
+    if row.get('content_version') == 1:
+        if (row['kind'] not in {'create_picture', 'update_picture'}
+                or row['state'] not in {'SAVED', 'VERIFIED', 'UNCHANGED'} or not row.get('new_reference')):
+            fail('WECHAT_CONTENT_DRAFT_NOT_READY')
+        return row['new_reference'], row['titles']
     if row['kind'] != 'merge' or row['state'] != 'COMPLETED' or not row.get('new_reference'):
         fail('CURRENT_DRAFT_MERGE_NOT_READY')
     return row['new_reference'], row['titles']
@@ -355,6 +364,24 @@ def preservation(expected_rows, actual_rows):
         'temporary_urls': 'EXPECTED_TO_CHANGE', 'unobserved_settings': 'NOT_CLAIMED'}
 
 
+def _merge_payload(rows):
+    from .wechat_picture_fields import picture_fields
+    articles=[]
+    for row in rows:
+        article={key:deepcopy(value) for key,value in row.items() if key != 'url'}
+        if row.get('article_type')=='newspic':
+            # Validate the typed write shape without dropping any field whose
+            # preservation cannot be established. The source remains intact.
+            allowed={'article_type','title','author','content','image_info','cover_info',
+                     'product_info','need_open_comment','only_fans_can_comment'}
+            if set(article)-allowed or any(set(image)!={'image_media_id'}
+                    for image in article.get('image_info',{}).get('image_list',[])):
+                fail('GROUP_UNMAPPED_FIELD_HOLD')
+            picture_fields(article)
+        articles.append(article)
+    return {'articles':articles}
+
+
 def execute(service, method, args, deadline, cancel_guard=None):
     policy = service.policy
     initial_binding, account_key = binding(policy.data), stable_account(policy.data)
@@ -382,6 +409,8 @@ def execute(service, method, args, deadline, cancel_guard=None):
     with journal(policy, create=True) as db:
         if method == PREFIX + 'resume':
             row = _load(db, policy, handle=args['operation_handle'])
+            if row.get('content_version') == 1:
+                fail('WECHAT_CONTENT_USE_ORIGINAL_READBACK')
             if (row['state'] == 'PRESERVATION_MISMATCH' and row['kind'] == 'merge'
                     and row.get('new_reference')
                     and row['new_reference'] not in {t['reference'] for t in row['targets']}):
@@ -397,6 +426,8 @@ def execute(service, method, args, deadline, cancel_guard=None):
                 fail('CURRENT_DRAFT_MIXED_INVENTORIES')
             selections = sorted(selections, key=lambda s: s['index'])
             targets = [selected(policy, s, guard) for s in selections]
+            if kind == 'merge':
+                _merge_payload([item for target in targets for item in target['projection']['response']['news_item']])
             row, exists = _reserve(db, policy, args, kind, targets)
             if exists:
                 return public(row)
@@ -421,7 +452,7 @@ def execute(service, method, args, deadline, cancel_guard=None):
 
         def get(reference):
             response = send(wire.encode_get(reference, token.token))
-            value = wire.parse_get(response, token.token, reference)
+            value = wire.parse_get(response, token.token, reference, allow_picture=True)
             guard()
             return value
 
@@ -447,7 +478,7 @@ def execute(service, method, args, deadline, cancel_guard=None):
                 rows = [r for t in row['targets'] for r in t['projection']['response']['news_item']]
                 # These are server-observed original fields, not caller payload.
                 # In particular do not erase multi-article digests locally.
-                payload = {'articles': [{k: deepcopy(v) for k, v in r.items() if k != 'url'} for r in rows]}
+                payload = _merge_payload(rows)
                 request = wire._encode('add', payload, token.token)
                 guard()
                 row.update(state='ADD_UNKNOWN', add_count=1)

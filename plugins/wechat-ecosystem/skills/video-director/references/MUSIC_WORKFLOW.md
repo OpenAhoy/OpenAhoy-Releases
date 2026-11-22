@@ -10,3 +10,11 @@
 使用用户已选定的歌曲时，直接用它的本机素材和原任务关系混合，无需重新生成。对原片先核实画面、节奏与对白，再记录入点、素材截取、增益和淡入淡出。用 `audio.project.video.inspect` 读取原视频，按需要带 `include_audio_evidence` 及 `frame_start` 核对可验证的时间码。用 `audio.project.mix` 引用原视频、已就绪的原曲与新混音 attempt，给出 `video_start_ms`、`music_offset_ms`、`fade_in_ms`、`fade_out_ms`、`volume_percent`、`keep_original`。原素材在不同项目时提供实际的 `video_project_id`、`song_project_id`。有独立证据时用 `timeline.duck` 表明需保留对白或环境声的区段。
 
 Jiusera 音频页是当前设置的可见入口。每次开始新创作时从工具读回。
+
+## 保存音乐配方
+
+音乐配方通过 `audio.project.presets` 管理，能在「资产 → 音频 → 音乐配方」查阅、试听原候选、记回听评价或导出 `.jmusic`。先读取或保存配方，再关联本项目已入库的候选和准确的镜头修订。采用一版时保存该候选的音频摘要与镜头版本。后续更换配方不影响旧修订。新入库原音频和新配方写入 `JiuseraAssets/Audio`；历史收据沿原文件路径读。
+
+按使用场景、可听见的风格、是否含词、画面时间点分别记录。候选分别评价，来源只在用户表达实际喜好时写为 `user`，示范和测试写为 `test`。导出内容默认仅包含可分享配方及供应商提示词，试听、私有反馈和任务定位留在项目。可分享文件不自动成为官方精选。歌词确有分享授权时才显式选择随配方导出。
+
+`payload` 根据设备默认供应商或用户本次指定的供应商整理 Custom 输入：Suno 纯配乐提交 `instrumental=true` 并省略歌词，ACE `create_song` 纯配乐省略 `lyrics`；ACE 时长参数仅适用于 v1。该操作只返回参数。真正生成前按用户已授权的实际供应商入口与当前工具说明操作。

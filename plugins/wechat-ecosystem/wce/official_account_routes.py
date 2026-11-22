@@ -24,13 +24,22 @@ def rows():
         ('图文制作', '正文图片上传', 'POST '+ENDPOINTS['article_body'], '已接入',
          '上传图文中的图片，返回真实微信图片地址。', SOURCES['body_image']['url']),
         ('图文制作', '永久素材读取', 'material.batchget_material / get_material', '已接入 · 受限恢复',
-         '用于原未知素材的只读核对，不是通用素材管理器。',
+         '「素材与发布」可读取本号列表、数量及单项详情，原未知素材仍可沿旧恢复通路查回。',
          'api/material/permanent/api_batchgetmaterial.html'),
+        ('图文制作', '临时与永久素材', 'media.upload / material.add_material', '已接入',
+         '支持图片、语音、视频及临时缩略图，调用内嵌上传时适用 700 KB 本地内联限制。',
+         'api/material/temporary/api_uploadtempmedia.html'),
+        ('图文制作', '商品卡片数据', 'channels/ec/service/product/getcardinfo', '已接入',
+         '按官方返回的商品 key 或 DOM 使用。不同内容和账号的卡片资格由平台判断。',
+         'api/draftbox/shop/api_ecsgetproductcardinfo.html'),
         ('草稿与发表', '草稿保存与独立读回', 'draft.add / draft.get', '已接入',
          '按原顺序每组1–8篇保存，独立读取原草稿。', SOURCES['draft_add']['url']),
         ('草稿与发表', '草稿列表', 'draft.batchget', '已接入',
-         '读取当前草稿列表；完整性和账号权限以实际结果为准。',
+         '读取图文及图片消息的现有草稿，保留每组原顺序。',
          'api/draftbox/draftmanage/api_draft_batchget.html'),
+        ('草稿与发表', '图片消息', 'draft.add / draft.update / draft.get', '已接入',
+         '使用 1–20 张本号永久图，首图为封面。已保存草稿可查回并使用原回执普通发表。',
+         'api/draftbox/draftmanage/api_draft_add.html'),
         ('草稿与发表', '草稿修改与分组维护', 'draft.update / draft.delete', '已接入 · 专项流程',
          '已存在的修改、恢复和分组维护入口分别处理原对象，不在本页执行。',
          'api/draftbox/draftmanage/api_draft_update.html'),
@@ -40,12 +49,12 @@ def rows():
         ('草稿与发表', '发表状态与文章链接', 'POST '+METHODS['freepublish.get'][0], '已接入',
          '查询原微信发表任务，取得终态和逐篇真实文章链接。',
          'api/public/api_freepublish_get.html'),
-        ('草稿与发表', '已发表全文与历史列表', 'freepublish.batchget / getarticle', '未接入',
-         '当前可读取原发表任务的结果；全量历史列表和全文读取仍未接入。',
+        ('草稿与发表', '已发表全文与历史列表', 'freepublish.batchget / getarticle / delete', '已接入',
+         '按页读本号历史和单篇正文，明确指定时可以撤下单篇。',
          'api/public/api_freepublish_batchget.html'),
-        ('运营能力', '粉丝群发', 'mass.sendall / mass.get', '仅协议 · 未开放日常入口',
-         '已有协议编码不代表可直接群发，需单独委托和平台权限。',
-         'guide/product/message/Batch_Sends.html'),
+        ('运营能力', '预览与粉丝群发', 'mass.preview / mass.sendall / mass.get', '已接入 · 本地协议已验',
+         '单人预览、标签和全部关注者使用独立入口。音乐可构造预览请求，群发文档缺少音乐对象。',
+         'api/notify/message/api_sendall.html'),
         ('运营能力', '原创声明与自动精选留言', '公众号编辑器设置', '未接入',
          '作者署名和留言基础字段随草稿处理；不将署名或本机意向当作原创已开启。',
          'guide/product/publish.html'),
@@ -72,5 +81,5 @@ def render_html():
             +escape(url,quote=True)+'" target="_blank" rel="noreferrer noopener" referrerpolicy="no-referrer">官方文档 ↗</a></div></article>')
     sections.append('</div>')
     return ('<h2>官方通路</h2><p class="help">这里区分插件实现状态与账号权限。查看本页不会连接微信或测试接口；本号权限仍需实际官方响应核对。</p>'
-            +''.join(sections)+'<p class="help">文档依据为项目核对的官方资料（'+CAPTURE_DATE
-            +'）与当前源码。本次官方站点未能在线复核，链接不代表文档已刷新。</p>')
+            +''.join(sections)+'<p class="help">技术格式沿原快照（'+CAPTURE_DATE
+            +'），内容端点另于 2026-11-22 核对微信开发文档。</p>')

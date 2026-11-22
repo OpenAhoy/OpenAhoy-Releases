@@ -18,6 +18,7 @@ SCRIPT = r'''
  }
  document.addEventListener('click',event=>{
    const path=event.composedPath();
+   if(path.includes($('oaLocale')))return;
    for(const menu of document.querySelectorAll(floatingMenus))if(!path.includes(menu))menu.open=false;
    if(accountPanel.matches(':popover-open')&&!path.includes(accountPanel)&&!path.includes(platformButton())){
      closeAccountNavigation();
@@ -30,7 +31,10 @@ SCRIPT = r'''
    if(accountPanel.matches(':popover-open')){event.preventDefault();closeAccountNavigation({focus:true});}
  });
  mountOpenAhoyHints();
- const allowed=new Set(['wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.workspace','video.director.read','video.director.edit','wce.ui.video.director.media','wce.ui.wechat.storage_recovery','wce.ui.wechat.analytics','wce.ui.writing.rules']);
+ const allowed=new Set(['own.wechat.content','own.drafts.inventory','own.drafts.current.read',
+   'own.drafts.current.merge','own.drafts.current.status',
+   'own.publications.current.dispatch','own.publications.current.poll',
+   'own.sources.library','audio.project.presets','wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.workspace','video.director.read','video.director.edit','wce.ui.video.director.media','wce.ui.wechat.storage_recovery','wce.ui.wechat.analytics','wce.ui.writing.rules']);
 
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
  const homeView='published';
@@ -49,7 +53,7 @@ SCRIPT = r'''
    ['x','管理 X 账号、创作规则和开发者应用。'],
    ['xiaohongshu','绑定小红书账号并管理笔记发布。']
  ]);
- const assetLabels={characters:'形象',images:'图片',gif:'动图',video:'视频',audio:'音频',articles:'文章'};
+ const assetLabels={characters:'形象',images:'图片',gif:'动图',video:'视频',audio:'音频',articles:'文章',sources:'信源库'};
  const studioRoutes=new Map([
    ['jiusera-monitor',{section:'monitor'}],['jiusera-canvas',{section:'desk'}],['jiusera-assets',{section:'assets'}],
    ['media',{section:'monitor'}],...Object.keys(assetLabels).map(kind=>[kind,{section:'assets',kind}])
@@ -911,8 +915,9 @@ SCRIPT = r'''
    if(active)OAUI.set($('directorTitle'),assetLabels[kind]||'资产库');
  };
  const imageAssets=OAImageAssets(mediaTool);
+ const newsSources=OASourceLibrary(mediaTool,openXLink);
  const monitor=OAMediaMonitor((action,args)=>mediaTool('wce.ui.video.workspace',{action,...args}),sendChatRequest,
-   {sound:studioSound,canAttach:row=>director.canAttach(row),attach:row=>director.attach(row),
+   {musicCall:mediaTool,musicShot:scope=>enterStudio('desk',{shot:{scope},user:true,focus:true}),sound:studioSound,canAttach:row=>director.canAttach(row),attach:row=>director.attach(row),
     typeChanged:kind=>{if(mediaView==='assets'){paintAssetKind(kind);updateAssetURL(assetRoute(kind));}}});
  let countVersion=0;
  async function readAssetCounts(){
@@ -942,6 +947,7 @@ SCRIPT = r'''
      switch(assetKind){
        case 'characters': characters.close();break;
        case 'images': imageAssets.close();break;
+       case 'sources': newsSources.close();break;
        case 'articles': $('articleAssetLibrary').hidden=true;break;
        case 'video': case 'audio': case 'gif':
          if(!['video','audio','gif'].includes(kind))monitor.close();
@@ -954,6 +960,7 @@ SCRIPT = r'''
    document.dispatchEvent(new CustomEvent('jiusera:asset-category',{detail:{kind,asset}}));
    if(kind==='characters')characters.open();
    else if(kind==='images')imageAssets.open();
+   else if(kind==='sources')void newsSources.open();
    else if(['video','audio','gif'].includes(kind))monitor.open(kind,asset);
  }
  for(const button of assetKinds.querySelectorAll('[data-asset-kind]'))
@@ -1009,7 +1016,7 @@ SCRIPT = r'''
    if(before!==section){
      navigationEpoch++;
      if(before==='assets'){
-       characters.close();monitor.close();imageAssets.close();$('articleAssetLibrary').hidden=true;
+       characters.close();monitor.close();imageAssets.close();newsSources.close();$('articleAssetLibrary').hidden=true;
        document.dispatchEvent(new CustomEvent('jiusera:asset-category',{detail:{kind:'',asset:null}}));
      }
      if(before==='tasks')monitor.close();
@@ -1227,7 +1234,9 @@ def resource():
     from .video_director_ui import STYLE as director_style, SCRIPT as director_script
     from .video_director_monitor_ui import STYLE as review_style, SCRIPT as review_script
     from .character_library_ui import STYLE as characters_style, SCRIPT as characters_script
+    from .character_turntable_ui import SCRIPT as character_turntable_script
     from .asset_catalog_ui import STYLE as assets_style, SCRIPT as assets_script
+    from .source_library_ui import STYLE as sources_style, SCRIPT as sources_script
     from .studio_showcase_ui import STYLE as showcase_style, SCRIPT as showcase_script
     from .video_frame_player import STYLE as frame_style, SCRIPT as frame_script
     from .x_management_ui import HTML as x_html, SCRIPT as x_script
@@ -1240,9 +1249,9 @@ def resource():
     html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>Jiusera · Workspace</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + review_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + PLATFORM_ACCOUNT_NAV_STYLE + guide_style + workbench_style + assets_style + showcase_style + trend_resource('css') + '</style>'
+        + '<style>' + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + review_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + PLATFORM_ACCOUNT_NAV_STYLE + guide_style + workbench_style + assets_style + sources_style + showcase_style + trend_resource('css') + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
-        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + characters_script + assets_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + guide_script + trend_resource('js') + workbench_script + showcase_script + writing_rules_script + SCRIPT + '</script></body></html>')
+        + '<script>' + locale_script() + platform_branding_script() + settings_script(compact=True) + binding_script + video_script + frame_script + provider_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + character_turntable_script + characters_script + assets_script + sources_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + guide_script + trend_resource('js') + workbench_script + showcase_script + writing_rules_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
         '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://cdn1.suno.ai',
                                                                  'https://cdn2.suno.ai', 'https://suno-data-uploads.s3.amazonaws.com', 'https://acemusic.ai'], 'frameDomains': []}},

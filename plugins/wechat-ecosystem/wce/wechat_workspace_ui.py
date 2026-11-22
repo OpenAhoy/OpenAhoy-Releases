@@ -48,9 +48,14 @@ body.oa-management.oa-native.oa-wechat-view .oa-content {
 .oa-native.oa-wechat-view #settingsPanel :is(.oa-context-tabs,.oa-tabs) > button {
  min-height:29px;padding:3px 7px;white-space:normal
 }
-.oa-native.oa-wechat-view #settingsPanel :is(#officialRoutes,#technicalPanel,#creativeTemplates,#projectContextPanel,#rulesCreator) {
+.oa-native.oa-wechat-view #settingsPanel :is(#officialRoutes,#technicalPanel,#creativeTemplates,#projectContextPanel,#rulesCreator,#wechatPictures,#wxContentTools) {
  flex:1;min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;margin-top:0
 }
+body.oa-management.oa-native.oa-wechat-view:has(:is(#wechatPictures,#wxContentTools):not([hidden])) .oa-content {
+ padding-block-end:calc(var(--wb-dock,64px) + 4px)
+}
+:is(#wechatPictures,#wxContentTools) :is(input,textarea,select){box-sizing:border-box;max-width:100%}
+:is(#wechatPictures,#wxContentTools) .actions{display:flex;flex-wrap:wrap;gap:5px}
 .oa-native.oa-wechat-view #wechatSettings > #productionRules {
  display:flex;flex-direction:column;min-height:0;padding:3px 4px;overflow:hidden
 }

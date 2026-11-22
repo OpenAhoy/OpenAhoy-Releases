@@ -1,6 +1,7 @@
 """Asset categories and the project-scoped image browser."""
 
 from html import escape
+from .source_library_ui import HTML as source_library_html
 
 KINDS = {
     'characters': ('形象', 'characterLibrary', 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z'),
@@ -8,6 +9,7 @@ KINDS = {
     'gif': ('动图', 'mediaMonitor', 'M3 4h18v16H3zM8 4v16m8-16v16'),
     'video': ('视频', 'mediaMonitor', 'M3 5h18v14H3zM10 9l5 3-5 3z'),
     'audio': ('音频', 'mediaMonitor', 'M3 12h2m3-4v8m4-12v16m4-12v8m3-4h2'),
+    'sources': ('信源库', 'sourceLibrary', 'M10 13a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-2 2m3 5a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l2-2'),
     'articles': ('文章', 'articleAssetLibrary', 'M5 3h10l4 4v14H5zM9 11h6m-6 4h6m-6 3h4'),
 }
 
@@ -35,7 +37,7 @@ HTML = (
  </div>
 </section>
 <section id="articleAssetLibrary" aria-label="文章资产" hidden></section>
-'''
+''' + source_library_html
 )
 
 STYLE = '''

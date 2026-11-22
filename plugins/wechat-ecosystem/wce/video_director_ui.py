@@ -678,7 +678,8 @@ function OADirector(tool, send, canSend, navigation){
    const initial=scopeKey(),draft=fresh&&imageDraft?.scope===initial?imageDraft:null;
    const list=node('div','dd-asset-list'),images=draft?draft.images:structuredClone(rev.images);
    let voice=draft?draft.voice:structuredClone(rev.voice??null);
-   const keep=()=>{imageDraft={scope:initial,images,voice};};
+   const pendingLooks=draft?.pendingLooks||new Map();
+   const keep=()=>{imageDraft={scope:initial,images,voice,pendingLooks};};
    function draw(){
      list.replaceChildren();
      if(!images.length)list.append(label('p','这个修订还没有图片。'));
@@ -759,10 +760,25 @@ function OADirector(tool, send, canSend, navigation){
    form.append(addButton);
    const pick=button('从形象库选择',()=>navigation.chooseCharacter(pid(),asset=>{
      if(scopeKey()!==initial||tab!=='images')throw Error('DIRECTOR_STALE_REVISION');
-     const file=structuredClone(asset.file);
-     if(!images.some(row=>row.asset_version===asset.id&&row.file.sha256===file.sha256)){
-       images.push({role:'reference',file,asset_version:asset.id});keep();draw();
+     const assets=Array.isArray(asset)?asset:[asset];
+     for(const item of assets){
+       const file=structuredClone(item.file),group=item.appearance?.group;
+       if(group&&(['hair','wardrobe','accessories'].includes(group)||group==='base'&&assets.length>1)){
+         const character=item.character.id,form=item.form?.id||'normal';
+         const match=images.findIndex(row=>{
+           const pinned=row.character_reference||pendingLooks.get(row.asset_version);
+           return pinned?.appearance?.group===group&&pinned.character_id===character&&pinned.form_id===form;
+         });
+         if(match>=0){
+           pendingLooks.delete(images[match].asset_version);
+           images.splice(match,1);
+         }
+         pendingLooks.set(item.id,{character_id:character,form_id:form,appearance:item.appearance});
+       }
+       if(!images.some(row=>row.asset_version===item.id&&row.file.sha256===file.sha256))
+         images.push({role:'reference',file,asset_version:item.id});
      }
+     keep();draw();
    },pick,context.work_id,'image'));
    add.append(form);inspector.append(pick,add,button('保存图片修订',async()=>{
      const fields={images};

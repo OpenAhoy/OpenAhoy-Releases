@@ -23,6 +23,7 @@ function JiuseraWorks(root,{render,meta,t}) {
       option.className='jh-work-option';
       option.title=item.title;
       const title=node('span',item.title),info=node('small',meta(item));
+      info.className='jh-work-option-meta';
       option.append(title,info);
       option.onclick=()=>select(item.id,false,true);
       rows.set(item.id,option);
@@ -80,6 +81,7 @@ function JiuseraWorks(root,{render,meta,t}) {
       const ids=items.map(item=>item.id).join('\0');
       items=nextItems;
       if(ids!==items.map(item=>item.id).join('\0'))buildList();
+      else for(const item of items)rows.get(item.id).querySelector('.jh-work-option-meta').textContent=meta(item);
       manuallySelected=manuallySelected&&items.some(item=>item.id===selected);
       select(manuallySelected?selected:items[0]?.id,before);
     },
@@ -148,10 +150,12 @@ function JiuseraPlatformWorks(root,{render,meta,t,openMissing}) {
     list.setAttribute('aria-label',t('作品排行'));
     body.append(feature,list);
     card.append(header,body,state);
-    return {card,gallery:JiuseraWorks(card,{render,meta,t}),state,info,summary,notes};
+    return {card,title,list,gallery:JiuseraWorks(card,{render,meta,t}),state,info,summary,notes};
   }
   return {
     setPlatforms(platforms){
+      prev.setAttribute('aria-label',t('上一组平台'));
+      next.setAttribute('aria-label',t('下一组平台'));
       const existing=new Set(platforms.map(row=>row.id));
       for(const [id,group] of groups){
         if(!existing.has(id)){group.gallery.pause();group.card.remove();groups.delete(id);}
@@ -160,8 +164,10 @@ function JiuseraPlatformWorks(root,{render,meta,t,openMissing}) {
         let group=groups.get(platform.id);
         if(!group){group=makeGroup(platform);groups.set(platform.id,group);}
         if(grid.children[index]!==group.card)grid.insertBefore(group.card,grid.children[index]||null);
-        const {card,gallery,state,info,summary,notes}=group;
+        const {card,title,list,gallery,state,info,summary,notes}=group;
         const {known,missing}=platform;
+        title.textContent=platform.label;
+        list.setAttribute('aria-label',t('作品排行'));
         card.toggleAttribute('data-many',known.length>1);
         gallery.setItems(known);
         state.hidden=known.length>0;state.textContent=platform.empty||'';

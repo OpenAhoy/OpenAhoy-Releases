@@ -195,6 +195,7 @@ class PersonalStdioServer(OperatorStdioServer):
         from .writing_workflow_protocol import WritingRouter
         from .support_protocol import SupportRouter, LOCAL_ONLY_TOOLS
         from .current_draft_management_protocol import DraftManagementRouter
+        from .wechat_content import ContentRouter
         from .video_protocol import VideoRouter
         from .own_storage_adoption_protocol import AdoptionRouter
         self._inline_open_lock = threading.Lock()
@@ -202,8 +203,9 @@ class PersonalStdioServer(OperatorStdioServer):
         self._management_resources = {}
         support=SupportRouter(TemplateRouter(ProjectContextRouter(UpdateRouter(XHSRouter(XPlatformRouter(DisplayNameRouter(SettingsRouter(router, settings_manager))))), registry=router.registry), registry=router.registry), registry=router.registry, instrument=False)
         from .video_director_protocol import DirectorRouter
-        managed=AdoptionRouter(DraftManagementRouter(DirectorRouter(VideoRouter(WritingRouter(support, router.registry), router.registry)),
-            registry=router.registry, launcher=router.launcher), router.registry)
+        draft_router=DraftManagementRouter(DirectorRouter(VideoRouter(WritingRouter(support, router.registry), router.registry)),
+            registry=router.registry, launcher=router.launcher)
+        managed=AdoptionRouter(ContentRouter(draft_router), router.registry)
         self._tool_observer=support
         rows=managed.list_tools()
         # The personal router describes fixed tools. Entitlements are checked

@@ -28,6 +28,9 @@ def chrome(icon):
   <button data-wb-route="jiusera-canvas" type="button">'''+icon('settings')+'''<span>画布</span></button>
   <button data-wb-route="jiusera-assets" type="button">'''+icon('accounts')+'''<span>资产</span></button>
   <button id="wbMore" type="button" aria-expanded="false" aria-controls="wbMenu"><span aria-hidden="true">···</span><span>更多</span></button>
+  <button id="oaLocale" type="button" aria-label="切换到中文">
+   <span class="wb-language" aria-hidden="true"><span lang="zh-CN">中</span><span class="wb-language-divider">/</span><span lang="en">EN</span></span>
+  </button>
  </nav>
  <section id="wbMenu" aria-label="更多入口" hidden>
   <button type="button" data-wb-route="about">关于与设置</button>
@@ -121,12 +124,19 @@ body.oa-management.oa-native[data-color-scheme=dark][data-workbench]{
 .oa-platform-view .wb-titlebar{display:none}
 .oa-native.oa-platform-view .oa-content{padding-block-end:var(--wb-dock)}
 .oa-native.oa-platform-view .oa-sidebar :is(#jiuseraNav,#openWorkflowGuide,#wechatCompactUpdates){display:none!important}
-.wb-dock-wrap{position:fixed;z-index:30;inset:auto 0 max(12px,env(safe-area-inset-bottom));width:max-content;max-width:calc(100% - 20px);margin-inline:auto}
+.wb-dock-wrap{position:fixed;z-index:30;inset:auto 0 max(12px,env(safe-area-inset-bottom));width:min(526px,calc(100% - 16px));margin-inline:auto}
 .wb-dock-wrap:has(#wbMenu:not([hidden])){z-index:1000}
-.wb-dock{display:flex;align-items:center;gap:3px;padding:5px;border:1px solid var(--wb-line);border-radius:99px;color:var(--wb-ink);background:var(--wb-float);box-shadow:var(--wb-depth)}
-.oa-management .wb-dock .wb-dock-brand .oa-brand-logo{width:63px;margin:0}
-.oa-management .wb-dock button{height:36px;min-height:36px;gap:6px;padding:5px 12px;border:0;border-radius:99px;box-shadow:none;color:inherit;background:transparent}
+.wb-dock{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));align-items:center;gap:3px;padding:4px;border:1px solid var(--wb-line);border-radius:99px;color:var(--wb-ink);background:var(--wb-float);box-shadow:var(--wb-depth)}
+.oa-management .wb-dock .wb-dock-brand .oa-brand-logo{width:min(63px,100%);margin:0}
+.oa-management .wb-dock>button{
+ display:flex;justify-content:center;align-items:center;box-sizing:border-box;
+ width:100%;min-width:0;height:44px;min-height:44px;gap:4px;padding:4px;border:0;
+ border-radius:99px;box-shadow:none;color:inherit;background:transparent;-webkit-tap-highlight-color:transparent
+}
 .oa-management .wb-dock button[aria-current=page],.oa-management .wb-dock button[aria-expanded=true],.oa-management .wb-dock button[data-current]{background:var(--oa-selection,var(--soft));color:var(--oa-selected-ink,var(--ink))}
+.wb-language{display:inline-flex;align-items:center;justify-content:center;gap:3px;font-size:12px;line-height:1}
+.wb-language>span{color:var(--muted,var(--wb-ink))}
+#oaLocale[data-language="zh-CN"] [lang="zh-CN"],#oaLocale[data-language="en"] [lang="en"]{font-weight:750;color:var(--wb-ink)}
 #wbMenu{position:absolute;right:0;bottom:calc(100% + 8px);width:min(260px,calc(100vw - 20px));max-height:65dvh;overflow:auto;padding:9px;border:1px solid var(--wb-line);border-radius:17px;color:var(--wb-ink);background:var(--wb-float);box-shadow:var(--wb-depth)}
 .oa-management #wbMenu button{width:100%;justify-content:flex-start;box-shadow:none;border:0;background:transparent}
 .wb-publisher{display:flex;align-items:center;gap:9px;margin:7px 0 3px;padding:8px 6px 2px;border-top:1px solid var(--wb-line);font-size:12px}
@@ -266,12 +276,12 @@ body.oa-management.oa-native[data-color-scheme=dark][data-workbench]{
  .oa-native .wb-titlebar #wbBrand .oa-brand-logo{width:80px}
  .wb-context{gap:2px}
  .oa-native .wb-context button{font-size:11px;padding-inline:5px}
- .oa-management .wb-dock button{padding-inline:7px}
- .oa-management .wb-dock .wb-dock-brand .oa-brand-logo{width:52px}
 }
-@media(max-width:470px){
- .oa-management .wb-dock button{padding-inline:7px;font-size:11px}
- .oa-management .wb-dock button .oa-icon{width:13px;height:13px;flex-basis:13px}
+@media(max-width:450px){
+ .oa-management .wb-dock>button{font-size:11px}
+ .oa-management .wb-dock>button:not(.wb-dock-brand):not(#oaLocale){flex-direction:column;gap:2px;line-height:1}
+ .oa-management .wb-dock>button .oa-icon{width:13px;height:13px;flex-basis:13px}
+ #wbMore [aria-hidden=true]{font-size:15px;line-height:13px}
 }
 '''
 
@@ -474,7 +484,8 @@ function OAWorkbench({open, readAnalytics, openLink, accountName, platformName, 
    const start=days.at(0);
    const ids=new Set(bound.map(row=>row.platform_id));
    const period=$('wbRankPeriod');
-   OAUI.raw(period,start&&end?start.slice(-5).replace('-','/')+'–'+end.slice(-5).replace('-','/'):OAUI.format('近 7 天'));
+   if(start&&end)OAUI.raw(period,start.slice(-5).replace('-','/')+'–'+end.slice(-5).replace('-','/'));
+   else OAUI.set(period,'近 7 天');
    const groups=[...ids].map(id=>{
      const connected=bound.filter(row=>row.platform_id===id);
      const records=connected.flatMap(row=>(reports.get(key(row))?.items||[]).map((item,index)=>({...item,
@@ -501,6 +512,7 @@ function OAWorkbench({open, readAnalytics, openLink, accountName, platformName, 
    summary(days,end);
    renderRanking(days,end);
  }
+ OAUI.onChange(()=>{if(surface==='published')paintPublished();});
  async function readScopedAccount(row,refresh,alive){
    const expected=key(row);
    const current=()=>alive()&&bound.some(account=>key(account)===expected&&canRead(account));

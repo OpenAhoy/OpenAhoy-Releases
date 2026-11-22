@@ -18,6 +18,7 @@ from . import upload_wire
 from .html_technical_standard import LIMITS
 
 PROFILE = 'GROUP_NEWS_FULL_PRESERVATION_V1'
+PICTURE_READ_PROFILE = 'CURRENT_PUBLIC_DRAFT_WITH_PICTURES_V1'
 ADD_PROFILE = 'MULTI_NEWS_DIGEST_EMPTY_KEEP_INTERNAL_V1'
 REFERENCE_SHA_PROFILE = 'RAW_REF_UTF8_SHA256_V1'
 PUBLIC_FIELDS = frozenset({'article_type','title','author','digest','content',
@@ -83,9 +84,14 @@ def _exact_json(value):
         elif kind not in (str,int,float,bool,type(None)):fail('GROUP_VALUE_TYPE_UNVERIFIED')
 
 
-def _row(row,synthetic,*,add=False):
+def _row(row,synthetic,*,add=False,allow_picture=False):
     if type(row) is not dict or any(type(k) is not str for k in row):fail('GROUP_NEWS_SHAPE')
     kind=row.get('article_type','news')
+    if kind=='newspic' and allow_picture and not add:
+        from .wechat_picture_fields import picture_fields
+        picture_fields(row,synthetic=synthetic)
+        _exact_json(row)
+        return row
     if type(kind) is not str or kind!='news':fail('GROUP_ARTICLE_TYPE_UNSUPPORTED')
     if not {'title','content','thumb_media_id'}<=set(row):fail('GROUP_PUBLIC_FIELD_UNVERIFIED')
     limits={'title':(LIMITS['title_chars'] if add else 128),'author':(LIMITS['author_chars'] if add else 64),
@@ -127,7 +133,8 @@ class GroupSnapshot:
     def value(self):
         # The constructor is public: always revalidate before using a value.
         if (type(self) is not GroupSnapshot or type(self.profile) is not str
-                or self.profile!=PROFILE or type(self.canonical_json) is not str):fail('GROUP_SNAPSHOT_UNVERIFIED')
+                or self.profile not in {PROFILE, PICTURE_READ_PROFILE}
+                or type(self.canonical_json) is not str):fail('GROUP_SNAPSHOT_UNVERIFIED')
         from .publication_contract import strict_json
         value=strict_json(_utf8(self.canonical_json,'GROUP_SNAPSHOT_UNVERIFIED'),maximum=MAX_BODY)
         if type(value) is not dict or canonical(value)!=self.canonical_json:fail('GROUP_SNAPSHOT_UNVERIFIED')
@@ -139,7 +146,9 @@ class GroupSnapshot:
         if type(code) is not int or code!=0:fail('GROUP_SNAPSHOT_UNVERIFIED')
         rows=value.get('news_item')
         if type(rows) is not list or not 1<=len(rows)<=8:fail('GROUP_NEWS_SHAPE')
-        for row in rows:_row(row,True)
+        if self.profile==PICTURE_READ_PROFILE and not any(r.get('article_type')=='newspic' for r in rows if type(r) is dict):
+            fail('GROUP_SNAPSHOT_UNVERIFIED')
+        for row in rows:_row(row,True,allow_picture=self.profile==PICTURE_READ_PROFILE)
         return deepcopy(value)
 
     def rows(self):
@@ -174,17 +183,18 @@ class AddReferenceObservation:
     qualified_transport_verified: bool = False
 
 
-def parse_get(response,secret,reference,*,synthetic=False):
+def parse_get(response,secret,reference,*,synthetic=False,allow_picture=False):
     _reference(reference,synthetic)
     value,code,response_sha=_value(response,secret)
     if code==40007:return InvalidReferenceObservation(reference,response_sha)
     if code:fail('GROUP_GET_REJECTED')
     rows=value.get('news_item')
     if type(rows) is not list or not 1<=len(rows)<=8:fail('GROUP_NEWS_SHAPE')
-    for row in rows:_row(row,synthetic)
+    for row in rows:_row(row,synthetic,allow_picture=allow_picture)
     encoded=canonical(value)
     if len(_utf8(encoded))>MAX_BODY:fail('GROUP_SNAPSHOT_BOUND')
-    return GroupSnapshot(reference,encoded,response_sha)
+    profile=PICTURE_READ_PROFILE if any(row.get('article_type')=='newspic' for row in rows) else PROFILE
+    return GroupSnapshot(reference,encoded,response_sha,profile)
 
 
 def baseline_projection(snapshot,*,synthetic=False):
@@ -192,10 +202,10 @@ def baseline_projection(snapshot,*,synthetic=False):
     _reference(snapshot.reference,synthetic)
     value=snapshot.value();rows=value.get('news_item')
     if type(rows) is not list or not 1<=len(rows)<=8:fail('GROUP_NEWS_SHAPE')
-    for row in rows:_row(row,synthetic)
+    for row in rows:_row(row,synthetic,allow_picture=snapshot.profile==PICTURE_READ_PROFILE)
     # Preserve every top-level and row extension/presence except temporary URLs.
     value['news_item']=[{k:deepcopy(v) for k,v in row.items() if k not in READ_ONLY_FIELDS} for row in rows]
-    return {'profile':PROFILE,'reference':snapshot.reference,'response':value}
+    return {'profile':snapshot.profile,'reference':snapshot.reference,'response':value}
 
 
 def settings_observation(snapshot):

@@ -7,6 +7,8 @@ description: Manage Jiusera accounts, produce illustrated WeChat articles, use o
 
 Jiusera 是 Codex 中的创作工作台，可管理账号并交付平台内容。
 
+选题和写稿使用[项目的信源库](references/SOURCE_LIBRARY.md)发现、登记和复用公开来源。项目已关联时先读库；研究完成后将实际采用的可复用入口和逐篇原文引用分别记下。
+
 需要为当前运营项目配置通用生产规范时，按[初始化当前项目](references/PROJECT_INITIALIZATION.md)使用 `own.projects.initialize` 实际落盘 AGENTS 维护段与桥接 Skill，再由当前 Codex 显式读取并报告来源。内嵌页请求 ACK 不代表初始化完成；保留原账号、个人偏好和用户文件，原链路不以初始化为前置。
 
 使用当前实际加载的原生工具。微信公众号先区分正常内容生产、旧稿恢复、普通发表和群发；它们有各自真实权限和状态。X 单账号通路按[X 官方接入](references/X_ACCOUNT.md)执行，不能从页面入口或本地fixture通过推导实际账号/API已验证；不跨平台复用凭据、规则或媒体。小红书按[小红书标准浏览器接入](references/XIAOHONGSHU.md)操作：本人官方扫码、显式connection_id的隔离会话、本号笔记读取、原生图文一次提交和原任务链接读回；它不是已获官方发布API。其他平台和共享资产分发仍是后续方向。
@@ -108,5 +110,7 @@ X 页的“立即生产并发布”通过现有宿主消息桥向当前聊天发
 随包 `HTML_TECHNICAL_STANDARD.md` 由 `wce/html_technical_standard.py` 实际构建自动生成；管理页只读技术规范及prepare/最终发送校验消费同一registry与SHA256。先读取该规范，再读本号有效偏好；OFFICIAL硬要求、WCE_COMPATIBILITY语法/内部token条件、ACCOUNT_PREFERENCE分开，不能用偏好关闭官方校验。该规范注明官方封存日期，不宣称本次已在线刷新。
 
 按 [完整生产流程](references/CONTENT_PRODUCTION.md)制作图文并遵守本号排版偏好。prepare处理实际HTML/图片与微信接口参数兼容。普通发表直接调用官方接口，内容审查或历史QA记录不构成发表准入条件。已有原稿沿用原bundle/version/key。
+
+制作图片消息、维护素材和已发表作品，或按本人当前明确委托做单人预览和独立群发时，使用 [微信公众号内容工具](references/WECHAT_CONTENT.md)。图片消息保留本号永久图片顺序，普通发表沿原保存回执。
 
 业务ID不是官方字段限制。新生产者使用同源 `article_token(connection_id, 原业务ID)` 自动生成稳定内部token，制作记录保存原业务ID、内部token及算法版本；已有token映射沿用，发现碰撞保留原记录并在本地显式处理，不要求用户改名。公开输入schema及其原来格式保持。

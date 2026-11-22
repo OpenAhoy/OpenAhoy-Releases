@@ -13,7 +13,7 @@ from .video_director import Director, WORK_FIELDS, canvas_state, lookup, primary
 from . import video_director_delivery as delivery
 from . import character_library as characters
 from . import asset_image_library as asset_images
-from . import studio_showcase, stage_assets, asset_trial
+from . import studio_showcase, stage_assets, asset_trial, music_presets, source_library
 from .video_director_media import (CATALOG, IMAGE_CHUNK, IMAGE_ROLES, compute_request, import_image_chunk, models, preview_image,
                                    preview_result, preview_whitebox, validate_revision)
 from .video_protocol import ATTEMPT, FRAME, FRAME_INDEX, HANDLE, PROJECT, RELAY_URL, action
@@ -150,7 +150,9 @@ SPECS = {
         action('character_manifest_files', PROJECT_ARG, {'directory': characters.PATH}),
         action('character_manifest_pick', PROJECT_ARG | {'path': characters.PATH}),
         action('character_thumbnail', PROJECT_ARG | characters.SELECTOR | {'sha256': HANDLE}),
+        action('character_preview', PROJECT_ARG | characters.SELECTOR | {'sha256': HANDLE}),
         action('character_original', PROJECT_ARG | characters.SELECTOR | {'sha256': HANDLE, 'offset': ORDINAL}),
+        action('character_layer', PROJECT_ARG | characters.SELECTOR | {'sha256': HANDLE, 'offset': ORDINAL}),
         action('work_video_chunk', WORK_ARG | {'delivery_id': PROJECT, 'offset': MS}),
         action('canvas_video_chunk', WORK_ARG | {'delivery_id': PROJECT, 'sha256': HANDLE, 'offset': MS}),
         action('canvas_video_frames', WORK_ARG | {'delivery_id': PROJECT, 'sha256': HANDLE, 'start': FRAME_INDEX}),
@@ -214,9 +216,23 @@ class DirectorRouter:
             if name == MEDIA:
                 row['_meta'] = {'ui': {'visibility': ['app']}}
             descriptions.append(row)
+        descriptions.append({'name': music_presets.TOOL, 'title': 'Project music recipes',
+                             'description': 'Read, save or share local .jmusic recipes; pin existing audio candidates and shot revisions. Record user feedback only on an explicit request. Payload only prepares exact provider inputs. No music generation, upload or publication.',
+                             'inputSchema': deepcopy(music_presets.SPEC),
+                             'annotations': {'readOnlyHint': False, 'destructiveHint': False,
+                                             'idempotentHint': True, 'openWorldHint': False}})
+        descriptions.append({'name': source_library.TOOL, 'title': 'Project source library',
+                             'description': 'List/add/edit reusable public information sources in a registered project, and record/read the original article references used for a topic or draft. Record entrances only when verified as reusable. Never fetch or publish URLs.',
+                             'inputSchema': deepcopy(source_library.SPEC),
+                             'annotations': {'readOnlyHint': False, 'destructiveHint': False,
+                                             'idempotentHint': True, 'openWorldHint': False}})
         return self.inner.list_tools() + descriptions
 
     def call(self, name, args):
+        if name == source_library.TOOL:
+            return source_library.SourceLibrary(self).run(args)
+        if name == music_presets.TOOL:
+            return music_presets.Presets(self).run(args)
         if name not in SPECS:
             result = self.inner.call(name, args)
             if name == 'own.documents.prepare' and 'html_sources' in args:
@@ -267,7 +283,7 @@ class DirectorRouter:
             return self.characters.manifest_files(args['project_id'], args.get('directory', ''))
         if command == 'character_manifest_pick':
             return self.characters.pick_manifest(args['project_id'], args['path'])
-        if command in ('character_thumbnail', 'character_original'):
+        if command in ('character_thumbnail', 'character_preview', 'character_original', 'character_layer'):
             return self.characters.media(args)
         if command == 'work_request':
             return self.director.request(args['operation_id'])

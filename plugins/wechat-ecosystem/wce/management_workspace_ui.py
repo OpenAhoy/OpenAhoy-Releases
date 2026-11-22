@@ -173,8 +173,6 @@ STYLE += STARTER_STYLE
 
 STYLE += """
 .oa-management .oa-platform-mark[data-brand=x]{background:var(--x-tile);border:1px solid var(--line)}
-.oa-management .oa-brand:has(#oaLocale){display:flex;flex-wrap:wrap;gap:9px}
-.oa-management #oaLocale{min-height:25px;padding:2px 8px;font-size:11px;margin-left:7px}
 """
 
 

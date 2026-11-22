@@ -6,9 +6,20 @@ HTML = '''
  <div class="mm-toolbar">
   <nav id="monitorFilters" aria-label="媒体类型"><button type="button" data-kind="all">全部</button><button type="button" data-kind="video">视频</button><button type="button" data-kind="audio">音频</button><button type="button" data-kind="gif">动图</button></nav>
   <input id="monitorSearch" type="search" placeholder="搜索资产" aria-label="搜索资产">
+  <button id="musicRecipesOpen" type="button" hidden aria-expanded="false">音乐配方</button>
   <button id="monitorRefresh" type="button">刷新</button>
  </div>
  <div class="mm-toolbar mm-status"><nav id="monitorStates" aria-label="按状态筛选"></nav><span id="monitorRead" role="status"></span></div>
+ <section id="musicRecipes" class="mm-music-recipes" hidden aria-labelledby="musicRecipesOpen">
+  <div class="mm-toolbar mm-recipe-controls">
+   <select id="musicRecipeProject" aria-label="项目"></select>
+   <select id="musicRecipeChoice" aria-label="音乐配方"></select>
+   <button id="musicRecipeImport" type="button">导入 .jmusic</button>
+   <input id="musicRecipeFile" type="file" accept=".jmusic" hidden>
+  </div>
+  <p id="musicRecipeStatus" class="mm-muted" role="status"></p>
+  <div id="musicRecipeDetail"></div>
+ </section>
  <div class="mm-columns">
   <section id="monitorList" aria-label="任务与资产" tabindex="-1"></section>
   <section id="monitorDetail" aria-label="选中详情" tabindex="-1">
@@ -30,6 +41,21 @@ STYLE = '''
 #mediaStudio h1{font-size:21px;line-height:1.2;margin:0;letter-spacing:-.02em}
 .mm-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .mm-toolbar>h1{margin-inline-end:auto!important}
+#musicRecipes{overflow:auto;min-height:0;flex:1;padding:8px 2px 12px}
+#mediaMonitor.mm-recipes-open :is(.mm-status,.mm-columns,#monitorSearch,#monitorRefresh){display:none}
+#musicRecipes .mm-recipe-candidates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0}
+#musicRecipes .mm-recipe-controls{margin-bottom:9px}
+#musicRecipes #musicRecipeStatus:empty{display:none}
+@media(max-width:690px){#musicRecipes .mm-recipe-candidates{grid-template-columns:minmax(0,1fr)}}
+#musicRecipes[hidden],#musicRecipesOpen[hidden],#musicRecipeFile[hidden]{display:none}
+#musicRecipes p{margin:5px 0}
+#musicRecipes .mm-recipe-lyrics{white-space:pre-wrap;overflow-wrap:anywhere}
+#musicRecipes h3,#musicRecipes h4{margin:5px 0}
+#musicRecipeDetail article{background:var(--surface);border:1px solid var(--line);border-radius:9px;min-width:0;padding:8px 10px}
+#musicRecipeDetail audio{width:min(100%,300px);height:32px;margin-top:4px}
+#musicRecipeDetail .mm-recipe-feedback{align-items:center;margin-top:8px}
+#musicRecipeDetail .mm-recipe-feedback select{width:auto;flex:0 1 auto}
+#musicRecipeDetail textarea{height:32px;min-height:32px;min-width:0;flex:1 1 125px;padding:5px 7px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:7px}
 .mm-toolbar nav{display:flex;gap:3px;flex-wrap:wrap}
 #mediaStudio button:not(.mm-row),#monitorSearch,#mediaMonitor select{min-height:32px;padding:3px 8px;font-size:12px;max-width:100%}
 #mediaMonitor :is(select,input){color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:7px}
@@ -91,7 +117,7 @@ STYLE = '''
 '''
 
 SCRIPT = r'''
-function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged}){
+function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged,musicCall,musicShot}){
  const $=id=>document.getElementById(id);
  const root=$('mediaMonitor'),list=$('monitorList'),detail=$('monitorDetail'),body=$('monitorBody');
  const filters=$('monitorFilters'),states=$('monitorStates'),search=$('monitorSearch');
@@ -233,6 +259,159 @@ function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged}){
    }
    return new Blob(chunks,{type:row.asset.mime||mediaMime[row.kind]});
  }
+ let recipeEpoch=0,recipeSource='',recipePlayer=null,recipeRows=[];
+ const recipePanel=$('musicRecipes'),recipeToggle=$('musicRecipesOpen');
+ const recipeProject=$('musicRecipeProject'),recipeSelect=$('musicRecipeChoice');
+ const recipeDetail=$('musicRecipeDetail'),recipeStatus=$('musicRecipeStatus');
+ const recipeFile=$('musicRecipeFile');
+ function clearRecipePlayer(){
+   if(recipePlayer){recipePlayer.pause();recipePlayer.removeAttribute('src');recipePlayer.load();recipePlayer=null;}
+   if(recipeSource){URL.revokeObjectURL(recipeSource);recipeSource='';}
+ }
+ function closeRecipes(){
+   recipeEpoch++;clearRecipePlayer();recipePanel.hidden=true;
+   recipeToggle.setAttribute('aria-expanded','false');root.classList.remove('mm-recipes-open');
+ }
+ function recipeCall(action,fields={}){
+   return musicCall('audio.project.presets',{action,project_id:recipeProject.value,...fields});
+ }
+ function option(select,value,text){
+   const node=element('option');node.value=value;node.textContent=text;select.append(node);
+ }
+ async function loadRecipeList(preferred=''){
+   const epoch=++recipeEpoch;
+   clearRecipePlayer();recipeSelect.replaceChildren();recipeDetail.replaceChildren();
+   $('musicRecipeImport').disabled=!recipeProject.value;
+   if(!recipeProject.value){OAUI.set(recipeStatus,'此项目暂无音乐配方。');return;}
+   try{
+     const response=await recipeCall('list');
+     if(epoch!==recipeEpoch)return;
+     recipeRows=response.presets;
+     for(const row of recipeRows)option(recipeSelect,row.id,row.name);
+     if(recipeRows.some(row=>row.id===preferred))recipeSelect.value=preferred;
+     if(recipeRows.length){await showRecipe();return;}
+     OAUI.set(recipeStatus,'此项目暂无音乐配方。');
+   }catch(error){if(epoch===recipeEpoch)recipeStatus.textContent=error.message;}
+ }
+ async function showRecipe(){
+   const epoch=++recipeEpoch;
+   clearRecipePlayer();recipeDetail.replaceChildren();recipeStatus.textContent='';
+   try{
+     const {preset}=await recipeCall('read',{id:recipeSelect.value});
+     if(epoch!==recipeEpoch)return;
+     const heading=element('h3');heading.textContent=preset.name;
+     const facts=element('p','mm-muted');
+     OAUI.set(facts,'{0} · {1} · {2}',message(preset.use==='song'?'歌曲':'视频配乐'),'v'+preset.revision,preset.brief.sound);
+     const exportRow=element('div','mm-toolbar');
+     const showExport=button('导出 .jmusic',async()=>{
+       showExport.disabled=true;
+       try{
+         const result=await recipeCall('export',{id:preset.id,revision:preset.revision});
+         if(epoch===recipeEpoch)OAUI.set(recipeStatus,'已保存到项目 · {0}',result.relative_path);
+       }catch(error){if(epoch===recipeEpoch)recipeStatus.textContent=error.message;}
+       finally{showExport.disabled=false;}
+     });
+     exportRow.append(showExport,label('span','导出配方及提示词。歌词和试音留在项目。'));
+     const directions=element('details');
+     directions.append(label('summary','供应商提示词'));
+     for(const [provider,settings] of Object.entries(preset.providerDirections)){
+       const caption=element('h4');caption.textContent=provider==='suno'?'Suno':'ACE Music';
+       const style=element('p');style.textContent=settings.style;
+       directions.append(caption,style);
+       if(settings.lyrics){const words=element('p','mm-recipe-lyrics');words.textContent=settings.lyrics;directions.append(words);}
+     }
+     recipeDetail.append(heading,facts,directions,exportRow);
+     const candidates=element('div','mm-recipe-candidates');
+     recipeDetail.append(candidates);
+     for(const candidate of preset.variants){
+       const item=element('article'),title=element('h4'),playerSlot=element('div');
+       title.textContent=candidate.title;
+       const playback=button('试听',async()=>{
+         clearRecipePlayer();recipeDetail.querySelectorAll('audio').forEach(old=>old.remove());
+         const ticket=++recipePlayback;
+         const current=()=>epoch===recipeEpoch&&ticket===recipePlayback;
+         const row={family:'audio',kind:'audio',project:recipeProject.value,
+                    attempt:candidate.audio_attempt,asset:candidate};
+         playback.disabled=true;
+         try{
+           const blob=await mediaBytes(row,current);
+           if(!blob||!current())return;
+           const audio=element('audio');audio.controls=true;audio.controlsList='nodownload';
+           recipePlayer=audio;recipeSource=URL.createObjectURL(blob);audio.src=recipeSource;
+           playerSlot.replaceChildren(audio);await audio.play().catch(()=>{});
+         }catch(error){if(current())recipeStatus.textContent=error.message;}
+         finally{playback.disabled=false;}
+       });
+       item.append(title,playback,playerSlot);
+       const saved=preset.feedback.filter(row=>row.variant_id===candidate.id);
+       for(const feedback of saved){
+         const row=element('p','mm-muted');
+         const names={adopted:'已采用',liked:'喜欢',adjust:'需调整'};
+         const summary=feedback.source==='test'?[message(names[feedback.rating]),message('测试')]:message(names[feedback.rating]);
+         OAUI.set(row,'{0} · {1}',summary,feedback.note);
+         item.append(row);
+       }
+       const form=element('div','mm-toolbar mm-recipe-feedback'),rating=element('select'),note=element('textarea');
+       for(const [key,name] of Object.entries({liked:'喜欢',adjust:'需调整',adopted:'已采用'})){
+         option(rating,key,'');OAUI.set(rating.lastChild,name);
+       }
+       OAUI.attr(rating,'aria-label','评价');OAUI.attr(note,'aria-label','回听笔记');
+       OAUI.attr(note,'placeholder','回听笔记');note.maxLength=1000;note.rows=1;
+       const save=element('button');save.type='button';save.disabled=true;OAUI.set(save,'保存评价');
+       note.oninput=()=>{if(save.getAttribute('aria-busy')!=='true')save.disabled=!note.value.trim();};
+       form.append(rating,note,save);
+       save.onclick=async()=>{
+         const text=note.value.trim();if(!text||save.disabled)return;
+         save.disabled=true;save.setAttribute('aria-busy','true');
+         try{
+           await recipeCall('feedback',{id:preset.id,expected_revision:preset.revision,
+             variant_id:candidate.id,rating:rating.value,note:text,source:'user'});
+           if(epoch===recipeEpoch)await showRecipe();
+         }catch(error){if(epoch===recipeEpoch)recipeStatus.textContent=error.message;}
+         finally{save.removeAttribute('aria-busy');save.disabled=!note.value.trim();}
+       };
+       item.append(form);candidates.append(item);
+     }
+     for(const use of preset.uses){
+       const reference=element('div','mm-toolbar');
+       reference.append(label('span','已锁定到镜头 · 配方 v{0}',use.preset_revision),
+         button('打开镜头',()=>musicShot({project_id:recipeProject.value,work_id:use.work_id,
+                  scene_id:use.scene_id,shot_id:use.shot_id,revision_id:use.revision_id})));
+       recipeDetail.append(reference);
+     }
+   }catch(error){if(epoch===recipeEpoch)recipeStatus.textContent=error.message;}
+ }
+ let recipePlayback=0;
+ recipeToggle.onclick=async()=>{
+   if(!recipePanel.hidden){closeRecipes();return;}
+   recipePanel.hidden=false;recipeToggle.setAttribute('aria-expanded','true');root.classList.add('mm-recipes-open');
+   const previous=recipeProject.value||byKey(selected)?.project;
+   recipeProject.replaceChildren();recipeDetail.replaceChildren();recipeSelect.replaceChildren();
+   const epoch=++recipeEpoch;
+   try{
+     const response=await musicCall('video.director.read',{action:'projects'});
+     if(epoch!==recipeEpoch)return;
+     for(const row of response.projects)option(recipeProject,row.id,row.label||row.name);
+     if(response.projects.some(row=>row.id===previous))recipeProject.value=previous;
+     await loadRecipeList();
+   }catch(error){if(epoch===recipeEpoch)recipeStatus.textContent=error.message;}
+ };
+ recipeProject.onchange=()=>void loadRecipeList();
+ recipeSelect.onchange=()=>void showRecipe();
+ $('musicRecipeImport').onclick=()=>recipeFile.click();
+ recipeFile.onchange=async()=>{
+   const picked=recipeFile.files?.[0];recipeFile.value='';
+   if(!picked||!recipeProject.value)return;
+   const epoch=recipeEpoch;
+   try{
+     if(picked.size>88000)throw Error(OAUI.format('配方文件过大。'));
+     const raw=await picked.text();
+     const identifier=JSON.parse(raw).id;
+     if(epoch!==recipeEpoch)return;
+     await recipeCall('import',{id:identifier,preset_text:raw});
+     if(epoch===recipeEpoch)await loadRecipeList(identifier);
+   }catch(error){if(epoch===recipeEpoch)recipeStatus.textContent=error.message;}
+ };
  async function gifPlayer(blob,row,slot,current,run){
    if(typeof ImageDecoder!=='function')throw Error('MEDIA_GIF_DECODER_UNAVAILABLE');
    const bytes=await blob.arrayBuffer();if(!current())return;
@@ -544,6 +723,7 @@ function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged}){
    const changed=kind!==target;
    if(active&&changed&&!restoring)saveSelection();
    kind=target;filters.hidden=target!=='all';root.hidden=false;
+   recipeToggle.hidden=target!=='audio';if(target!=='audio')closeRecipes();
    if(changed||!active){loadSelection();history=[];}
    routedTarget=asset;
    if(active){
@@ -555,7 +735,7 @@ function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged}){
  },close(){
    if(!active)return;
    if(!restoring)saveSelection();
-   restoring=null;routedTarget=null;active=false;loading=false;readSequence++;history=[];clearPlayers();loaded='';
+   closeRecipes();restoring=null;routedTarget=null;active=false;loading=false;readSequence++;history=[];clearPlayers();loaded='';
    $('monitorRefresh').removeAttribute('aria-busy');root.hidden=true;
  }};
 

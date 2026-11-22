@@ -8,7 +8,7 @@ import threading
 import ssl
 from typing import Protocol
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 
 from .contracts import Secret, WCEError
@@ -19,6 +19,7 @@ from .token_provider import TokenKey
 DATACUBE_PATHS = {name: '/datacube/'+name for name in
                   ('getusersummary', 'getusercumulate', 'getbizsummary', 'getarticletotaldetail')}
 MAX_BODY = 2 * 1024 * 1024
+MAX_WECHAT_MEDIA_BODY = 10 * 1024 * 1024
 STATES = {"SUBMITTED", "PROCESSING", "SUCCEEDED", "FAILED", "RESULT_UNKNOWN"}
 
 
@@ -116,7 +117,15 @@ class HTTPSender:
             response = self.opener.open(req, timeout=timeout)
         except HTTPError as error:
             response = error  # status/body are data; never expose URL or errmsg.
-        return self._response_value(response)
+        return self._response_value(response, self._response_limit(request))
+
+    @staticmethod
+    def _response_limit(request):
+        route = (request.method, urlsplit(request.path).path)
+        if route in {('POST', '/cgi-bin/material/get_material'), ('GET', '/cgi-bin/media/get'),
+                     ('GET', '/cgi-bin/media/get/jssdk')}:
+            return MAX_WECHAT_MEDIA_BODY
+        return MAX_BODY
 
     def _prepare_request(self, request, timeout):
         if request.test_only:
@@ -124,20 +133,27 @@ class HTTPSender:
         if not self.enabled:
             raise WCEError("HTTP_DISABLED")
         parts = urlsplit(request.path)
-        if request.method not in {"GET", "POST"} or parts.scheme or parts.netloc or parts.fragment or (not parts.path.startswith("/cgi-bin/") and not (request.method == "POST" and parts.path in DATACUBE_PATHS.values())) or "\\" in request.path or any(ord(c) < 32 for c in request.path):
+        allowed_post = parts.path in DATACUBE_PATHS.values() or parts.path == "/channels/ec/service/product/getcardinfo"
+        if request.method not in {"GET", "POST"} or parts.scheme or parts.netloc or parts.fragment or (not parts.path.startswith("/cgi-bin/") and not (request.method == "POST" and allowed_post)) or "\\" in request.path or any(ord(c) < 32 for c in request.path):
             raise WCEError("INVALID_HTTP_REQUEST")
-        if not math.isfinite(timeout) or not 0 < timeout <= 30 or len(request.body) > MAX_BODY:
+        request_limit = MAX_BODY
+        if (request.method == 'POST' and parts.path in {'/cgi-bin/material/add_material','/cgi-bin/media/upload'}
+                and request.headers.get('Content-Type','').startswith('multipart/form-data; boundary=')
+                and parse_qs(parts.query).get('type') == ['video']):
+            from .bounded_file import MAX_WECHAT_VIDEO_BYTES
+            request_limit = MAX_WECHAT_VIDEO_BYTES + 16384
+        if not math.isfinite(timeout) or not 0 < timeout <= 30 or len(request.body) > request_limit:
             raise WCEError("INVALID_HTTP_REQUEST")
         req = Request("https://api.weixin.qq.com" + request.path, data=request.body if request.method == "POST" else None,
                       headers=request.headers, method=request.method)
         return req
 
-    def _response_value(self, response):
+    def _response_value(self, response, limit=MAX_BODY):
         if getattr(self, '_safe_transport_diagnostics', False) is True:
-            return self._response_value_safe(response)
+            return self._response_value_safe(response, limit)
         with response:
-            body = response.read(MAX_BODY + 1)
-            if len(body) > MAX_BODY:
+            body = response.read(limit + 1)
+            if len(body) > limit:
                 raise ValueError("Response too large")
             return HTTPResponse(response.code, body)
 
@@ -154,15 +170,15 @@ class HTTPSender:
             # urllib does not expose a reliable separate connect/write/header
             # boundary. Report only this combined observable call stage.
             return transport_failure('OPEN_RESPONSE', error)
-        return self._response_value(response)
+        return self._response_value(response, self._response_limit(request))
 
-    def _response_value_safe(self, response):
+    def _response_value_safe(self, response, limit=MAX_BODY):
         status, stage = _observed_status(response), 'RESPONSE_ENTER'
         try:
             with response:
                 stage = 'BODY_READ'
-                body = response.read(MAX_BODY + 1)
-                if len(body) > MAX_BODY:
+                body = response.read(limit + 1)
+                if len(body) > limit:
                     value = TransportFailure(stage, 'BODY_LIMIT', status)
                 else:
                     stage = 'RESPONSE_VALUE'

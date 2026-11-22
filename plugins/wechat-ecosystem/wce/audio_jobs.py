@@ -24,7 +24,7 @@ FORMATS = {'.wav': ('wav', 'wav', 'audio/wav'), '.mp3': ('mp3', 'mp3', 'audio/mp
            '.m4a': (*AAC_FORMAT, 'audio/mp4')}
 from .media_library import LIBRARY_ID, MediaLibrary
 
-AUDIO_DIR = ('assets', 'openahoy', 'audio')
+AUDIO_DIR = ('JiuseraAssets', 'Audio')
 
 
 def binary(name):

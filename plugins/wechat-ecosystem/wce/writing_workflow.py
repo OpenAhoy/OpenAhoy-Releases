@@ -29,7 +29,15 @@ BASE = {
 }
 QUOTE = re.compile(r'「[^」]*」|『[^』]*』|“[^”]*”|"[^"\r\n]*"|^>[^\r\n]*', re.MULTILINE)
 NUMBER = re.compile(r'(?<![0-9])[-+−]?\d+(?:[.,:/–-]\d+)*(?:\s*(?:%|％))?')
-UNIT = re.compile(r'[-+−]?\d+(?:\.\d+)?[ \t]*(?:ppm|GHz|MHz|kHz|kg|mg|µg|μg|mm|cm|km|ms|mL|mW|kW|MW|Pa|kPa|MPa|°C|°F|℃|℉|s\b|m\b|g\b|L\b|h\b|W\b|V\b|分钟|小时|毫秒|毫米|厘米|千米|公里|千克|毫克|摄氏度|秒|米|克|元)')
+UNIT_NUMBER = r'(?<![0-9])([-+−]?\d+(?:[.,]\d+)*(?:[ \t]*[eE][-+−]?\d+)?)'
+SI_PREFIX = r'(?:da|[QRYZEPTGMkhdcmunpfazyrqµμ])?'
+SI_BASE = r'(?:Hz|Pa|Wb|Sv|Gy|Bq|kat|mol|cd|lm|lx|Ω|Ohm|rad|sr|[msgLAKVWFHNTCSJ])'
+UNIT = re.compile(UNIT_NUMBER + r'[ \t\u00a0\u202f]*('
+    + SI_PREFIX + SI_BASE + r'|ppm|ppb|ppt|dB|rpm|min|°[CF]|[℃℉%％]|[h°])'
+    + r'(?![A-Za-zµμ])|'
+    + UNIT_NUMBER + r'[ \t\u00a0\u202f]*'
+      r'(摄氏度|华氏度|纳秒|微秒|毫秒|千米|公里|厘米|毫米|微米|纳米|'
+      r'千克|毫克|毫升|千瓦|分钟|小时|赫兹|秒|米|克|升|元)')
 CITATION = re.compile(r'\[(?:\d+(?:\s*[,，–-]\s*\d+)*)\]')
 
 

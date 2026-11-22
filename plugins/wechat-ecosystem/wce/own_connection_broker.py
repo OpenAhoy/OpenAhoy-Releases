@@ -46,11 +46,12 @@ MAINTENANCE_METHOD = '_wce.maintenance.idle_drain.v1'
 _SOFTWARE_FIELD = '_broker_software_id'
 _BUSY_HANDSHAKE = 'CONNECTION_FD_DOMAIN_BUSY_V1'
 from .current_draft_management import NETWORK as DRAFT_MANAGEMENT_NETWORK
+from .wechat_content import TOOL as WECHAT_CONTENT
 from .wechat_analytics import Analytics, TOOL as ANALYTICS
 NETWORK = {ANALYTICS, 'own.uploads.execute', 'own.drafts.save', 'own.drafts.readback',
            'own.drafts.inventory', 'own.publications.current.prepare',
            'own.publications.current.dispatch', 'own.publications.current.poll',
-           'own.publications.slots.discover'} | DRAFT_MANAGEMENT_NETWORK
+           'own.publications.slots.discover', WECHAT_CONTENT} | DRAFT_MANAGEMENT_NETWORK
 WRITES = {'own.uploads.execute', 'own.drafts.save'}
 
 
@@ -435,6 +436,9 @@ class AccountService:
         try:
             if time.monotonic() >= queue_deadline: raise WCEError('CONNECTION_QUEUE_EXPIRED')
             self.guard(deadline)
+            if name == WECHAT_CONTENT:
+                from .wechat_content import execute
+                return execute(self, arguments, deadline, cancel_guard)
             if name in DRAFT_MANAGEMENT_NETWORK:
                 from .current_draft_management_protocol import validate as validate_management
                 validate_management(name, arguments)
@@ -975,7 +979,7 @@ class Broker:
                             # An accepted drain deliberately set stop. Do not call
                             # guard again and turn its own ACK into STOPPED.
                         else:
-                            if (request['name'] in DRAFT_MANAGEMENT_NETWORK
+                            if (request['name'] in DRAFT_MANAGEMENT_NETWORK or request['name'] == WECHAT_CONTENT
                                     or request['name'] in {'own.drafts.inventory','own.publications.slots.discover',ANALYTICS}
                                     or request['name'].startswith('own.publications.current.')):
                                 result = self.service.call(request['name'], request['arguments'], deadline,
