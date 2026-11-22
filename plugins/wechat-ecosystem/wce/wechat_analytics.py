@@ -225,6 +225,7 @@ class Analytics:
         self.days = {key: value for key, value in self.days.items() if key[1] >= latest-29*DAY}
         checks = {}
         observed_at = []
+        coverage = {}
         token = None
 
         def fetch(kind, requested):
@@ -268,15 +269,23 @@ class Analytics:
                         if previous[3] is not None and state != 'READY':
                             row = previous[3]
                     flag = 'EMPTY' if state == 'READY' and row is None else state
-                    self.days[(kind, day)] = (fresh+ttl, flag, code, row, int(now))
+                    last_success = int(now) if flag in {'READY', 'EMPTY'} else previous[5] if previous else None
+                    self.days[(kind, day)] = (fresh+ttl, flag, code, row, int(now), last_success)
             projection = {}
+            confirmed, successful = [], []
             for day in requested:
                 saved = self.days.get((kind, day))
                 if saved:
                     checks.setdefault(kind, []).append((saved[1], saved[2]))
                     observed_at.append(saved[4])
+                    if saved[1] in {'READY', 'EMPTY'}:
+                        confirmed.append(day.isoformat())
+                    if saved[5] is not None:
+                        successful.append(saved[5])
                     if saved[3] is not None:
                         projection[day] = saved[3]
+            if kind in {CONTENT, ARTICLE}:
+                coverage[kind] = {'confirmed_dates': confirmed, 'last_success_at': max(successful, default=None)}
             return projection
 
         fans = fetch(FANS, dates)
@@ -300,4 +309,5 @@ class Analytics:
         guard()
         return {'connection_id': cid, 'days': days, 'start': first.isoformat(), 'end': latest.isoformat(),
                 'read_at': max(observed_at, default=None), 'latest_data': available[-1] if available else None,
-                'timeline': timeline, 'articles': records[:40], 'article_dates': len(detail_days), 'status': states}
+                'timeline': timeline, 'articles': records[:40], 'article_dates': len(detail_days),
+                'status': states, 'coverage': coverage}

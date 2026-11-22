@@ -251,6 +251,32 @@ class AnalyticsTest(TestCase):
         self.assertEqual(result['status'][analytics.CONTENT]['states'],['DELAYED'])
         self.assertEqual(result['timeline'][-1]['read_user'],110)
 
+    def test_home_coverage_preserves_success_time_after_failed_refresh(self):
+        sender = Sender(0)
+        reader = self.make(sender)
+        first = self.query(reader)
+        coverage = first['coverage'][analytics.CONTENT]
+        self.assertEqual(first['timeline'][-1]['read_user'], 0)
+        self.assertEqual(len(coverage['confirmed_dates']), 7)
+        self.assertEqual(coverage['last_success_at'], first['read_at'])
+
+        reader.clock = lambda:datetime(2026, 11, 19, 11, 30, tzinfo=analytics.BEIJING)
+        sender.denied = analytics.CONTENT
+        failed = self.query(reader, refresh=True)
+        self.assertEqual(failed['coverage'][analytics.CONTENT], {
+            'confirmed_dates': [], 'last_success_at': coverage['last_success_at'],
+        })
+        self.assertNotIn('read_user', failed['timeline'][-1])
+        self.assertGreater(failed['coverage'][analytics.ARTICLE]['last_success_at'], coverage['last_success_at'])
+
+        send = sender.send
+        sender.send = lambda request,timeout: reply({'list': []}) if 'getbizsummary' in request.path else send(request,timeout)
+        recovered = self.query(reader, refresh=True)
+        self.assertEqual(recovered['status'][analytics.CONTENT]['states'], ['EMPTY'])
+        self.assertEqual(recovered['coverage'][analytics.CONTENT]['confirmed_dates'], coverage['confirmed_dates'])
+        self.assertNotIn('read_user', recovered['timeline'][-1])
+        self.assertGreater(recovered['coverage'][analytics.CONTENT]['last_success_at'], coverage['last_success_at'])
+
     def test_latest_cumulative_snapshot_does_not_add_daily_figures(self):
         first=date(2026,11,16)
         today=date(2026,11,18)

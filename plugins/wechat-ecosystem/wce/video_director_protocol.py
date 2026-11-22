@@ -99,7 +99,7 @@ SPECS = {
         action('character_import_preview', PROJECT_ARG | {'source': characters.SOURCE}),
         action('overview', PROJECT_ARG, {'work_id': PROJECT}),
         action('article_work', WORK_ARG, {'version': ARTICLE_VERSION, 'known_version': ARTICLE_VERSION}),
-        action('article_catalog', {}, PROJECT_ARG),
+        action('article_catalog', {}, PROJECT_ARG | {'excerpt': {'type': 'boolean'}}),
         action('context', TARGET),
         action('deliveries', WORK_ARG),
         action('preflight', TARGET),
@@ -146,7 +146,8 @@ SPECS = {
         action('asset_trial_switch', {'number': {'type': 'integer', 'minimum': 1, 'maximum': 2}}),
         action('showcase_blob', {'media_id': studio_showcase.MEDIA_ID, 'offset': ORDINAL}),
         action('asset_image_library', {}),
-        action('asset_image_original', PROJECT_ARG | {'sha256': HANDLE, 'offset': ORDINAL}),
+        action('asset_image_thumbnail', PROJECT_ARG | {'sha256': HANDLE}, {'connection_id': ARTICLE_SELECTOR['connection_id']}),
+        action('asset_image_original', PROJECT_ARG | {'sha256': HANDLE, 'offset': ORDINAL}, {'connection_id': ARTICLE_SELECTOR['connection_id']}),
         action('character_manifest_files', PROJECT_ARG, {'directory': characters.PATH}),
         action('character_manifest_pick', PROJECT_ARG | {'path': characters.PATH}),
         action('character_thumbnail', PROJECT_ARG | characters.SELECTOR | {'sha256': HANDLE}),
@@ -251,7 +252,7 @@ class DirectorRouter:
         if command in {'article_work', 'article_image', 'article_catalog', 'register_article'}:
             from . import article_work
             if command == 'article_catalog':
-                return article_work.catalog(self.director, self.registry, args.get('project_id'))
+                return article_work.catalog(self.director, self.registry, args.get('project_id'), excerpt=args.get('excerpt', False))
             if command == 'register_article':
                 return article_work.register(self.director, self.registry, args)
             return article_work.read_work(self.director, self.registry, args, media=command == 'article_image')
@@ -267,8 +268,8 @@ class DirectorRouter:
             return studio_showcase.chunk(args['media_id'], args['offset'])
         if command == 'asset_image_library':
             return asset_images.catalog(self.director)
-        if command == 'asset_image_original':
-            return asset_images.original(self.director, args)
+        if command in {'asset_image_original', 'asset_image_thumbnail'}:
+            return asset_images.original(self.director, args, thumbnail=command.endswith('thumbnail'))
         if command == 'character_library':
             return self.characters.list()
         if command == 'stage_catalog':

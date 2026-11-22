@@ -108,6 +108,7 @@ BROWSE_FITS_PATH = f'{ASSET_ROOT}/Characters/browse-front-fits.json'
 BROWSE_ACCESSORY_FITS_PATH = f'{ASSET_ROOT}/Characters/browse-front-accessories.json'
 BROWSE_LAYERS_PATH = f'{ASSET_ROOT}/Characters/browse-front-layers.json'
 BROWSE_DISPLAY_PATH = f'{ASSET_ROOT}/Characters/browse-wardrobe-display.json'
+BROWSE_RULERS_PATH = f'{ASSET_ROOT}/Characters/browse-rulers.json'
 BROWSE_GROUP_NAMES = ('base', 'features', 'torso', 'limbs', 'details', 'hair', 'wardrobe', 'accessories', 'voice')
 BROWSE_GROUP = {'type': 'string', 'enum': list(BROWSE_GROUP_NAMES)}
 BROWSE_PIN = {'version': ID, 'sha256': DIGEST}
@@ -115,6 +116,76 @@ BROWSE_PIN = {'version': ID, 'sha256': DIGEST}
 
 def guide_list(items, limit):
     return {'type': 'array', 'maxItems': limit, 'items': object_schema(items)}
+
+
+RULER_ANGLES = {
+    'front': 'front', 'three_quarter': 'three_quarter', 'side': 'side', 'back': 'back',
+    'faceless': 'body_blank', 'headless': 'body_blank', 'wardrobe': 'front',
+}
+RULER_JOINTS = ('shoulder', 'hip', 'knee', 'ankle')
+RULER_PIXEL = {'type': 'integer', 'minimum': 0, 'maximum': 32768}
+RULER_DIMENSION = {'type': 'integer', 'minimum': 1, 'maximum': 32768}
+RULER_POINTS = object_schema({}, dict.fromkeys(RULER_JOINTS, RULER_PIXEL))
+RULER_IMAGE = object_schema(BROWSE_PIN | {
+    'width': RULER_DIMENSION, 'height': RULER_DIMENSION,
+    'display_kind': {'type': 'string', 'enum': ['original', 'comparison_preview']},
+    'points': RULER_POINTS,
+}, {'visible_top': RULER_PIXEL})
+BROWSE_RULERS = object_schema({
+    'schema': {'type': 'integer', 'enum': [1]},
+    'rulers': {'type': 'array', 'maxItems': 24, 'items': object_schema({
+        'character': ID, 'form': ID, 'revision': ID,
+        'width': RULER_DIMENSION, 'height': RULER_DIMENSION, 'axis_x': RULER_PIXEL,
+        'fixed': object_schema({}, dict.fromkeys(('crown', *RULER_JOINTS, 'sole'), RULER_PIXEL)),
+        'source': NAME, 'source_sha256': DIGEST,
+        'views': guide_list({
+            'angle': {'type': 'string', 'enum': list(RULER_ANGLES)}, 'image': RULER_IMAGE,
+            'comparisons': guide_list({'revision': ID, 'image': RULER_IMAGE}, 8),
+        }, 7),
+    }, {'height_cm': {'type': 'integer', 'minimum': 1, 'maximum': 400},
+        'height_basis': NAME})},
+})
+
+
+def pinned_ruler(ruler, assets, guides):
+    owner = (ruler['character'], ruler['form'])
+    width, height = ruler['width'], ruler['height']
+    fixed = ruler['fixed']
+    lines = [fixed[key] for key in ('crown', *RULER_JOINTS, 'sole') if key in fixed]
+    if (ruler['axis_x'] >= width or any(line >= height for line in lines)
+            or any(first >= second for first, second in zip(lines, lines[1:]))
+            or ('height_cm' in ruler) != ('height_basis' in ruler)):
+        return None
+
+    def pinned(image, revision, angle):
+        guide = guides.get((*owner, revision))
+        row = assets.get(image['version'])
+        ref = (image['version'], image['sha256'])
+        return (guide and row and not row.get('crop') and not row.get('work_id')
+                and row['use'] == 'full_body' and (row['id'], row['sha256']) == ref
+                and row.get('appearance', {}).get('view') == RULER_ANGLES[angle]
+                and any((entry['version'], entry['sha256']) == ref for entry in guide['entries'])
+                and image['width'] * height == image['height'] * width
+                and (image['display_kind'] != 'original' or (image['width'], image['height']) == (width, height))
+                and all(point < height for point in image['points'].values())
+                and image.get('visible_top', 0) < height)
+
+    angles = set()
+    views = []
+    for view in ruler['views']:
+        angle = view['angle']
+        if angle in angles or not pinned(view['image'], ruler['revision'], angle):
+            continue
+        angles.add(angle)
+        revisions = {ruler['revision']}
+        comparisons = []
+        for comparison in view['comparisons']:
+            revision = comparison['revision']
+            if revision not in revisions and pinned(comparison['image'], revision, angle):
+                revisions.add(revision)
+                comparisons.append(comparison | {'title': guides[(*owner, revision)]['title']})
+        views.append(view | {'comparisons': comparisons})
+    return ruler | {'views': views} if views else None
 
 
 BROWSE_PROVENANCE = object_schema({
@@ -340,6 +411,15 @@ def read_browse_guides(root, assets):
                               | ({'front_layers': overlay_set} if overlay_set else {})
                               | ({'wardrobe_display': wardrobe_display} if wardrobe_display else {}))
                 seen.add(revision_key)
+    by_revision = {(guide['character'], guide['form'], guide['revision']): guide
+                   for guide in guides if 'revision' in guide}
+    for ruler in browse_document(root, BROWSE_RULERS_PATH, BROWSE_RULERS, 'rulers'):
+        key = (ruler['character'], ruler['form'], ruler['revision'])
+        target = by_revision.get(key)
+        if target is not None and 'ruler' not in target:
+            pinned = pinned_ruler(ruler, assets, by_revision)
+            if pinned:
+                target['ruler'] = pinned
     return guides
 
 

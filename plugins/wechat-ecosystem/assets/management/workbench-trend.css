@@ -267,11 +267,32 @@
 .jh .jtrend-platform{outline:1px solid #e9edf5}
 .jh .jtrend-hint{padding-inline:3px;color:#4a566d}
 .jh .jtrend button.jtrend-date:focus-visible{background:transparent;outline:1px solid #547394}
+.jh .jtrend-panel[data-account-details] .jtrend-values{
+ scrollbar-width:thin;padding-right:2px
+}
+.jh .jtrend-panel[data-account-details] .jtrend-values li{
+ border-bottom:1px solid var(--trend-edge);padding-bottom:2px
+}
+.jh .jtrend-panel[data-account-details] .jtrend-reading{padding-block:1px;min-height:20px}
+.jh .jtrend-reading-details{
+ display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;
+ padding:0 3px 0 4px;min-width:0;color:var(--trend-quiet);font-size:9px;line-height:1.25
+}
+.jh :is(.jtrend-read-label,.jtrend-read-time){grid-column:1;min-width:0}
+.jh .jtrend-read-time{display:flex;flex-wrap:wrap;column-gap:5px;font-variant-numeric:tabular-nums}
+.jh .jtrend-read-time>span{white-space:nowrap}
+.jh :is([data-read-state=partial],[data-read-state=failed]) .jtrend-read-label{color:#91351c;font-weight:650}
+.jh .jtrend .jtrend-retry{
+ grid-column:2;grid-row:1/span 2;min-width:24px;min-height:24px;margin:0;padding:0;border:0;
+ border-radius:5px;box-shadow:none;background:#fff;color:var(--trend-accent);font-size:15px;cursor:pointer
+}
+.jh .jtrend .jtrend-retry:is(:hover,:focus-visible){background:#eaf0f8}
 @media(max-width:550px){
  .jh .jtrend{--tube-width:4.7px;border-radius:13px}
  .jh .jtrend-controls{padding-inline:0}
  .jh .jtrend-reading strong:not(.jtrend-missing){font-size:11px}
  .jh .jtrend-hint{padding-inline:0}
+ .jh .jtrend-reading-details{padding-left:2px}
 }
 @media(prefers-reduced-motion:reduce){
  .jh :is(.jtrend-series,.jtrend-focus-marks){transition:none}

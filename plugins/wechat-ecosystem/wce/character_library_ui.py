@@ -1,5 +1,7 @@
 """Character reference browser and exact-version storyboard picker."""
 
+from .character_ruler_ui import SCRIPT as RULER_SCRIPT, STYLE as RULER_STYLE
+
 PAGE = '<section id="characterLibrary" aria-label="形象资产库" hidden></section>'
 
 HTML = r'''
@@ -20,7 +22,7 @@ HTML = r'''
 </div></dialog>
 '''
 
-STYLE = r'''
+STYLE = RULER_STYLE + r'''
 #characterLibrary,#characterPicker,#characterDetail,#characterImport{
  --cl-bg:var(--bg);--cl-card:var(--surface);--cl-frame:var(--soft);--cl-line:var(--line);
  --cl-accent:var(--accent);--cl-tint:var(--oa-selection,var(--tint));
@@ -204,7 +206,8 @@ STYLE = r'''
  color:var(--cl-gray);font-size:11px;max-width:100%}
 .cl-stage-actions{position:absolute;top:6px;right:4px;display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap;
  pointer-events:none}
-.cl-stage-actions button{pointer-events:auto}\n.cl-closeup-tools{display:flex;gap:4px}
+.cl-stage-actions button{pointer-events:auto}
+.cl-closeup-tools{display:flex;gap:4px}
 .cl-person-profile{text-align:center;padding:8px 3px 3px;line-height:1.35}
 .cl-person-profile>strong{font-size:18px}
 .cl-person-profile dl{display:flex;align-items:baseline;justify-content:center;flex-wrap:wrap;gap:3px 6px;margin:4px 0 0}
@@ -471,7 +474,6 @@ STYLE = r'''
 .cl-look-select{border:1px solid var(--cl-line);background:var(--cl-card);border-radius:9px;padding:5px 7px}
 .cl-look-select header{display:flex;align-items:center;justify-content:space-between;gap:7px;margin-bottom:4px}
 .cl-look-select header h3{font-size:13px;margin:0}
-#characterDetail .cl-look-select header button{min-height:24px;font-size:11px;padding:3px 6px}
 .cl-look-choices{display:flex;align-items:stretch;gap:6px;max-height:min(22dvh,169px);
  overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:2px}
 .cl-look-card{min-width:0;flex:0 0 145px;border:1px solid var(--cl-line);border-radius:6px;padding:3px}
@@ -497,7 +499,6 @@ STYLE = r'''
 }
 
 .cl-guide-tabs{display:flex;gap:3px;flex-shrink:0}
-#characterDetail .cl-guide-tabs button{font-size:10px;padding:3px 5px;min-height:25px}
 #characterDetail .cl-guide-tabs button[aria-expanded=true]{background:var(--cl-tint);color:var(--cl-accent)}
 .cl-guide-panel{max-height:min(26dvh,185px);overflow:auto;padding:5px 8px;border:1px solid var(--cl-line);
  border-radius:8px;background:var(--cl-card);overscroll-behavior:contain;font-size:11px}
@@ -506,13 +507,71 @@ STYLE = r'''
 .cl-guide-note span,.cl-guide-selection{color:var(--cl-gray)}
 .cl-guide-note{margin:2px 0 5px}.cl-guide-note strong{margin-right:6px}
 .cl-guide-selection{font-size:11px;margin:0;padding:0 8px 4px;overflow-wrap:anywhere}
+/* Keep control metrics local to the character detail and its equipment picker. */
+#characterDetail :is(.cl-browse,.cl-gear){
+ --cl-control-size:12px;--cl-control-height:29px;--cl-control-line:1.25;
+ --cl-control-inset:7px;--cl-category-size:15px
+}
+#characterDetail :is(.cl-browse,.cl-gear) button:where(:not(
+ [hidden],.cl-browse-tile,.cl-exhibit-piece,.cl-look-choice,.cl-asset-choice,.cl-slot)){
+ display:inline-flex;align-items:center;justify-content:center;column-gap:4px;
+ min-height:var(--cl-control-height);padding:3px var(--cl-control-inset);
+ font-family:inherit;font-size:var(--cl-control-size);font-weight:550;line-height:var(--cl-control-line);
+ text-align:center;white-space:normal;overflow-wrap:anywhere;box-sizing:border-box;box-shadow:none
+}
+#characterDetail .cl-browse .cl-browse-categories button{
+ font-size:var(--cl-category-size);font-weight:550;white-space:nowrap
+}
+#characterDetail .cl-browse .cl-browse-revision select,
+#characterDetail .cl-browse .cl-ruler-options select{
+ box-sizing:border-box;max-width:100%;min-height:var(--cl-control-height);width:auto;
+ padding:3px var(--cl-control-inset);font-family:inherit;font-size:var(--cl-control-size);
+ font-weight:550;line-height:var(--cl-control-line);text-align:center;text-align-last:center
+}
+#characterDetail :is(.cl-browse,.cl-gear) .cl-look-choice{
+ justify-content:center;align-items:center;text-align:center;gap:6px;
+ font-family:inherit;font-size:var(--cl-control-size);font-weight:550;line-height:var(--cl-control-line)
+}
+#characterDetail :is(.cl-browse,.cl-gear) .cl-look-choice>span:last-child{
+ min-width:0;max-width:100%;text-align:center;overflow-wrap:anywhere
+}
+#characterDetail :is(.cl-browse,.cl-gear) .cl-asset-choice{
+ align-items:center;justify-items:center;text-align:center;
+ font-family:inherit;font-size:var(--cl-control-size);line-height:var(--cl-control-line)
+}
+#characterDetail :is(.cl-browse,.cl-gear) :is(.cl-slot,.cl-browse-tile,.cl-exhibit-piece){
+ align-items:center;justify-items:center;text-align:center;line-height:1
+}
+#characterDetail .cl-browse-tile .cl-ring-symbol{block-size:auto;margin:auto}
+#characterDetail .cl-browse .cl-ruler-options label{
+ min-height:var(--cl-control-height);font-family:inherit;font-size:var(--cl-control-size);
+ font-weight:550;line-height:var(--cl-control-line);align-items:center;justify-content:center
+}
+#characterDetail .cl-browse .cl-ruler-options input[type=checkbox]{
+ flex:none;inline-size:14px;block-size:14px;margin:0
+}
+#characterDetail .cl-browse .cl-ruler-summary summary{
+ width:fit-content;min-height:23px;padding:3px 3px;font-size:var(--cl-control-size);
+ font-weight:600;line-height:var(--cl-control-line)
+}
+#characterDetail :is(.cl-browse,.cl-gear) :is(button,select,summary,input):where(:not(.cl-browse-tile,.cl-exhibit-piece)):focus-visible{
+ outline:2px solid var(--cl-accent);outline-offset:1px
+}
+#characterDetail :is(.cl-browse,.cl-gear) audio{align-self:center;justify-self:center}
+@media(max-width:720px){
+ #characterDetail :is(.cl-browse,.cl-gear){
+   --cl-control-size:11px;--cl-control-height:28px;--cl-control-inset:6px;--cl-category-size:13px
+ }
+ #characterDetail .cl-browse .cl-browse-categories button{padding-inline:6px}
+ #characterDetail .cl-browse .cl-ruler-options{gap:3px 5px}
+}
 @media(max-width:380px){
  .cl-browse:has(.cl-guide-tabs) .cl-browse-caption{gap:3px}
 }
 
 '''
 
-SCRIPT = r'''
+SCRIPT = RULER_SCRIPT + r'''
 function OACharacterLibrary(tool,openProjectSettings){
  const $=id=>document.getElementById(id);
  const page=$('characterLibrary'),picker=$('characterPicker'),detail=$('characterDetail'),importer=$('characterImport');
@@ -865,6 +924,11 @@ function OACharacterLibrary(tool,openProjectSettings){
              ||preferredAsset(person.forms.find(form=>form.id===previous.selectedForm)?.rows||[]))||person.initial;
            const card=[...browser.grid.children].find(entry=>entry.dataset.exact===person.key);
            showDetail(browser,person,row,card,undefined,revision);
+           const launchRuler=specified&&launch.get('character_ruler');
+           if(['open','compare'].includes(launchRuler)&&gearPage?.ruler){
+             gearPage.compareOnLoad=launchRuler==='compare';
+             toggleRuler(gearPage,true);
+           }
            detail.scrollTop=Number(previous.detailScroll)||0;
            break;
          }
@@ -945,7 +1009,7 @@ function OACharacterLibrary(tool,openProjectSettings){
  function disposeGear(){
    if(!gearPage)return;
    gearPage.selection++;gearPage.stageSelection++;
-   gearPage.turntable?.close();
+   gearPage.turntable?.close();gearPage.ruler?.dispose();
    for(const audio of gearPage.root.querySelectorAll('audio')){
      audio.pause();audio.removeAttribute('src');audio.load();
    }
@@ -953,7 +1017,9 @@ function OACharacterLibrary(tool,openProjectSettings){
    gearPage=null;
  }
  detail.addEventListener('cancel',event=>{
-   if(gearPage?.drawer&&!gearPage.drawer.hidden){event.preventDefault();collapseDrawer(gearPage);}
+   if(gearPage?.ruler?.isComparing()){event.preventDefault();gearPage.ruler.setCompare(false);}
+   else if(gearPage?.rulerActive){event.preventDefault();toggleRuler(gearPage,false);}
+   else if(gearPage?.drawer&&!gearPage.drawer.hidden){event.preventDefault();collapseDrawer(gearPage);}
    else if(gearPage?.lookPicker&&(!gearPage.lookPicker.hidden||!gearPage.info.hidden||
      !gearPage.supplement.hidden||gearPage.requested?.temporary)){
      event.preventDefault();closeBrowseLayers(gearPage,true);
@@ -1483,6 +1549,11 @@ function OACharacterLibrary(tool,openProjectSettings){
      state.stagePhoto.dataset.sourceVersion=staged.source.id;
      state.stagePhoto.dataset.view=staged.region?'crop':'original';
      state.displayed=staged;
+     state.ruler?.selectImage(staged.region||staged.temporary?null:staged.source,result.element);
+     if(state.compareOnLoad){
+       state.compareOnLoad=false;
+       state.ruler?.setCompare(true);
+     }
      if(!staged.temporary)rememberGear(state,staged.figure?.row||entry.row);
      OAUI.set(state.stageTitle,whole?entry.source.browseNote?.label||entry.source.label:entry.label);
      const provenance=entry.row.browseNote?.provenance;
@@ -2189,6 +2260,32 @@ function OACharacterLibrary(tool,openProjectSettings){
    }else panel.append(node('p','cl-profile-missing','暂无已登记测量'));
    return panel;
  }
+ function toggleRuler(state,enabled=!state.rulerActive){
+   state.rulerActive=enabled;
+   state.rulerButton.setAttribute('aria-pressed',String(enabled));
+   state.ruler.setActive(enabled);
+ }
+ function attachRuler(state,profile,metadata,full){
+   const model=state.form.guide?.ruler;
+   if(!model)return;
+   const title=state.form.guide.title||state.form.guide.revision;
+   const ruler=OACharacterRuler(model,{title,formName:state.form.name,stage:state.stage,photo:state.stagePhoto,
+     viewLabel:angle=>viewsOfBody[angle],
+     findImage:ref=>state.rows.find(row=>row.id===ref.version&&row.file.sha256===ref.sha256),
+     loadImage:async row=>{
+       const image=node('img');
+       image.src=await cachedCharacterImage('character_preview',row);
+       await imageReady(image);return image;
+     },
+   });
+   const control=button('比例标尺',()=>toggleRuler(state));
+   control.dataset.rulerToggle='';control.setAttribute('aria-pressed','false');
+   control.setAttribute('aria-controls','clProportionRuler');
+   full.after(control,ruler.comparisonButton);
+   metadata.firstElementChild.after(ruler.toolbar,ruler.notice);
+   profile.children[1].after(ruler.summary);
+   state.ruler=ruler;state.rulerButton=control;
+ }
  function makeBrowsePage(view,person,form,trigger){
    const root=$('clDetailContent');
    root.replaceChildren();root.className='cl-detail cl-browse';
@@ -2287,7 +2384,8 @@ function OACharacterLibrary(tool,openProjectSettings){
    inspect.setAttribute('aria-expanded','false');inspect.setAttribute('aria-controls',info.id);fields.hidden=true;
    const retryBrowse=button('重试预览',()=>void browseSelect(state,state.requested,state.retryWhole));
    retryBrowse.hidden=true;
-   controls.append(button('全身',()=>void showFrontFigure(state)),originalButton,cropButton,inspect,retryBrowse);
+   const full=button('全身',()=>void showFrontFigure(state));
+   controls.append(full,originalButton,cropButton,inspect,retryBrowse);
    caption.append(stageTitle,stageKind);
    const footerHead=node('div','cl-browse-footer-head'),metadata=node('div','cl-browse-metadata');
    footerHead.append(controls);
@@ -2296,13 +2394,15 @@ function OACharacterLibrary(tool,openProjectSettings){
    body.append(arena,metadata);
    const layout=node('div','cl-browse-layout'),visual=node('section','cl-browse-visual');
    visual.append(tools,body,aux);
-   layout.append(visual,characterProfile(person,form,identity));
+   const profile=characterProfile(person,form,identity);
+   layout.append(visual,profile);
    root.append(header,layout,tooltip);
    const state={root,layout,view,person,form,trigger,rows:[...form.rows,...person.forms.flatMap(shape=>shape.rows)],slots:new Map(),ring,
      empty,selection:0,stageSelection:0,tooltip,
      info,inspect,lookPicker,lookTitle,lookChoices,lookTriggers:new Map(),
      stage,stagePhoto,stageTitle,stageKind,feedback,fields,originalButton,cropButton,guideSelection,supplement,supplementTab,retryBrowse,
      exhibit,exhibitGroups,exhibitItems:[],exhibitOpen:false,shelfReturn,figureEntries:[]};
+   attachRuler(state,profile,metadata,full);
    state.fullTool=button(undefined,()=>void toggleCompleteLook(state));
    state.fullTool.className='cl-browse-tile cl-full-look';
    state.fullTool.dataset.look='complete';

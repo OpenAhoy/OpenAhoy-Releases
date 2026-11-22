@@ -919,29 +919,7 @@ SCRIPT = r'''
  const monitor=OAMediaMonitor((action,args)=>mediaTool('wce.ui.video.workspace',{action,...args}),sendChatRequest,
    {musicCall:mediaTool,musicShot:scope=>enterStudio('desk',{shot:{scope},user:true,focus:true}),sound:studioSound,canAttach:row=>director.canAttach(row),attach:row=>director.attach(row),
     typeChanged:kind=>{if(mediaView==='assets'){paintAssetKind(kind);updateAssetURL(assetRoute(kind));}}});
- let countVersion=0;
- async function readAssetCounts(){
-   const token=++countVersion;
-   for(const button of assetKinds.querySelectorAll('button'))button.querySelector('.ja-count').textContent='';
-   const display=(kind,total,partial=false)=>{
-     if(token!==countVersion||mediaView!=='assets'||assetKind)return;
-     const counter=assetKinds.querySelector('[data-asset-kind="'+kind+'"] .ja-count');
-     counter.textContent=partial?OAUI.format('{0} 已读取',[total]):String(total);
-   };
-   const checks=[
-     mediaTool('video.director.read',{action:'character_library'}).then(data=>
-       display('characters',data.projects.reduce((n,row)=>n+row.assets.length,0),data.projects.some(row=>row.unavailable))),
-     mediaTool('wce.ui.video.director.media',{action:'asset_image_library'}).then(data=>
-       display('images',data.projects.reduce((n,row)=>n+row.images.length,0),data.projects.some(row=>row.unavailable))),
-     mediaTool('video.director.read',{action:'article_catalog'}).then(data=>
-       display('articles',data.articles.length,data.articles.some(row=>row.error))),
-     mediaTool('wce.ui.video.workspace',{action:'media_monitor'}).then(data=>{
-       for(const kind of ['audio','video','gif'])display(kind,data.rows.filter(row=>row.kind===kind&&row.asset).length,
-         data.unavailable.some(row=>row.family===kind));
-     }),
-   ];
-   await Promise.allSettled(checks);
- }
+ const gallery=OAAssetGallery(assetKinds,mediaTool,studioSound,openXLink);
  function showAssetKind(kind='',asset=null){
    if(kind!==assetKind){
      switch(assetKind){
@@ -956,7 +934,7 @@ SCRIPT = r'''
    paintAssetKind(kind);
    const articlePage=$('articleAssetLibrary');
    articlePage.hidden=kind!=='articles';
-   if(!kind)void readAssetCounts();
+   if(!kind)gallery.open();else gallery.close();
    document.dispatchEvent(new CustomEvent('jiusera:asset-category',{detail:{kind,asset}}));
    if(kind==='characters')characters.open();
    else if(kind==='images')imageAssets.open();
@@ -1016,7 +994,7 @@ SCRIPT = r'''
    if(before!==section){
      navigationEpoch++;
      if(before==='assets'){
-       characters.close();monitor.close();imageAssets.close();newsSources.close();$('articleAssetLibrary').hidden=true;
+       gallery.close();characters.close();monitor.close();imageAssets.close();newsSources.close();$('articleAssetLibrary').hidden=true;
        document.dispatchEvent(new CustomEvent('jiusera:asset-category',{detail:{kind:'',asset:null}}));
      }
      if(before==='tasks')monitor.close();

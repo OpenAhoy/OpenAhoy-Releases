@@ -270,8 +270,13 @@ def validate_revision(jobs, values, patch, root, scratch, project_id, work_id, p
 
 def preview_image(root, spec, small):
     with tempfile.TemporaryDirectory(prefix='openahoy-director-') as folder:
+        _, data = source_image(root, spec, Path(folder))
+    return preview_image_bytes(data, spec['sha256'], small)
+
+
+def preview_image_bytes(data, checksum, small):
+    with tempfile.TemporaryDirectory(prefix='openahoy-director-') as folder:
         scratch = Path(folder)
-        _, data = source_image(root, spec, scratch)
         original, thumbnail = scratch / 'original', scratch / 'preview.jpg'
         original.write_bytes(data)
         try:
@@ -284,7 +289,7 @@ def preview_image(root, spec, small):
             require(content.startswith(b'\xff\xd8\xff'), 'DIRECTOR_PREVIEW_UNAVAILABLE')
         except (OSError, subprocess.SubprocessError):
             raise WCEError('DIRECTOR_PREVIEW_UNAVAILABLE') from None
-    return {'mime_type': 'image/jpeg', 'data': b64encode(content).decode('ascii'), 'sha256': spec['sha256']}
+    return {'mime_type': 'image/jpeg', 'data': b64encode(content).decode('ascii'), 'sha256': checksum}
 
 
 def preview_whitebox(root, spec, start=None):

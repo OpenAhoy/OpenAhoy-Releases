@@ -296,13 +296,19 @@ function OAWorkbench({open, readAnalytics, openLink, accountName, platformName, 
    meta:row=>OAUI.format('阅读 {0}',[formatCount(row.traffic)]),t:key=>OAUI.format(key)});
  const supported=new Set(['BOUND','BOUND_IDLE','CONNECTED','BUSY']);
  const newElement=(tag,text)=>{const node=document.createElement(tag);if(text)OAUI.set(node,text);return node;};
- let surface='startup',bound=[],platforms=new Map(),checkedAccounts=false,accountKey='',activeRead=0,loading=false;
- const reports=new Map();
+ let surface='startup',bound=[],platforms=new Map(),checkedAccounts=false,accountKey='';
+ let renderFrame=0,workers=0,platformMarkup='',trendMarkup='',rankingMarkup='';
+ const reports=new Map(), pending=new Set(), queue=[];
+ const periodDays=7;
+ const validCount=value=>Number.isFinite(value)&&value>=0;
+ const datePattern=/^\d{4}-\d{2}-\d{2}$/;
+ const dayLabel=value=>value.slice(5).replace('-','/');
+ const clock=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',
+   hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
  const key=row=>JSON.stringify([row.platform_id,row.connection_id,row.account_id,row.binding_revision]);
  const selected=()=>bound.find(row=>key(row)===accountKey);
  const canRead=row=>row?.platform_id==='wechat_official_account'&&supported.has(row.state);
  const scoped=()=>selected()?[selected()]:bound.filter(row=>!platformSelector.value||row.platform_id===platformSelector.value);
- const accountReport=()=>reports.get(accountKey);
  const platformLabel=id=>platformName(id)||platforms.get(id)||id;
  const formatCount=value=>Number.isFinite(value)?new Intl.NumberFormat().format(value):'—';
  const viewStorage='jiusera.workbench.published.';
@@ -353,7 +359,6 @@ function OAWorkbench({open, readAnalytics, openLink, accountName, platformName, 
  function paint(next,{showCanvas=false}={}){
    if(surface!==next){
      closeMenu();panel();
-     if(next!=='published'&&loading){activeRead++;loading=false;}
      if(next!=='published')gallery.pause();
    }
    surface=next;
@@ -367,7 +372,7 @@ function OAWorkbench({open, readAnalytics, openLink, accountName, platformName, 
      if(button.dataset.wbRoute===active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');
    }
    more.toggleAttribute('data-current',next==='about'||next==='platform');
-   if(next==='published'){restoreAccount();paintPublished();}
+   if(next==='published'){restoreAccount();schedulePaint();}
  }
  function options(){
    const retained=platformSelector.value;
@@ -391,10 +396,10 @@ function OAWorkbench({open, readAnalytics, openLink, accountName, platformName, 
    bound=rows;
    platforms=new Map(directory.map(row=>[row.id,row.name]));
    for(const row of bound)if(!platforms.has(row.platform_id))platforms.set(row.platform_id,row.platform_id);
-   const live=new Set(bound.map(key));
+   const live=new Set(bound.filter(canRead).map(key));
    for(const id of reports.keys())if(!live.has(id))reports.delete(id);
    if(before&&!selected()){clearAccount();rememberAccount();}
-   if(surface==='published'){restoreAccount();paintPublished();}
+   if(surface==='published'){restoreAccount();schedulePaint();}
  }
  function restoreAccount(){
    if(accountKey){options();return;}
@@ -417,9 +422,9 @@ function OAWorkbench({open, readAnalytics, openLink, accountName, platformName, 
      platformSelector.value=row.platform_id;
      accountKey=key(row);
    }
-   rememberAccount();options();paintPublished();
+   rememberAccount();options();schedulePaint();
  }
- platformSelector.onchange=()=>{clearAccount();rememberAccount();options();paintPublished();};
+ platformSelector.onchange=()=>{clearAccount();rememberAccount();options();schedulePaint();};
  selector.onchange=()=>chooseAccount(bound.find(row=>key(row)===selector.value));
  $('wbClearScope').onclick=()=>{
    platformSelector.value='';chooseAccount();
@@ -428,40 +433,74 @@ function OAWorkbench({open, readAnalytics, openLink, accountName, platformName, 
 
  const platformMark={wechat_official_account:'公',x:'X',xiaohongshu:'红'};
  const styleKey=row=>JSON.stringify([row.platform_id,row.connection_id,row.account_id]);
- function workDays(){
-   const end=[...reports.values()].map(value=>value.span?.end).filter(Boolean).sort().at(-1);
-   return {end,days:[...reports.values()].find(value=>value.span?.end===end)?.timeline?.map(item=>item.date)||[]};
+ function windowDays(end){
+   if(!end||!datePattern.test(end))return [];
+   const finish=Date.parse(end+'T00:00:00Z');
+   return Number.isFinite(finish)?Array.from({length:periodDays},(_,index)=>
+     new Date(finish-(periodDays-1-index)*86400000).toISOString().slice(0,10)):[];
  }
- function summary(days,end){
+ function workDays(accounts,field){
+   const end=accounts.map(row=>reports.get(key(row))?.[field]?.span.end).filter(Boolean).sort().at(-1);
+   return {end,days:windowDays(end)};
+ }
+ function accountStatus(row,report,busy){
+   const source=report?.trend||report?.works;
+   const state=!canRead(row)?(row.platform_id==='wechat_official_account'?'unavailable':'unsupported'):
+     busy?'reading':report?.failed?'failed':report?.partial?'partial':
+     !report?'unread':report.trend?.data.some(day=>validCount(day.read_user))?'ready':'missing';
+   const labels={unsupported:'暂不支持统计',unavailable:'账号暂不可读',reading:source?'读取中 · 旧数据':'正在读取…',
+     failed:source?'读取失败 · 旧数据':'读取失败',partial:report?.stale?'部分失败 · 含旧数据':'部分失败',
+     unread:'未读取',ready:'',missing:'未回报日阅读'};
+   const formatSource=part=>part?.span?dayLabel(part.span.start)+'–'+dayLabel(part.span.end):'';
+   const time=source?.readAt?Object.fromEntries(clock.formatToParts(source.readAt*1000).map(part=>[part.type,part.value])):null;
+   const when=time?time.month+'/'+time.day+' '+time.hour+':'+time.minute:'';
+   const title=time?OAUI.format('上次成功读取 {0}（北京时间）',[time.year+'/'+when]):'';
+   const coverage=source?formatSource(source):report?.requested?formatSource({span:report.requested}):
+     canRead(row)?OAUI.format('近 7 天'):'';
+   const details=[state==='ready'?'':OAUI.format(labels[state]),coverage, title].filter(Boolean).join(' · ');
+   return {state,label:labels[state]?OAUI.format(labels[state]):'',coverage,when,
+     title:details,retry:!busy&&(state==='failed'||state==='partial')};
+ }
+ function summary(){
    const scope=scoped();
    const byAccount=scope.map(row=>[row,reports.get(key(row))]);
    OAUI.set($('wbCoverage'),checkedAccounts?'{0} 个账号 · {1} 个已查询':'正在读取账号…',
-     scope.length,byAccount.filter(([,value])=>!!value).length);
+     scope.length,byAccount.filter(([,value])=>value?.trend||value?.works).length);
    const container=$('wbPlatformCoverage');
-   container.replaceChildren();
-   for(const id of new Set(bound.map(row=>row.platform_id))){
-     const chip=newElement('button');chip.type='button';
-     chip.setAttribute('aria-pressed',String(platformSelector.value===id));
-     platformDirectoryIcon(chip,id,platformLabel(id));
-     chip.onclick=()=>{platformSelector.value=platformSelector.value===id?'':id;platformSelector.onchange();};
-     container.append(chip);
+   const definitions=[...new Set(bound.map(row=>row.platform_id))].map(id=>[id,OAUI.format(platformLabel(id))]);
+   const markup=JSON.stringify(definitions);
+   if(platformMarkup!==markup){
+     platformMarkup=markup;
+     container.replaceChildren(...definitions.map(([id])=>{
+       const chip=newElement('button');chip.type='button';chip.dataset.platform=id;
+       platformDirectoryIcon(chip,id,platformLabel(id));
+       chip.onclick=()=>{platformSelector.value=platformSelector.value===id?'':id;platformSelector.onchange();};
+       return chip;
+     }));
    }
+   for(const chip of container.children)chip.setAttribute('aria-pressed',String(platformSelector.value===chip.dataset.platform));
    $('wbClearScope').hidden=!accountKey&&!platformSelector.value;
+   const {days,end}=workDays(scope,'trend');
    const accounts=byAccount.map(([row,value])=>{
-     const timeline=value?.span?.end===end?value?.timeline:null;
-     return {id:key(row),styleKey:styleKey(row),
+     const timeline=new Map((value?.trend?.data||[]).map(day=>[day.date,day.read_user]));
+     const id=key(row);
+     return {id,styleKey:styleKey(row),
        label:accountName(row),platform:row.platform_id,platformLabel:OAUI.format(platformLabel(row.platform_id)),
-       mark:platformMark[row.platform_id],values:days.map(date=>{
-         const reported=timeline?.find(day=>day.date===date)?.read_user;
-         return Number.isFinite(reported)?reported:null;
-       })};
+       mark:platformMark[row.platform_id],values:days.map(date=>timeline.get(date)??null),
+       status:accountStatus(row,value,pending.has(id))};
    });
-   trend.update({title:OAUI.format('日阅读趋势'),
-     hint:OAUI.format(end?'断线为缺报':'读取统计后显示公众号日报。'),
-     dates:days,account:accounts,identities:bound.map(row=>({platform:row.platform_id,styleKey:styleKey(row)})),selected:accountKey,select:id=>{
+   const model={title:OAUI.format('日阅读趋势'),hint:OAUI.format(end?'断线为缺报':'读取统计后显示公众号日报。'),
+     dates:days,account:accounts,identities:bound.map(row=>({platform:row.platform_id,styleKey:styleKey(row)})),selected:accountKey};
+   const nextMarkup=JSON.stringify(model);
+   if(trendMarkup===nextMarkup)return;
+   trendMarkup=nextMarkup;
+   trend.update({...model,select:id=>{
        const row=bound.find(account=>key(account)===id);
        if(row&&accountKey!==id){chooseAccount(row);$('wbClearScope').focus({preventScroll:true});}
        else if(accountKey===id)$('wbClearScope').click();
+     },retry:id=>{
+       const row=bound.find(account=>key(account)===id);
+       if(canRead(row)&&!pending.has(id))enqueue([row],true);
      }});
  }
  function renderWork(row){
@@ -480,7 +519,8 @@ function OAWorkbench({open, readAnalytics, openLink, accountName, platformName, 
    card.append(copy);
    return card;
  }
- function renderRanking(days,end){
+ function renderRanking(){
+   const {days,end}=workDays(bound,'works');
    const start=days.at(0);
    const ids=new Set(bound.map(row=>row.platform_id));
    const period=$('wbRankPeriod');
@@ -488,73 +528,109 @@ function OAWorkbench({open, readAnalytics, openLink, accountName, platformName, 
    else OAUI.set(period,'近 7 天');
    const groups=[...ids].map(id=>{
      const connected=bound.filter(row=>row.platform_id===id);
-     const records=connected.flatMap(row=>(reports.get(key(row))?.items||[]).map((item,index)=>({...item,
+     const records=connected.flatMap(row=>(reports.get(key(row))?.works?.data||[]).map((item,index)=>({...item,
        id:JSON.stringify([key(row),item.published,item.url||item.title,index]),
        account:accountName(row),traffic:item.read_user})));
      const ranked=start&&end?JiuseraRank(records,start,end):{known:[],missing:[]};
      const eligible=connected.filter(canRead);
-     const reported=eligible.filter(row=>reports.get(key(row))?.articleKnown).length;
+     const reported=eligible.filter(row=>reports.get(key(row))?.works).length;
      const note=eligible.length?OAUI.format('已读 {0}/{1} 个公众号。单号最多回读 4 个发表日、40 条；数值为截至各稿统计日的累计阅读人数。',[reported,eligible.length]):
        OAUI.format('当前没有可用于排名的作品流量来源。');
      return {id,label:OAUI.format(platformLabel(id)),...ranked,note,
-       empty:OAUI.format(!eligible.length?'暂无可读作品流量':loading?'正在读取发表统计…':reported?'暂无已报流量作品':'读取统计后查看作品排行')};
+       empty:OAUI.format(!eligible.length?'暂无可读作品流量':reported?'暂无已报流量作品':'读取统计后查看作品排行')};
    });
-   gallery.setPlatforms(groups);
+   const markup=JSON.stringify(groups);
+   if(rankingMarkup!==markup){rankingMarkup=markup;gallery.setPlatforms(groups);}
    state.hidden=groups.length>0;
    if(!groups.length)OAUI.set(state,checkedAccounts?'绑定账号后可查看作品表现。':'正在读取账号…');
  }
  function paintPublished(){
-   const eligible=bound.filter(canRead);
-   const have=eligible.filter(row=>reports.get(key(row))&&!reports.get(key(row)).error);
-   $('wbPublishedRefresh').disabled=!eligible.length||loading;
-   OAUI.set($('wbPublishedRefresh'),loading?'正在读取…':have.length===eligible.length&&eligible.length?'刷新统计':'读取统计');
-   const {days,end}=workDays();
-   summary(days,end);
-   renderRanking(days,end);
+   const eligible=scoped().filter(canRead);
+   const busy=eligible.some(row=>pending.has(key(row)));
+   const complete=eligible.every(row=>{const item=reports.get(key(row));return item&&!item.partial&&!item.failed;});
+   $('wbPublishedRefresh').disabled=!eligible.length||busy;
+   OAUI.set($('wbPublishedRefresh'),busy?'正在读取…':complete&&eligible.length?'刷新统计':'读取统计');
+   summary();
+   renderRanking();
  }
- OAUI.onChange(()=>{if(surface==='published')paintPublished();});
- async function readScopedAccount(row,refresh,alive){
+ function schedulePaint(){
+   if(surface!=='published'||renderFrame)return;
+   renderFrame=requestAnimationFrame(()=>{
+     renderFrame=0;
+     if(surface==='published')paintPublished();
+   });
+ }
+ OAUI.onChange(schedulePaint);
+ function readPart(value,kind,rows,span,previous){
+   const states=value.status?.[kind]?.states;
+   const hasStates=Array.isArray(states)&&states.length>0;
+   const failed=hasStates?states.some(state=>!['EMPTY','READY'].includes(state)):!rows.length;
+   const evidence=value.coverage?.[kind];
+   const dates=new Set(Array.isArray(evidence?.confirmed_dates)?evidence.confirmed_dates:[]);
+   if(failed&&!rows.length&&!dates.size)return {failed,stale:Boolean(previous),data:previous};
+   const dayOf=row=>row.date||row.published;
+   for(const row of rows)dates.add(dayOf(row));
+   const retained=failed?(previous?.data||[]).filter(row=>{
+     const day=dayOf(row);return day>=span.start&&day<=span.end&&!dates.has(day);
+   }):[];
+   const readAt=evidence?.last_success_at??(!failed?value.read_at:null);
+   return {failed,stale:retained.length>0,data:{span,data:[...rows,...retained],
+     readAt:readAt>0&&Number.isFinite(new Date(readAt*1000).getTime())?readAt:previous?.readAt}};
+ }
+ const live=id=>bound.some(row=>key(row)===id&&canRead(row));
+ async function readScopedAccount(row,refresh){
    const expected=key(row);
-   const current=()=>alive()&&bound.some(account=>key(account)===expected&&canRead(account));
+   const previous=reports.get(expected);
    try{
-     const value=await readAnalytics({connection_id:row.connection_id,days:7,refresh,
+     const value=await readAnalytics({connection_id:row.connection_id,days:periodDays,refresh,
        ...(row.binding_revision?{binding_revision:row.binding_revision}:{})});
-     if(!current())return;
-     if(value?.connection_id!==row.connection_id||value?.days!==7||
+     if(!live(expected))return;
+     const days=windowDays(value?.end);
+     if(value?.connection_id!==row.connection_id||value?.days!==periodDays||days[0]!==value?.start||
        (row.binding_revision&&value.binding_revision!==row.binding_revision)||!Array.isArray(value?.articles)||
        !Array.isArray(value?.timeline))throw Error('INVALID_PUBLISHED_RESULT');
-     const items=value.articles.filter(item=>typeof item?.title==='string'&&typeof item.published==='string');
-     const report=value.status?.getarticletotaldetail?.states||[];
-     const span=/^\d{4}-\d{2}-\d{2}$/.test(value.end||'')?{end:value.end}:null;
-     const articleKnown=items.length>0||(report.length>0&&report.every(item=>['EMPTY','READY'].includes(item)));
-     const error=report.some(item=>!['EMPTY','READY'].includes(item));
-     const previous=reports.get(expected);
-     reports.set(expected,{
-       items:!articleKnown&&previous?.articleKnown?previous.items:items,
-       articleKnown,span,timeline:value.timeline,readAt:value.read_at,error,
-     });
+     const requested={start:value.start,end:value.end};
+     const series=value.timeline.filter(day=>days.includes(day?.date)&&validCount(day.read_user))
+       .map(day=>({date:day.date,read_user:day.read_user}));
+     const items=value.articles.filter(item=>typeof item?.title==='string'&&days.includes(item.published));
+     const daily=readPart(value,'getbizsummary',series,requested,previous?.trend);
+     const works=readPart(value,'getarticletotaldetail',items,requested,previous?.works);
+     reports.set(expected,{requested,trend:daily.data,works:works.data,
+       partial:daily.failed||works.failed,failed:daily.failed&&works.failed&&!daily.data&&!works.data,
+       stale:daily.stale||works.stale});
    }catch(_){
-     if(current()){const previous=reports.get(expected);reports.set(expected,{...previous,error:true});}
+     if(live(expected))reports.set(expected,{...previous,failed:true});
    }
  }
- async function fetchPublished(){
-   const eligible=bound.filter(canRead);
-   if(!eligible.length||loading)return;
-   const missing=eligible.filter(row=>!reports.has(key(row))||reports.get(key(row)).error);
-   const queue=(missing.length?missing:eligible).values(),refresh=!missing.length;
-   const ticket=++activeRead,alive=()=>ticket===activeRead&&surface==='published';
-   loading=true;paintPublished();
-   async function readNext(){
-     for(const row of queue){
-       if(!alive())return;
-       await readScopedAccount(row,refresh,alive);
-       if(alive())paintPublished();
+ function enqueue(rows,refresh){
+   for(const row of rows){
+     const id=key(row);
+     if(pending.has(id))continue;
+     pending.add(id);queue.push({row,id,refresh:refresh||reports.has(id)});
+   }
+   schedulePaint();
+   while(workers<3&&queue.length){
+     workers++;
+     void runQueue();
+   }
+ }
+ async function runQueue(){
+   try{
+     while(queue.length){
+       const {row,id,refresh}=queue.shift();
+       if(live(id))await readScopedAccount(row,refresh);
+       pending.delete(id);schedulePaint();
      }
+   }finally{
+     workers--;
    }
-   try{await Promise.all(Array.from({length:Math.min(3,missing.length||eligible.length)},readNext));}
-   finally{if(alive()){loading=false;paintPublished();}}
  }
- $('wbPublishedRefresh').onclick=()=>void fetchPublished();
+ $('wbPublishedRefresh').onclick=()=>{
+   const scope=scoped().filter(canRead);
+   if(scope.some(row=>pending.has(key(row))))return;
+   const missing=scope.filter(row=>{const item=reports.get(key(row));return !item||item.failed||item.partial;});
+   enqueue(missing.length?missing:scope,!missing.length);
+ };
  return {paint,paintAccounts,
    failed(){OAUI.set($('wbStartupStatus'),'当前宿主管理工具桥不可用。');}};
 }

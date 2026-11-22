@@ -86,7 +86,7 @@ ARK_MODEL = {'model': {'type': 'string', 'enum': list(SUPPORTED_MODELS)}}
 
 
 WORKSPACE_SPECS = {'oneOf': [
-    action('media_monitor', {}),
+    action('media_monitor', {}, {'include_scope': {'type':'boolean'}}),
     action('media_monitor_task', JOB),
     action('audio_library', {}),
     action('music_provider_read', {}),
@@ -395,7 +395,7 @@ class VideoRouter:
             return job.monitor_task(attempt, project)
         if command == 'media_monitor':
             from .media_monitor import collect
-            return collect(job, self.gif_jobs, self.audio_jobs)
+            return collect(job, self.gif_jobs, self.audio_jobs, include_scope=arguments.get('include_scope', False))
         if command == 'music_provider_read':
             return music_preferences.read(job.projects.root)
         if command == 'music_provider_save':

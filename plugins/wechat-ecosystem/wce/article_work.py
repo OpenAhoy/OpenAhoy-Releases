@@ -77,7 +77,7 @@ def publication_status(policy, registry, receipt):
     }
 
 
-def snapshot(pointer, registry, *, version=None, detail=False, known_version=None, slot=None, offset=0):
+def snapshot(pointer, registry, *, version=None, detail=False, known_version=None, slot=None, offset=0, thumbnail=False, excerpt=False):
     registry, policy, guard, binding = scope(pointer['connection_id'], registry)
     require(pointer['binding'] == digest(binding), 'ARTICLE_WORK_BINDING_CHANGED')
     bundle, article_id = pointer['bundle_id'], pointer['article_id']
@@ -101,6 +101,10 @@ def snapshot(pointer, registry, *, version=None, detail=False, known_version=Non
             verified, raw = READER._asset(db, binding, metadata['asset_ref'])
             require(verified == {key: item for key, item in metadata.items() if key != 'slot'},
                     'ARTICLE_WORK_IMAGE_CHANGED')
+            if thumbnail:
+                from .video_director_media import preview_image_bytes
+                guard()
+                return preview_image_bytes(raw, metadata['sha256'], False)
             require(0 <= offset < len(raw), 'ARTICLE_WORK_IMAGE_RANGE')
             payload = raw[offset:offset + CHUNK]
             guard()
@@ -119,6 +123,10 @@ def snapshot(pointer, registry, *, version=None, detail=False, known_version=Non
         if policy.value['schema'] == 2:
             from .own_connection_registry import check_member
             result['account_label'] = check_member(policy, revocation=False, readonly=True)['label']
+        if excerpt:
+            text = documents.visible_text(article)
+            lines = (line.strip() for line in text.splitlines())
+            result['excerpt'] = ' '.join(line for line in lines if line and line != article['title'])[:360]
         if not detail:
             result['images'] = {key: {k: item[k] for k in ('sha256', 'size', 'declared_type', 'role')}
                                 for key, item in assets.items()}
@@ -216,18 +224,22 @@ def prepared_result(director, registry, arguments, result):
                                         'reason': getattr(error, 'code', 'ARTICLE_WORK_STORAGE_UNAVAILABLE')}}
 
 
-def catalog(director, registry, selected=None):
+def catalog(director, registry, selected=None, *, excerpt=False):
     projects = [row for row in director.registered() if selected is None or row['id'] == selected]
     result = []
     for project in projects:
-        root, pin = director.project(project['id'])
-        state = director.load(project['id'], director.storage(root, pin))
+        try:
+            root, pin = director.project(project['id'])
+            state = director.load(project['id'], director.storage(root, pin))
+        except (OSError, WCEError):
+            project['unavailable'] = True
+            continue
         for work in state['works'].values():
             if work.get('kind') != 'article':
                 continue
             row = {'project_id': project['id'], 'project': project['name'], 'work_id': work['id']}
             try:
-                article = snapshot(work['article'], registry)
+                article = snapshot(work['article'], registry, excerpt=excerpt)
                 row.update({key: value for key, value in article.items() if key != 'images'})
             except (OSError, sqlite3.Error, WCEError) as error:
                 row.update(title=work['title'], error=getattr(error, 'code', 'ARTICLE_WORK_SOURCE_UNAVAILABLE'))

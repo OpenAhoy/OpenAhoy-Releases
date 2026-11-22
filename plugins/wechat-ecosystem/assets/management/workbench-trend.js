@@ -64,6 +64,8 @@ function JiuseraTrend(root,t) {
   let dateIndex=-1,pinned=false,pointedSeries='';
   let wide=false,lastWidth=0,lastHeight=0,restorePopupFocus=false;
   let syncSpotlight=()=>{},clearDate=()=>{};
+  let updateReadings=()=>{},plotKey='';
+  let accountDetails=new Map();
   close.onclick=()=>clearDate(true);
   function sample(row){
     const swatch=graphic('svg',{viewBox:'0 0 22 10',class:'jtrend-sample','aria-hidden':'true'});
@@ -77,12 +79,19 @@ function JiuseraTrend(root,t) {
     const period=dates.length?(dates[0]===dates.at(-1)?dates[0]:dates[0]+' — '+dates.at(-1)):t('近 7 天');
     range.textContent=period+' · '+t('单位：人');
     close.textContent=t('收起明细');
+    const nextPlot=JSON.stringify([model.dates,model.title,model.identities,
+      model.account.map(({status,...row})=>row)]);
+    if(plotKey===nextPlot){updateReadings();return;}
+    plotKey=nextPlot;
     pointedSeries='';
     draw();
   }
 
   function draw(){
-    graph.replaceChildren();readings.replaceChildren();
+    const active=document.activeElement;
+    let restoreFocus=readings.contains(active)?active:null;
+    const focusedDate=graph.contains(active)?active.dataset.day:null;
+    graph.replaceChildren();
     lastWidth=graph.clientWidth;
     lastHeight=graph.clientHeight;
     const dates=model.dates, records=model.account;
@@ -117,10 +126,14 @@ function JiuseraTrend(root,t) {
         label.textContent=amount>=1000?compact.format(amount):number.format(amount);
         svg.append(label);
       }
-      const showEvery=Math.max(1,Math.ceil(dates.length/(wide?10:7)));
+      const labelGap=Math.max(wide?32:37,areaWidth/(wide?9:6));
+      const endX=x(dates.length-1);
+      let lastLabel=-Infinity;
       dates.forEach((day,index)=>{
-        if(index%showEvery&&index!==dates.length-1)return;
-        const label=graphic('text',{x:x(index),y:height-5,'text-anchor':'middle',class:'jtrend-axis','data-tick':index});
+        const position=x(index);
+        if(index>0&&index<dates.length-1&&(position-lastLabel<labelGap||endX-position<labelGap))return;
+        lastLabel=position;
+        const label=graphic('text',{x:position,y:height-5,'text-anchor':'middle',class:'jtrend-axis','data-tick':index});
         label.textContent=shortDate(day);
         svg.append(label);
       });
@@ -156,6 +169,7 @@ function JiuseraTrend(root,t) {
       hitArea.style.insetBlock='0 '+(height-bottom-1)+'px';
       targets=dates.map((date,index)=>{
         const hit=button('jtrend-date',date);
+        hit.dataset.day=date;
         const start=index===0?Math.max(0,left-12):(x(index-1)+x(index))/2;
         const end=index===dates.length-1?Math.min(width,x(index)+16):(x(index)+x(index+1))/2;
         hit.style.left=(start/width*100)+'%';hit.style.width=((end-start)/width*100)+'%';
@@ -230,14 +244,21 @@ function JiuseraTrend(root,t) {
       const day=selected?dateIndex:dates.length-1;
       const activeDate=dates[day];
       panel.hidden=!records.length;
+      const hasDetails=records.some(row=>accountDetails.has(row.id));
       const labelGap=20,labelCenter=27,maxLabelOffset=height-labelCenter-11;
-      panel.classList.toggle('has-align',wide&&hasPlot&&(records.length-1)*labelGap<=maxLabelOffset-2);
+      panel.toggleAttribute('data-account-details',hasDetails);
+      panel.classList.toggle('has-align',!hasDetails&&wide&&hasPlot&&(records.length-1)*labelGap<=maxLabelOffset-2);
       panelTitle.textContent=selected?t('同日读数'):activeDate?t('期末读数'):t('日读数');
       panelDate.textContent=activeDate?shortDate(activeDate):'';
       close.hidden=!(selected&&pinned);
       const rowsForDay=records.map((row,order)=>({row,order,value:row.values[day]}));
       for(const group of pins.values())group.replaceChildren();
       const aligned=panel.classList.contains('has-align');
+      const previousFocus=readings.contains(document.activeElement)?document.activeElement:restoreFocus;
+      restoreFocus=null;
+      const priorId=previousFocus?.closest('li')?.dataset.series;
+      const wantsRetry=previousFocus?.classList.contains('jtrend-retry');
+      const scrollTop=readings.scrollTop;
       if(aligned){
         rowsForDay.sort((a,b)=>(finite(b.value)?b.value:-Infinity)-(finite(a.value)?a.value:-Infinity)||a.order-b.order);
         const min=2,maxY=maxLabelOffset,gap=labelGap;
@@ -256,6 +277,11 @@ function JiuseraTrend(root,t) {
         }
       }else{
         readings.replaceChildren(...rowsForDay.map(({row,value})=>reading(row,value,null)));
+      }
+      readings.scrollTop=scrollTop;
+      if(priorId){
+        const item=[...readings.children].find(entry=>entry.dataset.series===priorId);
+        (wantsRetry&&item?.querySelector('.jtrend-retry')||item?.firstChild)?.focus({preventScroll:true});
       }
       if(hasPlot){
         cursor.setAttribute('visibility',selected?'visible':'hidden');
@@ -283,11 +309,14 @@ function JiuseraTrend(root,t) {
       if(offset!==null)item.style.top=offset+'px';
       const key=button('jtrend-reading');
       const name=node('span','jtrend-reading-name',row.label);
-      const amount=node('strong',finite(value)?'':'jtrend-missing',format(value));
+      const info=accountDetails.get(row.id);
+      const hasRead=info&&['ready','missing','partial'].includes(info.state);
+      const shown=finite(value)||!info||hasRead?format(value):'—';
+      const amount=node('strong',finite(value)?'':'jtrend-missing',shown);
       const mark=node('span','jtrend-platform',row.mark||'');
       mark.dataset.platform=row.platform;
       mark.setAttribute('aria-hidden','true');
-      const accessible=[row.platformLabel,row.label,format(value)].filter(Boolean).join(' · ');
+      const accessible=[row.platformLabel,row.label,shown,info?.title].filter(Boolean).join(' · ');
       name.title=row.label;
       key.title=accessible;
       key.setAttribute('aria-label',accessible);
@@ -297,9 +326,36 @@ function JiuseraTrend(root,t) {
       key.onfocus=()=>{pointedSeries=row.id;syncSpotlight();};
       key.onblur=()=>{pointedSeries='';syncSpotlight();};
       key.onclick=()=>model.select?.(row.id);
-      item.append(key);return item;
+      item.append(key);
+      if(info){
+        item.dataset.readState=info.state;
+        const details=node('div','jtrend-reading-details');
+        if(info.label)details.append(node('span','jtrend-read-label',info.label));
+        if(info.coverage||info.when){
+          const time=node('span','jtrend-read-time');
+          if(info.coverage)time.append(node('span','',info.coverage));
+          if(info.when)time.append(node('span','',t('读于')+' '+info.when));
+          time.title=info.title;
+          details.append(time);
+        }
+        if(info.retry){
+          const retry=button('jtrend-retry','↻');
+          const label=t('重试此账号')+' · '+row.label;
+          retry.setAttribute('aria-label',label);retry.title=label;
+          retry.onclick=()=>model.retry?.(row.id);
+          details.append(retry);
+        }
+        if(details.childElementCount)item.append(details);
+      }
+      return item;
     }
+    updateReadings=update;
     update();
+    if(focusedDate){
+      restorePopupFocus=true;
+      targets.find(target=>target.dataset.day===focusedDate)?.focus({preventScroll:true});
+      restorePopupFocus=false;
+    }
   }
   function curve(points){
     let path='M'+points[0].join(' ');
@@ -320,6 +376,7 @@ function JiuseraTrend(root,t) {
   return {update(next){
     const sameDates=model.dates.join()===next.dates.join();
     model=next;
+    accountDetails=new Map(model.account.filter(row=>row.status).map(row=>[row.id,row.status]));
     appearance.clear();
     const ordered=[...(model.identities||model.account)].sort((a,b)=>(a.styleKey||a.id).localeCompare(b.styleKey||b.id,'en'));
     const counts=new Map();
