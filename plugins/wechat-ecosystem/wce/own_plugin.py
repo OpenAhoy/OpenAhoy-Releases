@@ -38,6 +38,7 @@ def _mcp_tools(catalog):
     retains the original alternatives, validation and authorization hashes.
     """
     from .own_branding import host_icons
+    from .mcp_schema_compaction import MODEL_DESCRIPTIONS, model_input_schema
 
     rows = deepcopy(catalog)
     for row in rows:
@@ -59,11 +60,15 @@ def _mcp_tools(catalog):
             if not all(branch.get('type') == 'object' for branch in spec['oneOf']):
                 raise ValueError('MCP_INPUT_OBJECT_REQUIRED')
             spec['type'] = 'object'
+        if row.get('_meta', {}).get('ui', {}).get('visibility') != ['app']:
+            row['inputSchema'] = model_input_schema(row['name'], spec)
         if row.get('description', '').startswith('Select one human-enabled personal connection. Explicit user-requested images and drafts only;'):
             # The old generic paragraph repeats the same workflow guidance for
             # every legacy tool, including ordinary-publication tools. Keep the
             # complete workflow in the packaged Skill, not each budgeted spec.
             row['description'] = 'Use the enabled account and original IDs. Never resend UNKNOWN.'
+        if row['name'] in MODEL_DESCRIPTIONS:
+            row['description'] = MODEL_DESCRIPTIONS[row['name']]
         if row['name'] in PUBLICATION_DESCRIPTIONS:
             row['description'] = PUBLICATION_DESCRIPTIONS[row['name']]
     return rows

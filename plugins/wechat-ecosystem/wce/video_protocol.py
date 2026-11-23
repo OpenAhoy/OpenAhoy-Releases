@@ -163,8 +163,10 @@ SPECS = {
         schema(JOB | {'prompt': RELAY_PROMPT, 'reference_images': RELAY_IMAGES}, RELAY_OPTIONS),
         *[schema(
             JOB | {'workflow_id': {'type': 'string', 'const': row['id']}}
-            | {key: rule for key, rule in row['fields'].items() if rule['required']},
-            {key: rule for key, rule in row['fields'].items() if not rule['required']})
+            | {key: {k: v for k, v in rule.items() if k != 'required'}
+               for key, rule in row['fields'].items() if rule['required']},
+            {key: {k: v for k, v in rule.items() if k != 'required'}
+             for key, rule in row['fields'].items() if not rule['required']})
           for row in autodl.options()],
     ]},
     CONNECTION: schema({}),
