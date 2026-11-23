@@ -51,3 +51,13 @@ def header(artwork=HORIZONTAL):
     if artwork.startswith('<?xml '):
         artwork = artwork.partition('?>')[2].lstrip()
     return '<span class="oa-brand-logo" role="img" aria-label="Jiusera"><span aria-hidden="true">' + artwork + '</span></span>'
+
+
+@cache
+def openahoy_symbol():
+    images = []
+    for variant in ('color', 'inverse'):
+        raw = (_PACKAGE / 'assets/openahoy-v1' / f'openahoy-symbol-{variant}.svg').read_bytes()
+        src = 'data:image/svg+xml;base64,' + base64.b64encode(raw).decode('ascii')
+        images.append(f'<img src="{src}" alt="">')
+    return '<span class="wb-openahoy-mark" aria-hidden="true">' + ''.join(images) + '</span>'

@@ -28,6 +28,12 @@ STYLE = r'''
 .project-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.project-toolbar h3{margin:0}.project-toolbar .help{margin:4px 0 0}.project-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.project-body{min-height:0;overflow:auto;padding:0 3px 8px}.project-source-text{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.65 ui-monospace,monospace;max-height:240px;overflow:auto;background:var(--soft);border-radius:8px;padding:12px}.project-skills label{display:flex;align-items:flex-start;font-weight:400;margin:6px 0}.project-skills .help{display:block;margin:2px 0}.project-sources button{justify-content:flex-start;text-align:left;white-space:normal;font-size:12px;margin:3px 4px 3px 0;overflow-wrap:anywhere}.project-save{padding-top:12px;border-top:1px solid var(--line);margin-top:8px}.project-stale{color:#a14e30}.oa-context-tabs{margin:0 0 10px;flex:none}.oa-context-tabs button[aria-selected=true]{background:var(--tint);color:var(--accent);border-color:#cfddf7}
 .project-editor-columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}.project-preferences textarea{min-height:150px}.project-preferences>label{margin-top:16px}.project-body>#projectPath,.project-body>#projectOrigin{margin:3px 0;overflow-wrap:anywhere}
 .oa-x-production{margin-bottom:16px}.oa-x-production-preferences{display:grid;grid-template-columns:1fr 1fr;gap:6px 18px;margin:8px 0}.oa-x-production-preferences p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:90px;overflow:auto}.oa-x-production-preferences strong{display:block;margin-bottom:3px}.oa-x-production .actions{flex-wrap:wrap}
+#xProductionResume{margin-block:8px;font-size:12px}
+#xProductionResume dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 10px;margin-block:8px}
+#xProductionResume dd{min-width:0;margin:0;overflow-wrap:anywhere}
+#xProductionResume :is(p,textarea){margin-block:5px}
+#xResumeAccount:not(:empty)+code::before{content:' · '}
+#xResumeStatus:empty{display:none}
 @media(min-width:800px) and (min-height:600px){.oa-native #projectContextPanel{display:flex;flex:1;min-height:0;flex-direction:column;overflow:hidden}.project-toolbar,.project-save{flex:none}.project-body{flex:1}}
 @media(min-width:800px){.oa-native:has(#projectContextPanel:not([hidden])) #accountPanel{padding:8px 12px;max-height:110px}.oa-native:has(#projectContextPanel:not([hidden])) .oa-account-tools,.oa-native:has(#projectContextPanel:not([hidden])) #wechatBackendHelp{display:none}.oa-native:has(#projectContextPanel:not([hidden])) #xCapabilities{padding:8px 12px}.oa-native:has(#projectContextPanel:not([hidden])) #xCapabilities h2{margin:0 0 4px}.oa-native:has(#projectContextPanel:not([hidden])) #xCapabilities p{margin:4px 0;font-size:11px}.oa-native:has(#projectContextPanel:not([hidden])) .oa-x-features li{padding:3px 7px}.oa-native:has(#projectContextPanel:not([hidden])) #accountPanel .oa-list-head{margin-bottom:2px}.oa-native:has(#projectContextPanel:not([hidden])) #accountPanel .account{padding:4px 8px}.oa-native:has(#projectContextPanel:not([hidden])) #accountPanel .account .help{display:none}}
 @media(max-width:799px){.project-grid,.project-editor-columns{grid-template-columns:1fr;gap:4px}.project-toolbar{flex-direction:column}.project-save button{flex:1}.project-source-text{max-height:200px}}
@@ -48,11 +54,61 @@ const OAProjectContext=(()=>{
  const mark=()=>{const b=buffer();if(b){b.dirty=true;say('有未保存修改；切换账号时将保留在本页。');}buttons();};
  const productionTarget=()=>platform==='x'?accountRows.find(r=>r.platform_id==='x'&&r.connection_id===account):null;
  const productionKey=(cid,kind)=>kind+':'+cid;
+ const pendingProductionKey=cid=>'Jiusera.x-production.original.'+cid;
+ const finishedProduction=request=>request?.state==='MATCHED'||request?.state==='REJECTED';
+ const nativeXTools='若当前工具列表不全，先用宿主实际提供的按需工具查找/加载，查 Jiusera 的 x.connections.list、x.attempt.status、x.posts.readback、x.posts.create，以及仅带媒体时需要的 x.media.upload。以实际可调用结果为准；预检只代表服务端声明。仍缺工具或宿主拒绝时，列出本阶段缺少的具体工具、账号和原 IDs，提示用户用 X 面板的「接续原 X 请求」。只读查询可用 x.connections.list 的 recovery；不得通过它、浏览器、终端或其他入口上传或发布。';
+ function productionRequest(cid){
+  if(!cid)return;
+  const key=productionKey(cid,'now'),current=productionRequests.get(key);
+  let id;
+  try{id=localStorage.getItem(pendingProductionKey(cid));}catch(_){}
+  if(!/^x-production-[a-f0-9]{32}$/.test(id)||id===current?.id)return current;
+  const restored={id,cid,state:'UNKNOWN',notice:'已恢复原发布请求。请先查看原任务结果。'};
+  productionRequests.set(key,restored);
+  return restored;
+ }
+ function releaseProduction(request){
+  try{
+   const key=pendingProductionKey(request.cid);
+   if(localStorage.getItem(key)===request.id)localStorage.removeItem(key);
+  }catch(_){}
+ }
  function productionSay(text,error=false,...args){(globalThis.OAUI||globalThis.OAPlainUI).set($('xProductionStatus'),text,...args);$('xProductionStatus').className='notice'+(error?' error':'');}
+ function productionIDs(request){return {connection_id:request.cid,upload_attempt_id:request.id+'-media',post_attempt_id:request.id+'-post'};}
+ function resumePrompt(request){
+  return '请继续原 Jiusera X 请求。账号和原任务标识：'+JSON.stringify(productionIDs(request))+'。'+nativeXTools+
+    '先核对本号，查询原 upload/post 回执；有已创建帖子时沿原 post_attempt_id 独立读回。RESULT_UNKNOWN 或原聊天可能仍在执行时，只查原任务，停止写入。NOT_FOUND 不代表原聊天已停止。确认原执行已结束且相应提交未发出后，复用原 ID，只继续尚未执行的步骤。已有稿件或素材须沿用原件，已成功上传的媒体沿用原回执；应有的原件无法核对时，报告缺少什么。若确认原任务尚未开始创作，可按下方原委托继续。此指令只接续原任务，不另建任务、不换账号或重发。\n原委托的执行要求：'+productionInstructions(request.cid);
+ }
+ function renderResume(row,request){
+  const panel=$('xProductionResume'),id=request?.id||'';
+  if(panel.dataset.request!==id){
+   panel.dataset.request=id;panel.open=false;
+   $('xResumeText').value='';$('xResumeText').hidden=true;ui.raw($('xResumeStatus'),'');
+  }
+  panel.hidden=!request||finishedProduction(request);
+  if(panel.hidden)return;
+  const ids=productionIDs(request);
+  ui.raw($('xResumeAccount'),row.username?'@'+row.username:(row.presentation?.display_name||''));
+  ui.raw($('xResumeConnection'),ids.connection_id);
+  ui.raw($('xResumeUpload'),ids.upload_attempt_id);
+  ui.raw($('xResumePost'),ids.post_attempt_id);
+ }
+ async function copyProductionResume(){
+  const row=productionTarget(),request=row&&productionRequest(row.connection_id);
+  if(!request||finishedProduction(request))return;
+  const output=$('xResumeStatus'),fallback=$('xResumeText'),text=resumePrompt(request);
+  let copied=false;
+  try{await navigator.clipboard.writeText(text);copied=true;}catch(_){}
+  if(closed||productionTarget()?.connection_id!==request.cid||productionRequest(request.cid)?.id!==request.id||
+     $('xProductionResume').hidden||!$('xProductionResume').open)return;
+  fallback.hidden=copied;fallback.value=copied?'':text;
+  if(!copied){fallback.focus();fallback.select();}
+  ui.set(output,copied?'已复制接续指令。':'请复制下方接续指令。');
+ }
  function productionButtons(){
-  const row=productionTarget(),request=productionRequests.get(productionKey(account,'now'));
+  const row=productionTarget(),request=row&&productionRequest(row.connection_id);
   const available=ready&&!closed&&!!message&&!!row&&row.state==='BOUND_IDLE';
-  $('xProduceNow').disabled=!available||!!request&&request.state!=='MATCHED';ui.set($('xProduceNow'),request?.state==='MATCHED'?'开始下一条并发布':'立即生产并发布');
+  $('xProduceNow').disabled=!available||!!request&&!finishedProduction(request);ui.set($('xProduceNow'),request?.state==='MATCHED'?'开始下一条并发布':'立即生产并发布');
   $('xProductionSchedule').disabled=!ready||closed||!row;$('projectXSchedule').disabled=!ready||closed||!row;
   $('xProductionResult').hidden=!request||request.state==='SENDING';$('xProductionResult').disabled=!ready||closed||!row||!readPost||!!request?.checking;
   $('xProductionEdit').disabled=!ready||closed||!row;
@@ -65,7 +121,7 @@ const OAProjectContext=(()=>{
    const p=document.createElement('p'),label=document.createElement('strong');ui.set(label,title);p.append(label,value?document.createTextNode(value):ui.label('未设置 · 由 Codex 自主创作'));$('xProductionPreferences').append(p);
   }
   $('xProductionConfigStatus').textContent=productionConfigError||(!row?'无需填写 API Key。':productionEffective?(productionEffective.inherited_from==='account'?'本号配置':'继承平台默认')+' · '+(productionEffective.project?.name||'未关联项目，沿用默认方法')+' · 规则来源：'+productionEffective.sources.map(s=>s.name).join('、'):'正在读取已保存的本号内容配置…');
-  const request=productionRequests.get(productionKey(account,'now'));productionSay(request?.notice||'一次启动由当前 Codex 完成新文字、新配图、公开发布及真实链接读回。',request?.state==='UNKNOWN'||request?.state==='REJECTED');productionButtons();
+  const request=row&&productionRequest(row.connection_id);productionSay(request?.notice||'一次启动由当前 Codex 完成新文字、新配图、公开发布及真实链接读回。',request?.state==='UNKNOWN'||request?.state==='REJECTED');renderResume(row,request);productionButtons();
  }
  async function loadProduction(){
   const token=++productionEpoch,cid=account;productionEffective=null;productionConfigError='';renderProduction();if(!ready||closed||!productionTarget())return;
@@ -74,24 +130,38 @@ const OAProjectContext=(()=>{
   }catch(error){if(closed||token!==productionEpoch||account!==cid)return;productionConfigError='本号配置暂未读到，启动后 Codex 会重新读取；未使用未保存编辑。';}
   if(!closed&&token===productionEpoch)renderProduction();
  }
- function productionPrompt(cid,id,kind){
-
-  return '请立即为 Jiusera 已选定的 X 账号 '+cid+' 完成一条新帖的生产与公开发布。这是本人点击“立即生产并发布”的完整一次委托，不再逐步询问主题、配图或发帖确认。启动请求 '+id+'；原上传 attempt_id='+id+'-media，原发帖 attempt_id='+id+'-post。先原生 x.connections.list 核对该真实账号，再 own.projects.read effective(platform_id=x,connection_id='+cid+')并完整读取全部适用来源分块和SHA，以及effective.x_configuration中的完整运营配置和skill.text（complete=true）。采用实际本号定位、关注方式、栏目、图片质量方法与画面偏好；临时发帖任务不因所在时刻套用某个整点栏目。使用已保存的关注主题、选题筛选、文案配图和其他偏好，未关联项目/选填项为空沿正式默认方法，不强制关联开发规则、不保存或覆写配置，不采用本页未保存编辑。由当前聊天/任务的真实 Codex 模型自主选合适内容、核普通事实、写新文。需要配图时用已有工具实际生成并核对，不另索API Key、不编造用户经历、不用占位图或重发旧稿。按本号采用的内容形式与本轮委托处理。纯文字只调用 x.posts.create（省略两个 upload 参数）→ x.posts.readback；带图沿原 x.media.upload → x.posts.create → x.posts.readback。一次公开发表并独立核账号、文字及是否有预期媒体，返回本轮真实新链接；宿主消息ACK不是发表成功。若本启动请求已执行或结果未知，先用这两个原attempt查 x.attempt.status/原readback，不能换键重发。只发本轮一条，不启用定时，不做回复/点赞/关注/私信，不改公众号、凭据或模型设置。完成或真实阻断即报告并停止。';
+ function productionPrompt(cid,id){
+  return '请立即为 Jiusera 已选定的 X 账号 '+cid+' 完成一条新帖的生产与公开发布。这是本人点击“立即生产并发布”的完整一次委托，不再逐步询问主题、配图或发帖确认。启动请求 '+id+'；原上传 attempt_id='+id+'-media，原发帖 attempt_id='+id+'-post。'+nativeXTools+productionInstructions(cid);
+ }
+ function productionInstructions(cid){
+  return '先原生 x.connections.list 核对该真实账号，再 own.projects.read effective(platform_id=x,connection_id='+cid+')并完整读取全部适用来源分块和SHA，以及effective.x_configuration中的完整运营配置和skill.text（complete=true）。采用实际本号定位、关注方式、栏目、图片质量方法与画面偏好；临时发帖任务不因所在时刻套用某个整点栏目。使用已保存的关注主题、选题筛选、文案配图和其他偏好，未关联项目/选填项为空沿正式默认方法，不强制关联开发规则、不保存或覆写配置，不采用本页未保存编辑。由当前聊天/任务的真实 Codex 模型自主选合适内容、核普通事实、写新文。需要配图时用已有工具实际生成并核对，不另索API Key、不编造用户经历、不用占位图或重发旧稿。按本号采用的内容形式与本轮委托处理。纯文字只调用 x.posts.create（省略两个 upload 参数）→ x.posts.readback；带图沿原 x.media.upload → x.posts.create → x.posts.readback。一次公开发表并独立核账号、文字及是否有预期媒体，返回本轮真实新链接；宿主消息ACK不是发表成功。若本启动请求已执行或结果未知，先用这两个原attempt查 x.attempt.status/原readback，不能换键重发。只发本轮一条，不启用定时，不做回复/点赞/关注/私信，不改公众号、凭据或模型设置。完成或真实阻断即报告并停止。';
  }
  async function launchProduction(kind){
   const row=productionTarget();if(!ready||closed||!message||!row||row.state!=='BOUND_IDLE')return;
-  const cid=row.connection_id,k=productionKey(cid,kind),prior=productionRequests.get(k);if(prior&&!(kind==='now'&&prior.state==='MATCHED'))return;
+  const cid=row.connection_id,k=productionKey(cid,kind),prior=kind==='now'?productionRequest(cid):productionRequests.get(k);
+  if(prior&&!(kind==='now'&&finishedProduction(prior))){renderProduction();return;}
   const id='x-production-'+[...crypto.getRandomValues(new Uint8Array(16))].map(v=>v.toString(16).padStart(2,'0')).join('');
-  const request={id,cid,state:'SENDING',notice:kind==='now'?'正在把本轮生产发布交给当前 Codex…':'正在把定时生产配置交给当前 Codex…'};productionRequests.set(k,request);renderProduction();
-  try{await message(productionPrompt(cid,id,kind));request.state='SENT';request.notice=kind==='now'?'已交给当前 Codex；请在聊天查看实际进展和发布结果。':'定时配置请求已交给 Codex；尚未创建或启用任务。';}
-  catch(error){request.state=error.message==='HOST_MESSAGE_UNAVAILABLE'?'REJECTED':'UNKNOWN';request.notice=request.state==='REJECTED'?'宿主未提供消息能力，未发送请求。':'发送结果未知，请先查看当前聊天和原任务；本页不会重复发送。';}
+  const request={id,cid,state:'SENDING',notice:kind==='now'?'正在把本轮生产发布交给当前 Codex…':'正在把定时生产配置交给当前 Codex…'};
+  productionRequests.set(k,request);
+  // Save only the original handoff ID before the host can receive the message.
+  if(kind==='now')try{localStorage.setItem(pendingProductionKey(cid),id);}catch(_){}
+  renderProduction();
+  try{await message(productionPrompt(cid,id));request.state='SENT';request.notice=kind==='now'?'已交给当前 Codex；请在聊天查看实际进展和发布结果。':'定时配置请求已交给 Codex；尚未创建或启用任务。';}
+  catch(error){
+   request.state=error.message==='HOST_MESSAGE_UNAVAILABLE'?'REJECTED':'UNKNOWN';
+   if(request.state==='REJECTED')releaseProduction(request);
+   request.notice=request.state==='REJECTED'?'宿主未提供消息能力，未发送请求。':'发送结果未知，请先查看当前聊天和原任务；本页不会重复发送。';
+  }
   if(!closed&&platform==='x'&&account===cid)renderProduction();
  }
  async function productionResult(){
-  const row=productionTarget(),request=productionRequests.get(productionKey(account,'now'));if(!ready||closed||!row||!request||request.checking||!readPost)return;request.checking=true;productionButtons();
+  const row=productionTarget(),request=row&&productionRequest(row.connection_id);if(!ready||closed||!row||!request||request.checking||!readPost)return;request.checking=true;productionButtons();
   try{const reply=await readPost(request.cid,request.id+'-post'),value=reply?.structuredContent;if(reply?.isError||!value||value.connection_id!==request.cid||value.attempt_id!==request.id+'-post')throw new Error('X_RESULT_UNAVAILABLE');
    if(value.state==='SUCCEEDED'&&value.readback_state==='MATCHED'&&typeof value.url==='string'&&/^https:\/\/x\.com\/[A-Za-z0-9_]+\/status\/[0-9]+$/.test(value.url)){request.state='MATCHED';request.notice='已发布并独立读回匹配：'+value.url;}
-   else request.notice=value.state==='NOT_FOUND'?'原任务尚无发帖记录；请查看当前聊天，未重新派发。':value.state==='SUCCEEDED'?'帖子已创建，等待 Codex 独立读回；未再发新帖。':'原任务状态：'+value.state+'。请在当前聊天继续原请求，不重发。';
+   else if(value.state==='REJECTED'){
+    request.state='REJECTED';request.notice='原请求已明确拒绝，未发布。';
+   }else request.notice=value.state==='NOT_FOUND'?'原任务尚无发帖记录；请查看当前聊天，未重新派发。':value.state==='SUCCEEDED'?'帖子已创建，等待 Codex 独立读回；未再发新帖。':'原任务状态：'+value.state+'。请在当前聊天继续原请求，不重发。';
+   if(finishedProduction(request))releaseProduction(request);
   }catch(error){request.notice='暂未读到原任务结果，请查看当前聊天；未重新派发。';}
   finally{request.checking=false;if(!closed&&platform==='x'&&account===request.cid)renderProduction();}
  }
@@ -172,6 +242,7 @@ const OAProjectContext=(()=>{
   $('projectSourcePrev').addEventListener('click',()=>preview&&showSource(preview.row,preview.index-1));$('projectSourceNext').addEventListener('click',()=>preview&&showSource(preview.row,preview.index+1));
   $('xProduceNow').addEventListener('click',()=>launchProduction('now'));
   $('xProductionResult').addEventListener('click',productionResult);
+  $('xResumeCopy').addEventListener('click',copyProductionResume);
   $('xProductionEdit').addEventListener('click',()=>{$('xOperatingPanel').open=true;$('xOperatingPanel').scrollIntoView({block:'nearest'});});
   $('projectLink').addEventListener('click',async()=>{if(!message||!ready||linkState!=='NOT_SENT')return;linkState='SENDING';buttons();try{await message('请将当前聊天实际工作区的 AGENTS.md 与项目 Skills 关联到 Jiusera。使用 own.projects.read catalog 读取版本，再用 own.projects.sync 登记本聊天真实 project_root 与明确可用的 Skills；不从插件 cwd 猜路径、不扫描其他聊天或历史目录。不修改原文件、账号、权限、调度或发帖。登记后告知我已关联的项目，我会在页面选择应用范围。');linkState='SENT';say('关联请求已发到当前聊天；登记完成后点击本页刷新。');}catch(error){linkState='UNKNOWN';say('宿主未确认关联请求，请先查看当前聊天，避免重复发送。',true);}finally{buttons();}});
   $('projectInitialize').addEventListener('click',async()=>{

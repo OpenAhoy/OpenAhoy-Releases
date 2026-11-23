@@ -88,12 +88,15 @@ def _discovery_info(catalog, server_info):
     """Non-secret server declarations; never host availability or permission."""
     from .service import digest
     return {'state': 'AVAILABLE', 'server_info': dict(server_info),
+        'state_scope': 'SERVER_CATALOG',
         'declared_tool_count': len(catalog),
         'descriptor_sha256': digest(sorted(catalog, key=lambda row: row['name'])),
         'tools': [{'name': row['name'], 'declared_visibility':
                    row.get('_meta', {}).get('ui', {}).get('visibility', ['model', 'app'])}
                   for row in catalog],
         'host_model_exposure': 'NOT_OBSERVED_BY_SERVER',
+        'x_read_recovery_tool': 'x.connections.list' if any(
+            row['name'] == 'x.connections.list' for row in catalog) else None,
         'platform_permission': 'NOT_VERIFIED'}
 
 

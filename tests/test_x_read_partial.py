@@ -142,6 +142,42 @@ class ReadTests(unittest.TestCase):
         self.assertEqual(reply['state'], 'COMPLETE')
         self.assertEqual(reply['missing_media_keys'], [])
 
+    def test_limited_host_routes_original_receipt_and_search_without_write(self):
+        def call(tool, arguments):
+            envelope = self.server.dispatch({'jsonrpc':'2.0','id':3,'method':'tools/call',
+                'params':{'name':tool,'arguments':arguments}})
+            return envelope['result']
+
+        discovery = self.server.dispatch({'jsonrpc':'2.0','id':4,'method':'tools/list','params':{}})
+        catalog = {row['name']: row for row in discovery['result']['tools']}
+        direct = {'x.profile.read','x.posts.list','x.attempt.status','x.media.upload',
+                  'x.posts.create','x.posts.readback','x.posts.search'}
+        self.assertTrue(direct <= catalog.keys())
+        limited = {'x.connections.list','x.articles.publish'}
+        self.assertTrue(limited <= catalog.keys())
+
+        def recover(tool, **kwargs):
+            return call('x.connections.list', {'recovery': {'tool':tool, 'arguments':{'connection_id':CID}|kwargs}})
+
+        text_attempt, stored, content = self.seed_receipt('post', {'text':'Original text'})
+        status = self.success(recover('x.attempt.status', kind='post', attempt_id=text_attempt))
+        self.assertEqual(status['state'], 'RESULT_UNKNOWN')
+        readback = self.success(recover('x.posts.readback', attempt_id=text_attempt))
+        self.assertEqual(readback['readback_state'], 'NO_UNIQUE_MATCH')
+        self.assertEqual(stored.read_bytes(), content)
+        self.assertEqual(self.transport.requests, [])
+        self.error(recover('x.posts.create', attempt_id=text_attempt, text='No write'), 'INVALID_TOOL_ARGUMENTS')
+        rows = {'data':[POST],'meta':{'result_count':1}}
+        self.transport.pending.append((200, rows))
+        found = self.success(recover('x.posts.search', query='from:fixture', discovery_type='topics'))
+        self.assertEqual(found['result']['data'], rows['data'])
+        self.transport.pending.extend([
+            (200, {'data':{'id':'123','name':'Fixture','username':'fixture'}}), (200, rows)])
+        self.assertEqual(self.success(recover('x.profile.read'))['result']['id'], '123')
+        self.assertEqual(self.success(recover('x.posts.list'))['result']['data'], rows['data'])
+        self.assertEqual([request[0] for request in self.transport.requests],
+                         ['/2/tweets/search/recent','/2/users/me','/2/users/123/tweets'])
+
     def test_only_requested_id_is_returned_and_context_missing_is_explicit(self):
         original = POST | {'referenced_posts': [{'id': '4050', 'type': 'quoted'}]}
         self.error(self.lookup({'data': original | {'id': '4500'}, 'errors': [problem('resource-not-found')]}),

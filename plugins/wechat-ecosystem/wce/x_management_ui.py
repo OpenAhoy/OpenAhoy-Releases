@@ -51,6 +51,16 @@ HTML = '''<style>
 <p id="xProductionConfigStatus" class="help" role="status"></p>
 <div class="actions"><button id="xProduceNow" class="primary" disabled>立即生产并发布</button><button id="xProductionResult" hidden>查看原任务结果</button><button id="xProductionSchedule" disabled>配置定时生产发布</button><button id="xProductionEdit">编辑内容配置</button></div>
 <p id="xProductionStatus" class="notice" role="status">一次启动由当前 Codex 完成新文字、新配图、公开发布及真实链接读回。</p>
+<details id="xProductionResume" hidden>
+ <summary>接续原 X 请求</summary>
+ <dl><dt>X 账号</dt><dd><span id="xResumeAccount"></span> <code id="xResumeConnection"></code></dd>
+ <dt>原上传 ID</dt><dd><code id="xResumeUpload"></code></dd>
+ <dt>原发帖 ID</dt><dd><code id="xResumePost"></code></dd></dl>
+ <p class="help">把接续指令粘贴到具备 X 工具的 Codex 聊天。先查询原任务，结果未知时只查回执。</p>
+ <button id="xResumeCopy" type="button">复制接续指令</button>
+ <p id="xResumeStatus" class="help" role="status"></p>
+ <textarea id="xResumeText" rows="5" readonly hidden aria-label="原 X 请求接续指令"></textarea>
+</details>
 <p class="help">使用已保存的本号配置。未关联项目或选填项为空时沿默认方法；保存配置不会启动任务。发送后请查看当前聊天，重新打开本页不代表原任务已结束。</p></section>
 <section id="xAuthorization" hidden><h3 id="xBindingTitle">绑定 X 账号</h3><p id="xBindingTarget" class="help"></p>
 <section class="oa-x-binding-step"><h4>1. 配置 X Developer Console 应用</h4>

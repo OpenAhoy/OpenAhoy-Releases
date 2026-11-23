@@ -131,7 +131,7 @@ def native_page_body(logo, platform_settings):
     from .openai_gif_ui import SETTINGS_HTML as gif_settings
     from .audio_workspace_ui import HTML as audio_html
     from .workflow_guide_ui import HTML as guide_html
-    from .own_branding import video_model_mark
+    from .own_branding import openahoy_symbol, video_model_mark
     from .writing_workflow_ui import HTML as writing_rules
     home = '''<section id="openAhoyHome" aria-labelledby="homeTitle" hidden>
 <header class="wb-about-card">
@@ -150,13 +150,17 @@ def native_page_body(logo, platform_settings):
  </section>
  ''' + writing_rules + '''
 </div>
-<section class="oa-home-features oa-home-publishing" aria-labelledby="homePublishingTitle">
-<h2 id="homePublishingTitle">'''+jiusera_header()+'''<span>发布与账号</span></h2>
-<div class="oa-home-grid" id="homeFeatures"></div></section>
 <section id="homeRecommendations" aria-labelledby="homeRecommendationsTitle" hidden>
 <h2 id="homeRecommendationsTitle">推荐插件</h2><div class="oa-home-grid"></div>
 </section>
-<p id="homeStatus" class="help" role="status">正在连接管理工具…</p>
+</section>
+<section id="wbOpenAhoy" aria-labelledby="wbOpenAhoyTitle" hidden>
+ <div class="oa-home-features">
+  <h1 id="wbOpenAhoyTitle" tabindex="-1">'''+openahoy_symbol()+'''<span>OpenAhoy</span></h1>
+  <p class="help">发布与账号</p>
+  <div class="oa-home-grid" id="homeFeatures"></div>
+  <p id="homeStatus" class="help" role="status">正在连接管理工具…</p>
+ </div>
 </section>'''
     mark_style = '<style>.oa-video-relay-heading .oa-minimax-mark{width:70px;aspect-ratio:30/11;border-radius:4px;background:#fff center/contain no-repeat url("' + video_model_mark() + '")}</style>'
     credential = mark_style + '''<div class="oa-provider-grid"><section id="videoArkCard" class="panel"><h2>火山方舟</h2><p class="help">中国站 · 北京</p><p id="videoArkState" role="status"></p><div data-catalog="ark"></div><div class="oa-provider-actions"><button type="button" data-provider-control="ark" data-action="official">打开官方控制台</button><button type="button" data-provider-control="ark" data-action="model">模型文档</button><button type="button" data-provider-control="ark" data-action="assist">让 Codex 帮我开通</button></div><details class="oa-provider-cost"><summary>额度与账单</summary><p class="help">任务用量、套餐额度和已结算账单分别以官方为准。</p><button type="button" data-provider-control="ark" data-action="billing">打开官方账单</button></details><div id="videoArkCredentialForm">
@@ -262,8 +266,6 @@ HOME_STYLE = '''
  .oa-management:not([data-color-scheme]) .oa-jiusera-logo img:first-child{display:none}
  .oa-management:not([data-color-scheme]) .oa-jiusera-logo img+img{display:block}
 }
-.oa-home-publishing h2{display:flex;align-items:center;gap:12px}
-.oa-home-publishing h2 .oa-brand-logo{width:92px;margin:0}
 .oa-management #openHome:hover:not(:disabled){background:transparent;opacity:.8}
 .oa-management #openHome:focus-visible{outline-offset:4px}
 #openAhoyHome{width:100%;max-width:1080px;overflow:auto;align-self:center;padding:6px 2px 14px}

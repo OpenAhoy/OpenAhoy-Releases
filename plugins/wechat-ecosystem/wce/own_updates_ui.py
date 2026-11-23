@@ -11,13 +11,34 @@ STYLE = """
 body.oa-management[data-color-scheme=dark] .oa-software-update{--update-text:#b7f5d2;--update-bg:#18392b;--update-hover:#234d38}
 @media(prefers-color-scheme:dark){body.oa-management:not([data-color-scheme=light]) .oa-software-update{--update-text:#b7f5d2;--update-bg:#18392b;--update-hover:#234d38}}
 #wbHomeUpdateStatus{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;pointer-events:none}
-.oa-management .wb-titlebar #wbHomeUpdate{justify-self:end;display:inline-flex;align-items:center;gap:5px;min-height:29px;padding:3px 8px;border:1px solid var(--wb-line);border-radius:9px;background:var(--wb-float);color:var(--wb-ink);box-shadow:none;font-size:11px;white-space:nowrap}
-.oa-management .wb-titlebar #wbHomeUpdate[hidden]{display:none}
-#wbHomeRunning{font-variant-numeric:tabular-nums}
-#wbHomeUpdateHint:empty{display:none}
-.oa-management .wb-titlebar #wbHomeUpdate:is([data-update=available],[data-update=restart]){border-color:#b0ddc5;background:#d9f4e5;color:#075536}
-body[data-color-scheme=dark].oa-management .wb-titlebar #wbHomeUpdate:is([data-update=available],[data-update=restart]){border-color:#356f58;background:#18392b;color:#b7f5d2}
-@media(max-width:380px){.oa-management .wb-titlebar #wbHomeUpdate{font-size:10px;gap:3px;padding-inline:5px}}
+.oa-management .wb-titlebar #wbHomeUpdate{
+ justify-self:end;display:inline-flex;align-items:center;justify-content:center;gap:5px;
+ width:102px;height:34px;min-height:34px;padding:3px 5px;border:1px solid var(--wb-line);
+ border-radius:10px;background:var(--wb-float);color:var(--wb-ink);box-shadow:none;font-size:10px;white-space:nowrap
+}
+.wb-version-text{min-width:0;display:grid;justify-items:start;line-height:1.12}
+#wbHomeRunning{font-variant-numeric:tabular-nums;font-weight:650}
+.wb-version-icon{flex:none;width:13px;height:13px}
+#wbHomeUpdateHint{color:var(--muted);font-size:9px}
+#wbHomeUpdate:is([data-update=available],[data-update=restart]) .wb-version-icon{color:#108051}
+body[data-color-scheme=dark] #wbHomeUpdate:is([data-update=available],[data-update=restart]) .wb-version-icon{color:#8aebba}
+#wbHomeUpdate:is([data-update=error],[data-update=recovery]) .wb-version-icon{color:#b66a17}
+body[data-color-scheme=dark] #wbHomeUpdate:is([data-update=error],[data-update=recovery]) .wb-version-icon{color:#f1b977}
+.oa-management .wb-titlebar #wbUpdateFace[data-update=available],#wbHomeUpdateBubble{
+ color:#076441;background:#dff5e8
+}
+#wbHomeUpdateBubble{
+ position:absolute;inset:auto auto auto calc(100% + 4px);border-radius:8px;padding:4px 6px;
+ white-space:nowrap;font-size:10px;font-weight:650;line-height:1.2;pointer-events:none
+}
+#wbHomeUpdateBubble:empty{display:none}
+body[data-color-scheme=dark].oa-management .wb-titlebar #wbUpdateFace[data-update=available],
+body[data-color-scheme=dark] #wbHomeUpdateBubble{color:#b6f5d2;background:#1e4634}
+.oa-management .wb-titlebar :is(#wbUpdateFace,#wbHomeUpdate):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media(max-width:400px){
+ .oa-management .wb-titlebar #wbHomeUpdate{width:75px;gap:4px;padding-inline:3px}
+ #wbHomeUpdateBubble{inset-inline-start:100%;padding-inline:4px}
+}
 .oa-update-version{font-size:12px;font-weight:700;color:var(--ink)}
 .oa-update-versions{margin:0;display:grid;gap:4px;font-variant-numeric:tabular-nums}
 .oa-update-versions div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1px 8px}
@@ -70,17 +91,19 @@ window.OASoftwareUpdates={mount(rpc,installed){
  const status=node('status'),jobStatus=node('job'),checkButton=node('check'),startButton=node('start'),receiptButton=node('receipt');
  const stable=node('latest'),installedRow=node('installed-row'),helpButton=node('help'),history=node('history');
  const home=document.getElementById('wbHomeUpdate'),homeRunning=document.getElementById('wbHomeRunning');
+ const face=document.getElementById('wbUpdateFace'),bubble=document.getElementById('wbHomeUpdateBubble');
  const homeHint=document.getElementById('wbHomeUpdateHint'),homeStatus=document.getElementById('wbHomeUpdateStatus');
  if(home)ui.raw(homeRunning,'v'+installed);
  const technical=node('technical'),checkDetail=node('check-detail'),jobDetail=node('job-detail');
  ui.set(stable,'待检查');
  ui.raw(node('running'),installed);
  const pendingKey='OpenAhoy.softwareUpdate.pending.'+installed;
+ const discoveryKey='Jiusera.softwareUpdate.discovery.'+installed;
  const requestPattern=/^[0-9a-f]{32}$/;
  const recheckAfter=30*60*1000;
  let ready=false,closed=false,checking=false,starting=false,reading=false,latest=null,job='STATUS_UNAVAILABLE',pollTimer;
  let pendingRequest=null,canOpenLinks=false,blurred=false,lastCheckAt=null,lastStable=null,automatic=false;
- let jobHelp=false;
+ let jobHelp=false,readJob=false,stableCheckedAt=0;
  try{
   const stored=sessionStorage.getItem(pendingKey);
   if(requestPattern.test(stored))pendingRequest=stored;
@@ -103,24 +126,41 @@ window.OASoftwareUpdates={mount(rpc,installed){
   startButton.hidden=!latest||busy||terminal.has(job)||Boolean(pendingRequest);
   startButton.disabled=!ready||closed||checking||reading||startButton.hidden;
   helpButton.hidden=!canOpenLinks||!(jobHelp||box.dataset.discovery==='CHECK_UNAVAILABLE');
-  if(!home)return;
-  home.disabled=!ready||closed||checking||reading||busy;
-  home.removeAttribute('data-update');
-  const detail=[status.textContent,jobStatus.textContent].filter(Boolean).join(' ');
-  ui.raw(homeStatus,detail);
-  ui.attr(home,'title',detail);
+  if(!home&&!face)return;
+  let state='unknown',label='检查更新',values=[];
   if(job==='INSTALLED_RELOAD_REQUIRED'){
-   home.dataset.update='restart';ui.set(homeHint,'需重启');
+   state='restart';label='需重启';
   }else if(busy){
-   ui.set(homeHint,'升级中');
+   state='updating';label='升级中';
+  }else if(checking||reading||(!readJob&&ready)){
+   state='checking';label='正在检查稳定版本…';
   }else if(terminal.has(job)||pendingRequest){
-   ui.set(homeHint,'升级状态');
+   state='recovery';label='查看升级状态';
+  }else if(job==='FAILED'||job==='START_REJECTED'){
+   state='error';label=latest?'重试升级 v{0}':'检查失败';values=latest?[latest.latest_version]:[];
   }else if(latest&&!startButton.hidden){
-   home.dataset.update='available';ui.set(homeHint,'升级 v{0}',latest.latest_version);
+   state='available';label='升级 v{0}';values=[latest.latest_version];
   }else if(box.dataset.discovery==='CHECK_UNAVAILABLE'){
-   ui.set(homeHint,'检查失败');
-  }else{
-   ui.raw(homeHint,'');
+   state='error';label='检查失败';
+  }else if(['UP_TO_DATE','DEVELOPMENT_AHEAD'].includes(box.dataset.discovery)){
+   state='current';label=box.dataset.discovery==='UP_TO_DATE'?'当前已是最新版本':'当前运行的是较新的开发版本。';
+  }
+  const detail=[status.textContent,jobStatus.textContent].filter(Boolean).join(' ');
+  if(homeStatus&&homeStatus.textContent!==detail)ui.raw(homeStatus,detail);
+  if(homeHint)ui.set(homeHint,({
+   unknown:'待检查',current:box.dataset.discovery==='DEVELOPMENT_AHEAD'?'开发版':'最新',
+   checking:'检查中',available:'有更新',updating:'升级中',
+   restart:'需重启',recovery:'待核对',error:job==='FAILED'||job==='START_REJECTED'?'升级失败':'检查失败'
+  })[state]);
+  if(bubble){
+   if(state==='available')ui.set(bubble,'有更新');else ui.raw(bubble,'');
+  }
+  for(const button of [face,home]){
+   if(!button)continue;
+   button.dataset.update=state;
+   button.disabled=!ready||closed||checking||reading||busy||!readJob;
+   ui.attr(button,'aria-label',label,...values);
+   ui.attr(button,'title',detail);
   }
  }
  function sayJob(text,state,...values){ui.set(jobStatus,text,...values);box.dataset.state=state;paintAvailable();buttons();}
@@ -164,6 +204,33 @@ window.OASoftwareUpdates={mount(rpc,installed){
   ui.set(status,known?checkErrors[code]:'暂时无法检查更新，请稍后重试。');
   detail(checkDetail,known?code:'UPDATE_CHECK_FAILED');
  }
+ function showDiscovery(value){
+  lastStable=value.latest_version;ui.raw(stable,lastStable);detail(checkDetail,null);
+  latest=value.state==='UPDATE_AVAILABLE'?value:null;
+  box.dataset.discovery=value.state;
+  if(latest)paintAvailable();
+  else ui.set(status,value.state==='UP_TO_DATE'?'当前已是最新版本':'当前运行的是较新的开发版本。');
+ }
+ function restoreDiscovery(raw){
+  if(!raw||checking||closed)return false;
+  try{
+   const {checkedAt,value}=JSON.parse(raw),age=Date.now()-checkedAt;
+   if(!Number.isSafeInteger(checkedAt)||age<0||age>=recheckAfter||checkedAt<=stableCheckedAt||
+      !valid(value)||value.state==='CHECK_UNAVAILABLE'||(lastStable&&compare(value.latest_version,lastStable)<0))return false;
+   stableCheckedAt=lastCheckAt=checkedAt;
+   showDiscovery(value);buttons();
+   return true;
+  }catch(_){return false;}
+ }
+ function cacheDiscovery(value){
+  stableCheckedAt=Date.now();
+  const {state,latest_version,tag,advertised_revision}=value;
+  const snapshot={state,latest_version,tag,advertised_revision,repository,installed_version:installed};
+  try{localStorage.setItem(discoveryKey,JSON.stringify({checkedAt:stableCheckedAt,value:snapshot}));}catch(_){}
+ }
+ function discoveryChanged(event){
+  if(event.key===discoveryKey&&box.dataset.discovery!=='CHECK_UNAVAILABLE')restoreDiscovery(event.newValue);
+ }
  async function check(){
   if(!ready||closed||checking)return;
   checking=true;lastCheckAt=Date.now();latest=null;
@@ -174,14 +241,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
    const value=reply?.structuredContent;if(reply?.isError||!valid(value))throw new Error('UPDATE_CHECK_FAILED');
    if(value.state==='CHECK_UNAVAILABLE'){checkUnavailable(value.diagnostic?.code);return;}
    if(lastStable&&compare(value.latest_version,lastStable)<0){checkUnavailable('RELEASE_CHANNEL_CHANGED');return;}
-   lastStable=value.latest_version;ui.raw(stable,lastStable);detail(checkDetail,null);
-   latest=value.state==='UPDATE_AVAILABLE'?value:null;
-   box.dataset.discovery=value.state;
-   const summary={
-    UP_TO_DATE:'当前已是最新版本',
-    DEVELOPMENT_AHEAD:'当前运行的是较新的开发版本。'
-   };
-   if(latest)paintAvailable();else ui.set(status,summary[value.state]);
+   showDiscovery(value);cacheDiscovery(value);
   }catch(_){if(!closed)checkUnavailable();}
   finally{checking=false;if(!closed)buttons();}
  }
@@ -256,6 +316,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
    sayJob('已核对当前运行版本 {0}。',job,installed);
   }else if(job==='FAILED'&&code==='UPDATE_ADVERTISEMENT_CHANGED'){
    latest=null;
+   try{localStorage.removeItem(discoveryKey);}catch(_){}
    sayJob('稳定版已有变化。请核对最新版本后再升级。',job);
   }else if(job==='FAILED'&&code==='UPDATE_CHECK_UNAVAILABLE'){
    checkUnavailable('RELEASE_CHANNEL_UNAVAILABLE');
@@ -317,7 +378,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
    if(closed)return;
    statusUnavailable();
    if(wasActive&&!pendingRequest)schedule(3000);
-  }finally{reading=false;if(!closed)buttons();}
+  }finally{reading=false;readJob=true;if(!closed)buttons();}
  }
  async function start(event){
   if(!event.isTrusted||!ready||closed||startButton.disabled||startButton.hidden||!latest)return;
@@ -352,17 +413,19 @@ window.OASoftwareUpdates={mount(rpc,installed){
  function blur(){blurred=true;clearTimeout(pollTimer);}
  const listeners=[
   [document,'visibilitychange',visibilityChanged],[window,'pageshow',resume],
-  [window,'focus',focus],[window,'blur',blur]
+  [window,'focus',focus],[window,'blur',blur],[window,'storage',discoveryChanged]
  ];
  checkButton.addEventListener('click',()=>void check());
  receiptButton.addEventListener('click',()=>void statusPoll());
  startButton.addEventListener('click',start);
- home?.addEventListener('click',event=>{
-  if(!event.isTrusted||home.disabled)return;
+ function activate(event){
+  if(!event.isTrusted||event.currentTarget.disabled)return;
   if(terminal.has(job)||pendingRequest){void statusPoll();return;}
   if(latest&&!startButton.hidden){void start(event);return;}
   void check();
- });
+ }
+ face?.addEventListener('click',activate);
+ home?.addEventListener('click',activate);
  helpButton.addEventListener('click',event=>{
   if(event.isTrusted&&canOpenLinks)void rpc('ui/open-link',{
    url:'https://github.com/OpenAhoy/OpenAhoy-Releases/blob/main/UPDATE_PROMPT.md'
@@ -377,7 +440,9 @@ window.OASoftwareUpdates={mount(rpc,installed){
   },startAutomatic(){
    if(closed||!ready||automatic)return;
    automatic=true;
+   try{restoreDiscovery(localStorage.getItem(discoveryKey));}catch(_){}
    void statusPoll();resume();
+
   },dispose(){
    closed=true;ready=false;clearTimeout(pollTimer);
    for(const [target,event,listener] of listeners)target.removeEventListener(event,listener);
@@ -399,7 +464,7 @@ def decorate(value, installed_version, uri):
             "const $=id=>document.getElementById(id),bridge=window.parent,pending=new Map();\n const softwareUpdates=OASoftwareUpdates.mount(rpc," + json.dumps(installed_version).replace('<', '\\u003c') + ');',
         'function dispose(){': 'function dispose(){softwareUpdates.dispose();',
         'buttons();await refresh();': ('softwareUpdates.ready(hostCapabilities);'
-            'requestAnimationFrame(()=>{if(!closed&&ready)softwareUpdates.startAutomatic();});buttons();await refresh();'),
+            'buttons();await refresh();requestAnimationFrame(()=>{if(!closed&&ready)softwareUpdates.startAutomatic();});'),
     }
     for before, after in seams.items():
         if text.count(before) != 1:

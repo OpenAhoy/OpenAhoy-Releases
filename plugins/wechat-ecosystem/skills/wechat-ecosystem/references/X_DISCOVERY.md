@@ -15,6 +15,8 @@
 
 只有原窗口所有分页完整成功才可推进该任务的 since_id；中断、429、部分 errors、游标重复/循环都保留原窗口与原游标，不冒全量发现。插件不暗中更新高水位或固定查询预算。四类命中可交叉，按真实 post ID 合并；回复另按本号+父帖持久去重。
 
+当前聊天未暴露搜索工具时，可以使用同一个正常的 `x.connections.list` 入口，传 `recovery: {tool: "x.posts.search", arguments: {connection_id, discovery_type, query, …}}`。响应和原搜索一致，续页规则照常。如果只能读到服务端目录声明，应如实报告当前聊天有没有实际读到结果。
+
 ## 阅读与 Codex 拟稿
 
 `x.posts.context` 按真实 post_id 获取原文、作者及 referenced_posts，返回缺失引用ID；按当前候选的实际需要再读取这些ID。长文使用实际 note_post.text，原帖/对话不完整时明确缺口，不猜内容，不另造全站爬虫。先形成“真实目标ID、原文/上下文依据、拟回复正文、是否符合官方执行条件”的结果；拟稿不等于已发送。

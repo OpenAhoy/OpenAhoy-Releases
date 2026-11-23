@@ -33,6 +33,19 @@ SEARCH_OPTIONS = {
     'next_token': TEXT, 'pagination_token': TEXT,
     'sort_order': {'type': 'string', 'enum': ['recency', 'relevancy']},
 }
+SEARCH_SPEC = schema({'connection_id': CID, 'query': SEARCH,
+                      'discovery_type': {'type': 'string', 'enum': list(DISCOVERY_TYPES)}}, SEARCH_OPTIONS)
+STATUS_SPEC = schema({'connection_id': CID, 'kind': {'type': 'string', 'enum': ['upload', 'post', 'reply']},
+                      'attempt_id': ID}, {'poll_media': {'type': 'boolean'}})
+RECOVERY_ROUTES = {
+    'x.profile.read': schema({'connection_id': CID}),
+    'x.posts.list': schema({'connection_id': CID}, {'cursor': TEXT}),
+    'x.posts.search': SEARCH_SPEC,
+    'x.attempt.status': STATUS_SPEC,
+    'x.posts.readback': schema({'connection_id': CID, 'attempt_id': ID}),
+}
+RECOVERY = {'oneOf': [schema({'tool': {'type': 'string', 'const': name}, 'arguments': spec})
+                      for name, spec in RECOVERY_ROUTES.items()]}
 UI = 'x.ui.action'
 SETUP = 'x.setup.draft.submit'
 SETUP_KEY = {'type': 'string', 'minLength': 48, 'maxLength': 48, 'pattern': '^[a-f0-9]{48}$'}
@@ -49,16 +62,16 @@ UI_SPEC = {'oneOf': [schema({'operation': {'type': 'string', 'const': op},
     ('SETUP_READ', schema({'panel_key': SETUP_KEY}, {'connection_id': CID})),
     ('SETUP_CANCEL', schema({'panel_key': SETUP_KEY})),
     ('BILLING', schema({'connection_id': CID, 'expected_application': APP_SELECTION})),
+    ('RECOVERY', RECOVERY),
     ('CANCEL', schema({'authorization_handle':{'type':'string','pattern':'^x-auth-[a-f0-9]{48}$'}})))]}
 SPECS = {
-    'x.connections.list': schema({}),
-    'x.profile.read': schema({'connection_id': CID}),
-    'x.posts.list': schema({'connection_id': CID}, {'cursor': TEXT}),
+    'x.connections.list': schema({}, {'recovery': RECOVERY}),
+    'x.profile.read': RECOVERY_ROUTES['x.profile.read'],
+    'x.posts.list': RECOVERY_ROUTES['x.posts.list'],
     'x.posts.read': schema({'connection_id': CID, 'post_id': POST}),
     'x.users.lookup': schema({'connection_id': CID, 'username': {'type': 'string', 'minLength': 1,
                             'maxLength': 15, 'pattern': '[A-Za-z0-9_]+'}}),
-    'x.posts.search': schema({'connection_id': CID, 'query': SEARCH,
-                             'discovery_type': {'type': 'string', 'enum': list(DISCOVERY_TYPES)}}, SEARCH_OPTIONS),
+    'x.posts.search': SEARCH_SPEC,
     'x.posts.context': schema({'connection_id': CID, 'post_id': POST}),
     'x.posts.reply': schema({'connection_id': CID, 'attempt_id': ID, 'parent_id': POST, 'text': TEXT}),
     'x.replies.readback': schema({'connection_id': CID, 'attempt_id': ID}),
@@ -70,9 +83,8 @@ SPECS = {
         schema(POST_FIELDS | {'upload_attempt_ids': {
             'type': 'array', 'items': ID, 'minItems': 1, 'maxItems': 4, 'uniqueItems': True}}, AI_LABEL),
     ]},
-    'x.attempt.status': schema({'connection_id': CID, 'kind': {'type': 'string', 'enum': ['upload', 'post', 'reply']},
-                                'attempt_id': ID}, {'poll_media':{'type':'boolean'}}),
-    'x.posts.readback': schema({'connection_id': CID, 'attempt_id': ID}),
+    'x.attempt.status': STATUS_SPEC,
+    'x.posts.readback': RECOVERY_ROUTES['x.posts.readback'],
     'x.articles.draft.create': schema({
         'connection_id': CID, 'attempt_id': ID, 'title': TEXT,
         'blocks': {'type': 'array', 'minItems': 1, 'items': ARTICLE_BLOCK}},
@@ -86,7 +98,7 @@ SPECS = {
 
 def descriptors():
     descriptions = {
-        'x.connections.list': 'List all locally bound X identities; select an explicit connection_id for every operation. No OAuth start, API call or credentials.',
+        'x.connections.list': 'With no arguments, list locally bound X identities. If the host omits a read tool, use recovery with its exact tool name and arguments for profile, timeline, search, original attempt status or post readback. Recovery may read the official API; it cannot upload or publish. Use the original connection and attempt ID.',
         'x.profile.read': 'Read the bound X account profile via the official X API.',
         'x.posts.list': 'Read one page of this X account. PARTIAL retains verified posts. FAILED is not an empty result. Continue with an unseen next_token.',
         'x.posts.read': 'Read a specific X post. PARTIAL retains the verified post with missing expansions and safe diagnostic codes.',
@@ -111,7 +123,7 @@ def descriptors():
     for name, spec in SPECS.items():
         row = {'name': name, 'description': descriptions[name], 'inputSchema': deepcopy(spec),
                'annotations': {'readOnlyHint': name not in writes, 'destructiveHint': False,
-                               'idempotentHint': name not in writes, 'openWorldHint': name not in {'x.connections.list', SETUP}}}
+                               'idempotentHint': name not in writes, 'openWorldHint': name != SETUP}}
         if name == UI:
             row['_meta'] = {'ui': {'visibility': ['app']}}
         rows.append(row)
@@ -165,6 +177,8 @@ class XPlatformRouter:
                 return self.x.configure(a['client_id'])
             if op == 'BILLING':
                 return self.x.billing(a['connection_id'], a['expected_application'])
+            if op == 'RECOVERY':
+                return self.call(a['tool'], a['arguments'])
             if op == 'SETUP_BEGIN':
                 cid = a.get('connection_id')
                 if cid and not any(row['connection_id'] == cid for row in self.x.overview()):
@@ -188,6 +202,8 @@ class XPlatformRouter:
                                     application_name=a.get('application_name'), expected_user_id=a.get('expected_user_id'))
             return self.x.cancel(a['authorization_handle'])
         if name == 'x.connections.list':
+            if 'recovery' in args:
+                return self.call(args['recovery']['tool'], args['recovery']['arguments'])
             return {'connections': self.x.overview()}
         cid = args['connection_id']
         if name == 'x.articles.draft.create':

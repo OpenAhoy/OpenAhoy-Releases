@@ -82,6 +82,11 @@ STYLE += "\n@media(min-width:1000px) and (min-height:600px){.oa-management #xSet
 STYLE += "\n.oa-management #xSettings>.oa-capability-details{display:block}.oa-management .oa-x-tools #xOperatingPanel{display:none}.oa-management .oa-task-menu>summary{display:inline-flex;align-items:center;min-height:33px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}.oa-management .oa-task-menu[open]>.actions{padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:var(--raised);margin-top:8px}"
 
 STYLE += "\n.oa-management #xSettings>details.oa-capability-details:not(#xOperatingPanel){display:block!important}.oa-management:not(.oa-native) [data-workspace-project]{display:none}.oa-management .oa-task-menu{position:relative}.oa-management .oa-task-menu[open]>.actions{position:absolute;left:0;top:100%;z-index:50;min-width:230px;display:grid!important;gap:6px}.oa-management .oa-task-menu[open]>.actions button{justify-content:flex-start;white-space:normal;text-align:left}"
+STYLE += """
+.oa-x-recovery{display:grid;grid-template-columns:minmax(66px,auto) minmax(0,1fr) auto;gap:6px;margin-top:7px}
+.oa-x-recovery input,.oa-x-recovery select{width:100%;min-width:0}
+.oa-x-recovery output{grid-column:1/-1;overflow-wrap:anywhere}
+"""
 
 STYLE += "\n.oa-management #safeAccountPicker{position:relative;display:inline-block;margin:0 0 12px;z-index:45}.oa-management #safeAccountPicker>summary{padding:8px 12px;min-height:49px;min-width:170px}.oa-management #safeAccountCurrent{font-size:14px;font-weight:600}.oa-management:not(.oa-native) #productionRules{height:calc(100dvh - 220px);min-height:520px}.oa-management:not(.oa-native) #rulesCreator{height:100%}@media(max-width:799px){.oa-management:not(.oa-native) #productionRules{min-height:500px}}"
 

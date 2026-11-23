@@ -1,6 +1,6 @@
 """Presentation for the embedded Jiusera work surfaces."""
 
-from .own_branding import _PACKAGE, jiusera_header
+from .own_branding import _PACKAGE, jiusera_header, openahoy_symbol
 
 
 def trend_resource(suffix):
@@ -11,23 +11,28 @@ def trend_resource(suffix):
 def chrome(icon):
     return '''<header class="wb-titlebar">
  <button id="wbBrand" type="button" aria-label="Jiusera 作品首页">'''+jiusera_header()+'''</button>
- <span class="wb-face" aria-hidden="true"><span>•</span>‿<span>•</span></span>
- <button id="wbHomeUpdate" type="button" hidden disabled aria-describedby="wbHomeUpdateStatus">
-  <span id="wbHomeRunning"></span><span id="wbHomeUpdateHint"></span>
+ <button id="wbUpdateFace" class="wb-face" type="button" disabled aria-label="检查更新" aria-describedby="wbHomeUpdateStatus">
+  <span class="wb-expression" aria-hidden="true"><span class="wb-eye"></span>‿<span class="wb-eye"></span></span>
+  <span id="wbHomeUpdateBubble" aria-hidden="true"></span>
+ </button>
+ <button id="wbHomeUpdate" type="button" aria-label="检查更新" disabled aria-describedby="wbHomeUpdateStatus">
+  <svg class="wb-version-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 6.5a5.7 5.7 0 1 0 0 3"/><path d="M13.5 3.6v3.1h-3.1"/></svg>
+  <span class="wb-version-text"><span id="wbHomeRunning"></span><span id="wbHomeUpdateHint"></span></span>
  </button>
  <span id="wbHomeUpdateStatus" class="jh-screenreader" role="status"></span>
+</header>
  <div id="wbCanvasControls" class="wb-context" hidden>
   <button id="wbProject" aria-expanded="false" aria-controls="directorWorkbar" type="button">项目与作品</button>
   <button id="wbShot" aria-expanded="false" aria-controls="wbCanvasDetails" type="button">镜头</button>
  </div>
-</header>
 <div class="wb-dock-wrap">
  <nav class="wb-dock" aria-label="Jiusera 工作台导航">
   <button class="wb-dock-brand" data-wb-route="published" type="button" aria-label="Jiusera 作品首页">'''+jiusera_header()+'''</button>
   <button data-wb-route="jiusera-monitor" type="button">'''+icon('video')+'''<span>监看</span></button>
   <button data-wb-route="jiusera-canvas" type="button">'''+icon('settings')+'''<span>画布</span></button>
   <button data-wb-route="jiusera-assets" type="button">'''+icon('accounts')+'''<span>资产</span></button>
-  <button id="wbMore" type="button" aria-expanded="false" aria-controls="wbMenu"><span aria-hidden="true">···</span><span>更多</span></button>
+  <button class="wb-openahoy" data-wb-route="openahoy" type="button" aria-label="OpenAhoy 发布与账号">'''+openahoy_symbol()+'''<span>OpenAhoy</span></button>
+  <button id="wbMore"  type="button" aria-expanded="false" aria-controls="wbMenu"><span aria-hidden="true">···</span><span>更多</span></button>
   <button id="oaLocale" type="button" aria-label="切换到中文">
    <span class="wb-language" aria-hidden="true"><span lang="zh-CN">中</span><span class="wb-language-divider">/</span><span lang="en">EN</span></span>
   </button>
@@ -35,8 +40,6 @@ def chrome(icon):
  <section id="wbMenu" aria-label="更多入口" hidden>
   <button type="button" data-wb-route="about">关于与设置</button>
   <button type="button" data-wb-route="studio-showcase">演播室案例</button>
-  <div class="wb-publisher">'''+jiusera_header()+'''<span>发布与账号</span></div>
-  <div id="wbPlatformLinks"></div>
  </section>
 </div>'''
 
@@ -104,29 +107,45 @@ body.oa-management.oa-native[data-color-scheme=dark][data-workbench]{
 }
 .wb-titlebar{
  position:fixed;z-index:20;inset:9px 13px auto;display:grid;grid-template-columns:1fr auto 1fr;
- align-items:start;gap:8px;pointer-events:none
+ align-items:center;height:38px;gap:5px;pointer-events:none;isolation:isolate
 }
 .wb-titlebar>*{pointer-events:auto}
 .oa-native .wb-titlebar #wbBrand{
  justify-self:start;padding:4px;min-height:34px;border:0;box-shadow:none;background:transparent
 }
 .oa-native .wb-titlebar #wbBrand .oa-brand-logo{width:105px;margin:0}
-.wb-face{justify-self:center;line-height:34px;letter-spacing:.11em;font-size:18px;color:var(--wb-ink);pointer-events:none;user-select:none}
-.wb-face span{display:inline-block;animation:wb-blink 7s infinite}
+.oa-management .wb-titlebar .wb-face{
+ position:relative;justify-self:center;display:grid;place-items:center;width:37px;height:36px;min-height:36px;
+ padding:0;border:0;border-radius:10px;box-shadow:none;background:transparent;color:var(--wb-ink);user-select:none
+}
+.oa-management .wb-titlebar .wb-face:not(:disabled):hover{background:var(--wb-float)}
+.wb-expression{display:flex;align-items:center;gap:2px;font-size:17px;line-height:1}
+.wb-eye{width:4px;height:4px;border-radius:50%;background:currentColor;animation:wb-blink 7s infinite}
+.wb-face[data-update=available] .wb-eye{animation:none;transform:scale(1.6)}
 @keyframes wb-blink{0%,52%,57%,100%{transform:scaleY(1)}54%,55%{transform:scaleY(.16)}}
-@media(prefers-reduced-motion:reduce){.wb-face span{animation:none}}
+@media(prefers-reduced-motion:reduce){.wb-eye{animation:none}}
 .wb-context{display:flex;align-items:center;flex-wrap:wrap;gap:5px}
-#wbCanvasControls{justify-self:end;justify-content:end}
+#wbCanvasControls{position:fixed;z-index:19;inset:51px 13px auto auto;justify-content:end}
 .oa-native :is(.wb-context,.wb-published-tools) button{
  min-height:32px;padding:4px 9px;font-size:12px;border-radius:10px;
  color:var(--wb-ink);border:1px solid var(--wb-line);background:var(--wb-float);box-shadow:none
 }
-.oa-platform-view .wb-titlebar{display:none}
+.oa-management.oa-native.oa-platform-view .oa-shell{padding-top:calc(var(--wb-top) - 9px)}
+.oa-management.oa-native.oa-platform-view .oa-sidebar .oa-brand{display:none}
 .oa-native.oa-platform-view .oa-content{padding-block-end:var(--wb-dock)}
+.oa-management.oa-native.oa-x-developer-open.oa-platform-view .oa-content{padding-bottom:var(--wb-dock)}
 .oa-native.oa-platform-view .oa-sidebar :is(#jiuseraNav,#openWorkflowGuide,#wechatCompactUpdates){display:none!important}
-.wb-dock-wrap{position:fixed;z-index:30;inset:auto 0 max(12px,env(safe-area-inset-bottom));width:min(526px,calc(100% - 16px));margin-inline:auto}
+@media(max-width:560px){
+ .oa-management.oa-native.oa-platform-view:not(.oa-x-developer-open):has([data-platform-id="x"][aria-current="page"]) .oa-shell{
+  display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);height:100dvh;min-height:0;overflow:hidden
+ }
+ .oa-management.oa-native.oa-platform-view:not(.oa-x-developer-open):has([data-platform-id="x"][aria-current="page"]) .oa-content{
+  min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain
+ }
+}
+.wb-dock-wrap{position:fixed;z-index:40;inset:auto 0 max(12px,env(safe-area-inset-bottom));width:min(610px,calc(100% - 16px));margin-inline:auto}
 .wb-dock-wrap:has(#wbMenu:not([hidden])){z-index:1000}
-.wb-dock{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));align-items:center;gap:3px;padding:4px;border:1px solid var(--wb-line);border-radius:99px;color:var(--wb-ink);background:var(--wb-float);box-shadow:var(--wb-depth)}
+.wb-dock{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));align-items:center;gap:3px;padding:4px;border:1px solid var(--wb-line);border-radius:99px;color:var(--wb-ink);background:var(--wb-float);box-shadow:var(--wb-depth)}
 .oa-management .wb-dock .wb-dock-brand .oa-brand-logo{width:min(63px,100%);margin:0}
 .oa-management .wb-dock>button{
  display:flex;justify-content:center;align-items:center;box-sizing:border-box;
@@ -139,8 +158,17 @@ body.oa-management.oa-native[data-color-scheme=dark][data-workbench]{
 #oaLocale[data-language="zh-CN"] [lang="zh-CN"],#oaLocale[data-language="en"] [lang="en"]{font-weight:750;color:var(--wb-ink)}
 #wbMenu{position:absolute;right:0;bottom:calc(100% + 8px);width:min(260px,calc(100vw - 20px));max-height:65dvh;overflow:auto;padding:9px;border:1px solid var(--wb-line);border-radius:17px;color:var(--wb-ink);background:var(--wb-float);box-shadow:var(--wb-depth)}
 .oa-management #wbMenu button{width:100%;justify-content:flex-start;box-shadow:none;border:0;background:transparent}
-.wb-publisher{display:flex;align-items:center;gap:9px;margin:7px 0 3px;padding:8px 6px 2px;border-top:1px solid var(--wb-line);font-size:12px}
-.wb-publisher .oa-brand-logo{width:73px;margin:0}
+.wb-openahoy-mark{display:inline-grid;flex:none;place-items:center;width:16px;height:16px}
+.wb-openahoy-mark img{display:block;width:100%;height:100%;object-fit:contain}
+.wb-openahoy-mark img+img{display:none}
+body[data-color-scheme=dark] .wb-openahoy-mark img:first-child{display:none}
+body[data-color-scheme=dark] .wb-openahoy-mark img+img{display:block}
+#wbOpenAhoy{height:100%;min-height:0;overflow:auto;padding:var(--wb-top) clamp(14px,5vw,54px) var(--wb-dock)}
+#wbOpenAhoyTitle{display:flex;align-items:center;gap:9px;margin:0 0 5px;color:var(--wb-ink);font-size:24px}
+#wbOpenAhoyTitle .wb-openahoy-mark{width:24px;height:24px}
+#wbOpenAhoy .oa-home-features{max-width:1000px;margin-inline:auto}
+#wbOpenAhoy .oa-home-grid{margin-block-start:14px}
+#wbOpenAhoy [role=status]{margin:0}
 .oa-native :is(#wbStartup,#wbPublished){
  position:relative;width:100%;height:100%;min-height:0;min-width:0;background:var(--wb-surface);color:var(--wb-ink)
 }
@@ -278,7 +306,11 @@ body.oa-management.oa-native[data-color-scheme=dark][data-workbench]{
  .oa-native .wb-context button{font-size:11px;padding-inline:5px}
 }
 @media(max-width:450px){
- .oa-management .wb-dock>button{font-size:11px}
+ .wb-dock-wrap{width:calc(100% - 8px)}
+ .wb-dock{gap:2px;padding:3px}
+ .oa-management .wb-dock>button{font-size:10px;padding-inline:1px}
+ .oa-management .wb-dock>button.wb-openahoy{font-size:9px}
+ .wb-dock .wb-openahoy-mark{width:13px;height:13px}
  .oa-management .wb-dock>button:not(.wb-dock-brand):not(#oaLocale){flex-direction:column;gap:2px;line-height:1}
  .oa-management .wb-dock>button .oa-icon{width:13px;height:13px;flex-basis:13px}
  #wbMore [aria-hidden=true]{font-size:15px;line-height:13px}
@@ -365,13 +397,13 @@ function OAWorkbench({open, readAnalytics, openLink, accountName, platformName, 
    body.dataset.workbench=next;
    $('wbStartup').hidden=next!=='startup';
    $('wbPublished').hidden=next!=='published';
-   $('wbHomeUpdate').hidden=next!=='published';
+   $('wbOpenAhoy').hidden=next!=='openahoy';
    $('wbCanvasControls').hidden=!showCanvas;
    for(const button of dock.querySelectorAll('[data-wb-route]')){
-     const active={canvas:'jiusera-canvas',monitor:'jiusera-monitor',published:'published',assets:'jiusera-assets'}[next];
+     const active={canvas:'jiusera-canvas',monitor:'jiusera-monitor',published:'published',assets:'jiusera-assets',openahoy:'openahoy',platform:'openahoy'}[next];
      if(button.dataset.wbRoute===active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');
    }
-   more.toggleAttribute('data-current',next==='about'||next==='platform');
+   more.toggleAttribute('data-current',next==='about'||next==='studio-showcase');
    if(next==='published'){restoreAccount();schedulePaint();}
  }
  function options(){

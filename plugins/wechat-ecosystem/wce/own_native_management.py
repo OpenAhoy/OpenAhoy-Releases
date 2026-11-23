@@ -61,7 +61,7 @@ SCRIPT = r'''
  const studioURLs={monitor:'jiusera-monitor',desk:'jiusera-canvas',assets:'jiusera-assets'};
  function route(value){
    if(value==='home')return homeView;
-   return value==='about'||value==='published'||value==='studio-showcase'||studioRoutes.has(value)||platformNames.has(value)?value:'';
+   return value==='about'||value==='published'||value==='studio-showcase'||value==='openahoy'||studioRoutes.has(value)||platformNames.has(value)?value:'';
  }
  function routeFromURL(){
    const hash=location.hash.slice(1),query=new URLSearchParams(location.search),fragment=new URLSearchParams(hash);
@@ -551,6 +551,7 @@ SCRIPT = r'''
    if(row.platform_id==='wechat_official_account')setWechatPage('settings',{rules:true});
  }
  function paintSelection(){
+   clearXRecovery();
    targetAnalytics();
    for(const el of accountList.querySelectorAll(':scope > .account')){
      const chosen=el.dataset.accountKey===selected;
@@ -679,8 +680,8 @@ SCRIPT = r'''
    syncAccountNavigation();
  }
  function renderFeatures(){
-   const grid=$('homeFeatures'),links=$('wbPlatformLinks');
-   grid.replaceChildren();links.replaceChildren();
+   const grid=$('homeFeatures');
+   grid.replaceChildren();
    for(const [id,copy] of featureCopy){
      if(!directory.some(p=>p.id===id&&p.binding_supported))continue;
      const card=document.createElement('button'),title=document.createElement('span'),description=document.createElement('span');
@@ -689,9 +690,6 @@ SCRIPT = r'''
      description.className='oa-home-card-description';OAUI.set(description,copy);
      card.append(title,description);
      card.onclick=()=>openView(id,{user:true,focus:true});grid.append(card);
-     const link=document.createElement('button');
-     link.type='button';link.dataset.wbRoute=id;
-     OAPlatformBranding.decorate(link,id,platformName(id),OAUI);links.append(link);
    }
  }
  let refreshTask=null;
@@ -745,7 +743,7 @@ SCRIPT = r'''
    }catch(error){
      if(sameView()){
        notice(error.message==='HOST_TIMEOUT'?'账号刷新超时，仍显示上次读取结果。':'账号刷新失败，仍显示上次读取结果。',true);
-       if(view==='about')OAUI.set($('homeStatus'),'暂时无法读取平台。');
+       OAUI.set($('homeStatus'),'暂时无法读取平台。');
      }
    }
  }
@@ -830,6 +828,49 @@ SCRIPT = r'''
  $('xProductionEdit').addEventListener('click',closeXTools);
  const xBack=document.createElement('button');xBack.id='xWorkspaceBack';OAUI.set(xBack,'返回内容配置');xBack.className='oa-x-tools-back';xBack.onclick=closeXTools;$('xSettings').prepend(xBack);
  const xCapabilities=document.createElement('details');xCapabilities.className='oa-capability-details';const xCaption=document.createElement('summary');OAUI.set(xCaption,'X 支持的自动能力');xCapabilities.append(xCaption,$('xCapabilities'));$('xSettings').prepend(xCapabilities);
+ const xRecovery=document.createElement('details');xRecovery.className='oa-capability-details';
+ const xRecoveryTitle=document.createElement('summary');OAUI.set(xRecoveryTitle,'查询原 X 任务');
+ const xRecoveryFields=document.createElement('div');xRecoveryFields.className='oa-x-recovery';
+ const xRecoveryKind=document.createElement('select');OAUI.attr(xRecoveryKind,'aria-label','任务类型');
+ for(const [value,label] of [['upload','上传'],['post','帖子'],['reply','回复'],['readback','核对原帖']]){
+   const option=document.createElement('option');option.value=value;OAUI.set(option,label);xRecoveryKind.append(option);
+ }
+ const xRecoveryId=document.createElement('input');xRecoveryId.required=true;xRecoveryId.maxLength=128;
+ xRecoveryId.pattern='[A-Za-z0-9_\\-]+';OAUI.attr(xRecoveryId,'aria-label','原任务 ID');OAUI.attr(xRecoveryId,'placeholder','原任务 ID');
+ const xRecoveryGo=document.createElement('button');xRecoveryGo.type='button';OAUI.set(xRecoveryGo,'查询');
+ const xRecoveryResult=document.createElement('output');xRecoveryResult.setAttribute('role','status');
+ xRecoveryFields.append(xRecoveryKind,xRecoveryId,xRecoveryGo,xRecoveryResult);
+ xRecovery.append(xRecoveryTitle,xRecoveryFields);$('xSettings').prepend(xRecovery);
+ let xRecoveryOwner='';
+ function clearXRecovery(){
+   const row=activePlatform==='x'?current():null;
+   const owner=row?JSON.stringify([row.connection_id,row.account_id,row.binding_revision]):'';
+   if(owner===xRecoveryOwner)return;
+   xRecoveryOwner=owner;xRecoveryId.value='';OAUI.raw(xRecoveryResult,'');
+ }
+ xRecoveryGo.onclick=async()=>{
+   if(xRecoveryGo.disabled||!xRecoveryId.reportValidity())return;
+   const row=current(),origin=platformEpoch,selection=selectEpoch;
+   if(activePlatform!=='x'||!row){OAUI.set(xRecoveryResult,'请选择一个已绑定的 X 账号。');return;}
+   const kind=xRecoveryKind.value,attempt_id=xRecoveryId.value;
+   xRecoveryGo.disabled=true;OAUI.set(xRecoveryResult,'正在查询…');
+   try{
+     const args={connection_id:row.connection_id,attempt_id};
+     const result=await xPanelRead('RECOVERY',{tool:kind==='readback'?'x.posts.readback':'x.attempt.status',
+       arguments:kind==='readback'?args:{...args,kind}});
+     if(origin===platformEpoch&&selection===selectEpoch&&current()===row){
+       const status=[result.state||result.status,result.readback_state,
+         result.result?.post_id||result.result?.media_id||result.post_id||result.media_id].filter(Boolean).join(' · ');
+       OAUI.raw(xRecoveryResult,status||OAUI.format('已读回原任务。'));
+     }
+   }catch(problem){
+     if(origin===platformEpoch&&selection===selectEpoch&&current()===row)OAUI.raw(xRecoveryResult,problem.message);
+   }finally{xRecoveryGo.disabled=false;}
+ };
+ xRecoveryId.addEventListener('keydown',event=>{
+   if(event.key==='Enter'&&!event.isComposing){event.preventDefault();xRecoveryGo.click();}
+ });
+ xRecovery.addEventListener('toggle',()=>{if(!xRecovery.open)OAUI.raw(xRecoveryResult,'');});
  $('contextSettingsTab').addEventListener('click',()=>{closeXTools();contextOpen=true;showSettings(activePlatform);xManagement.deactivate();xhsManagement.deactivate();$('xCapabilities').hidden=activePlatform!=='x';projectContext.activate();});
  $('platformSettingsTab').addEventListener('click',()=>{contextOpen=false;projectContext.deactivate();showSettings(activePlatform);if(activePlatform==='x')xManagement.activate();if(activePlatform==='xiaohongshu')xhsManagement.activate();});
  async function openXAuthorization(existing){
@@ -843,6 +884,14 @@ SCRIPT = r'''
    if(result?.isError){
      const code=result.structuredContent?.error||result.content?.[0]?.text;
      throw new Error(typeof code==='string'&&/^[A-Z0-9_]{1,96}$/.test(code)?code:'WECHAT_ANALYTICS_UNAVAILABLE');
+   }
+   return content(result);
+ }
+ async function xPanelRead(operation,args){
+   const result=await tool('x.ui.action',{operation,arguments:args});
+   if(result?.isError){
+     const code=result.structuredContent?.error||result.content?.[0]?.text;
+     throw new Error(typeof code==='string'&&/^X_[A-Z0-9_]{1,94}$/.test(code)?code:'X_READ_UPSTREAM_UNKNOWN');
    }
    return content(result);
  }
@@ -1078,11 +1127,11 @@ SCRIPT = r'''
    if(user&&mediaView==='assets')updateAssetURL('');
    if(activePlatform!==target||view!=='platform')notice('');
    if(user)explicitNavigation=true;
-   if(target==='about'||target==='published'){
+   if(['about','published','openahoy'].includes(target)){
      platformEpoch++;selectionIntent++;selectEpoch++;navigationEpoch++;
      closeXTools();xManagement.deactivate();xhsManagement.deactivate();projectContext.deactivate();
      view=target;showMedia('');renderView();renderPlatforms();
-     if(focus)$(target==='about'?'homeTitle':'wbPublishedTitle').focus();
+     if(focus)$({about:'homeTitle',published:'wbPublishedTitle',openahoy:'wbOpenAhoyTitle'}[target]).focus();
      return;
    }
    if(view==='platform'&&activePlatform===target)return;
