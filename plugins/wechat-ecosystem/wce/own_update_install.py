@@ -1,6 +1,7 @@
 """Install a verified OpenAhoy release with the official Codex CLI."""
 from contextlib import ExitStack, contextmanager
 from hashlib import sha256
+from http.client import HTTPException
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -132,8 +133,26 @@ def cli(*args, timeout=90):
     executable = next((path for path in (BUNDLED_CLI, Path('/opt/homebrew/bin/codex'),
                                         Path('/usr/local/bin/codex')) if path.is_file()), None)
     require(executable is not None, 'UPDATE_CODEX_CLI_UNAVAILABLE')
-    result = subprocess.run([str(executable), 'plugin', *args, '--json'], capture_output=True,
-                            stdin=subprocess.DEVNULL, cwd=Path.home(), timeout=timeout)
+    if args == ('list',):
+        # An unfiltered list can wait on every remote catalog, even when the
+        # installed plugin's local marketplace is already known.
+        home = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex')))
+        configuration = home / 'config.toml'
+        if configuration.exists():
+            settings = tomllib.loads(read_market(configuration)[0].decode()).get('plugins', {})
+            enabled = [key for key, row in settings.items() if SELECTOR.fullmatch(key)
+                       and isinstance(row, dict) and row.get('enabled') is True]
+            require(len(enabled) <= 1, 'UPDATE_INSTALLED_VERSION_CHANGED')
+            if enabled:
+                args = ('list', '--marketplace', SELECTOR.fullmatch(enabled[0])[1])
+    try:
+        result = subprocess.run([str(executable), 'plugin', *args, '--json'], capture_output=True,
+                                stdin=subprocess.DEVNULL, cwd=Path.home(), timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if args[:1] == ('list',) or args == ('marketplace', 'list'):
+            raise WCEError('UPDATE_CLI_LIST_TIMEOUT') from None
+        # A timed-out mutation may already have changed the host.
+        raise
     require(result.returncode == 0, 'UPDATE_CODEX_CLI_FAILED')
     return json.loads(result.stdout)
 
@@ -441,7 +460,7 @@ def install(previous, version, target, manifest_sha, registry, folder, progress,
                         run('marketplace', 'remove', market_name)
                     run('marketplace', 'add', source, '--ref', rollback_ref)
                     _verify_git_market(run, codex_home, market_name, source, rollback_ref, previous, rollback_manifest)
-                    if not installed(run('list')):
+                    if not installed(run('list', '--marketplace', market_name)):
                         run('add', selector)
                     verify_installation(previous, selector, rollback_manifest, run('list'))
 
@@ -829,13 +848,15 @@ class UpdateInstaller:
                         if state != 'WAITING_FOR_IDLE' or error.code not in BUSY_CODES or time.monotonic() >= deadline:
                             raise
                         time.sleep(1)
-            except (WCEError, OSError, ValueError, KeyError, IndexError, TypeError, BadZipFile, subprocess.SubprocessError) as error:
-                code = getattr(error, 'code', 'UPDATE_OPERATION_FAILED')
+            except (WCEError, OSError, HTTPException, ValueError, KeyError, IndexError, TypeError, BadZipFile, subprocess.SubprocessError) as error:
+                code = error.code if isinstance(error, WCEError) else 'UPDATE_OPERATION_FAILED'
+                if isinstance(error, subprocess.TimeoutExpired):
+                    code = 'UPDATE_CLI_ACTION_TIMEOUT'
                 if code in BUSY_CODES and state == 'WAITING_FOR_IDLE':
                     progress('BUSY', code=code)
                 elif state == 'INSTALLING' and code != 'UPDATE_INSTALL_REJECTED':
-                    progress('INSTALL_UNKNOWN', code=code)
+                    progress('INSTALL_UNKNOWN', code=code, failed_phase=state)
                 else:
-                    progress('FAILED', code=code, downloaded=state in ('STAGED', 'WAITING_FOR_IDLE'))
+                    progress('FAILED', code=code, failed_phase=state, downloaded=state in ('STAGED', 'WAITING_FOR_IDLE'))
         finally:
             os.close(keeper)

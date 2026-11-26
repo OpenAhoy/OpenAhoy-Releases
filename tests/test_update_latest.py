@@ -3,6 +3,7 @@ from hashlib import sha256
 from io import BytesIO
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -130,6 +131,46 @@ class Discovery(unittest.TestCase):
 
 
 class Install(unittest.TestCase):
+    def test_cli_uses_unique_enabled_market_and_reports_read_timeout(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, CODEX_HOME=directory):
+            config = Path(directory) / 'config.toml'
+            config.write_text('[plugins."wechat-ecosystem@shared"]\nenabled=true\n'
+                              '[plugins."wechat-ecosystem@old"]\nenabled=false\n')
+            config.chmod(0o600)
+            process = Mock(returncode=0, stdout=b'{"installed":[]}')
+            with patch.object(installation.subprocess, 'run', return_value=process) as run:
+                installation.cli('list')
+                self.assertEqual(run.call_args.args[0][1:], ['plugin', 'list', '--marketplace', 'shared', '--json'])
+                config.write_text(config.read_text().replace('enabled=false', 'enabled=true'))
+                with self.assertRaisesRegex(WCEError, 'UPDATE_INSTALLED_VERSION_CHANGED'):
+                    installation.cli('list')
+                self.assertEqual(run.call_count, 1)
+                run.side_effect = subprocess.TimeoutExpired('codex', 90)
+                with self.assertRaisesRegex(WCEError, 'UPDATE_CLI_LIST_TIMEOUT'):
+                    installation.cli('list', '--marketplace', 'shared')
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    installation.cli('add', 'wechat-ecosystem@shared')
+
+    def test_display_phase_distinguishes_preinstall_read_from_unknown_write(self):
+        for phase, error, state, code in (
+            ('STAGED', WCEError('UPDATE_CLI_LIST_TIMEOUT'), 'FAILED', 'UPDATE_CLI_LIST_TIMEOUT'),
+            ('INSTALLING', subprocess.TimeoutExpired('codex', 90), 'INSTALL_UNKNOWN', 'UPDATE_CLI_ACTION_TIMEOUT'),
+        ):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as directory:
+                def stop(previous, version, target, manifest, registry, folder, progress):
+                    progress(phase)
+                    raise error
+                worker = installation.UpdateInstaller(
+                    '0.7.107', Path(directory) / 'connections.json', switch=stop,
+                    download=lambda _v, _r, where, _p: (where / 'payload', MANIFEST),
+                    checker=lambda _: {'state':'UPDATE_AVAILABLE', 'latest_version':'0.7.108',
+                                       'advertised_revision':PIN})
+                request = os.urandom(16).hex()
+                worker.start('0.7.108', PIN, request)
+                self.join_workers()
+                receipt = json.loads((worker.root / 'status.json').read_bytes())
+                self.assertEqual((receipt['state'], receipt['code'], receipt['failed_phase']), (state, code, phase))
+
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)

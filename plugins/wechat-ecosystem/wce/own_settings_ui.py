@@ -564,7 +564,7 @@ SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '公众号默认
       !document.querySelector('#recoveryTargets input:checked') && !imageLoading;
   }
   function addPageFocused() {
-    const field = $('appid'), rect = field.getBoundingClientRect();
+    const field = $('legacyBindingHelp'), rect = field.getBoundingClientRect();
     return document.visibilityState === 'visible' && document.hasFocus() &&
       document.activeElement === field && rect.width > 0 && rect.height > 0 &&
       rect.top < innerHeight && rect.bottom > 0 && rect.left < innerWidth && rect.right > 0;
@@ -575,7 +575,7 @@ SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '公众号默认
     if (result.state !== 'COMPLETE' || result.sequence !== sequence || result.revision !== navigationRevision)
       throw new Error('SETTINGS_NAVIGATION_UNKNOWN');
     navigationBusy = false; navigationSequence = null; controls();
-    notice('已打开添加公众号。请填写账号信息，下一步再核对。');
+    notice('请前往 OpenAhoy 公众号配置，使用管理员微信扫码。');
     return true;
   }
   async function navigationPoll() {
@@ -590,7 +590,7 @@ SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '公众号默认
           renderResult({state:'NOT_SUBMITTED'});
           if (document.visibilityState === 'visible' && document.hasFocus()) {
             OAManagement.adding();
-            $('appid').scrollIntoView({block:'center'}); $('appid').focus({preventScroll:true});
+            $('legacyBindingHelp').scrollIntoView({block:'center'}); $('legacyBindingHelp').focus({preventScroll:true});
             await finishNavigation(navigationSequence);
           }
         } else if (status.state === 'CANCELLED') {
@@ -616,7 +616,7 @@ SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '公众号默认
         navigationBusy = false; navigationSequence = null; controls(); return;
       }
       OAManagement.adding();
-      $('appid').scrollIntoView({block:'center'}); $('appid').focus({preventScroll:true});
+      $('legacyBindingHelp').scrollIntoView({block:'center'}); $('legacyBindingHelp').focus({preventScroll:true});
       if (!addPageClean() || !addPageFocused()) { navigationBusy = false; navigationSequence = null; controls(); return; }
       const ack = await call('/navigation/ack',{sequence:navigation.sequence,visible:true,focused:true},true);
       if (ack.state !== 'APPLIED' || ack.sequence !== navigation.sequence || !Number.isSafeInteger(ack.revision))
@@ -635,6 +635,7 @@ SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '公众号默认
     }
   }
   async function prepare(intent) {
+    if(intent==='ADD'){OAManagement.adding();return;}
     if (active || ended || navigationBusy || targetPending || targetError || finished) return;
     if (editing) { notice('请先保存或取消资料编辑，再操作账号授权。'); return; }
     if (review) { notice('请先确认或取消当前核对，再选择另一项操作。'); return; }
@@ -765,7 +766,7 @@ SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '公众号默认
         (isRecovery(review.intent) && (!riskTyped || $('riskAck').value !== riskPhrase))) return;
     active = true; controls(); $('commit').disabled = true;
     let value = {review_id:review.id,approval:review.approval};
-    if(review.intent === 'ADD') value.secret = $('secret').value;
+    if(review.intent === 'ADD') return;
     if(isRecovery(review.intent)) value.risk_ack = $('riskAck').value;
     $('secret').value = ''; clearBodyRecovery(); review = null;
     $('review').hidden = true;
@@ -803,7 +804,7 @@ SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '公众号默认
     add:async e=>{if(!e.isTrusted||ended||active||review||editing||targetPending)return;
       active=true;generation++;controls();try{await call('/select',{connection_id:null});
         selectedId='';$('select').value='';finished=false;clearReview();$('appid').value=$('label').value='';
-        selectedPreview();OAManagement.adding();notice('填写新公众号信息，下一步核对账号。');
+        selectedPreview();OAManagement.adding();notice('请前往 OpenAhoy 公众号配置，使用管理员微信扫码。');
       }catch(e){error(e);}finally{active=false;controls();}},
     cancel:async e=>{if(!e.isTrusted||ended||active||targetPending)return;
       active=true;generation++;controls();try{await call('/cancel');clearReview();

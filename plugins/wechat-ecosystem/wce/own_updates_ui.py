@@ -271,10 +271,17 @@ window.OASoftwareUpdates={mount(rpc,installed){
    UPDATE_CACHE_ARCHIVE_VERIFY:'无法确认旧版原目录已归档，尚未切换版本。'
   };
   const cacheFailure=job==='FAILED'&&Object.hasOwn(cacheFailures,code);
-  jobHelp=job==='INSTALL_UNKNOWN'||(job==='FAILED'&&
-    (cacheFailure||['CONNECTION_NOT_COMMITTED','UPDATE_ACTIVITY_UNVERIFIED','UPDATE_ROLLBACK_REF_UNAVAILABLE','UPDATE_MARKETPLACE_UNSUPPORTED'].includes(code)));
+  jobHelp=job==='INSTALL_UNKNOWN'||job==='FAILED';
+  const failedPhase={
+   CHECKING:'核对发行版本',DOWNLOADING:'下载更新',VERIFYING:'校验更新文件',
+   STAGED:'准备安装',WAITING_FOR_IDLE:'核对业务状态',INSTALLING:'安装和回读'
+  }[value.failed_phase];
   if(job==='INSTALL_UNKNOWN'&&code==='UPDATE_CACHE_OLD_LAUNCH_RESTORE'){
    sayJob('旧会话入口尚未核实。请查看原升级状态。',job);
+  }else if(job==='INSTALL_UNKNOWN'&&code==='UPDATE_CLI_ACTION_TIMEOUT'){
+   sayJob('Codex 安装操作超时。请先检查原安装结果。',job);
+  }else if(job==='FAILED'&&code==='UPDATE_CLI_LIST_TIMEOUT'){
+   sayJob('Codex 查询插件市场超时。请重试或查看升级指引。',job);
   }else if(cacheFailure){
    sayJob(cacheFailures[code],job);
   }else if(job==='FAILED'&&code==='CONNECTION_NOT_COMMITTED'){
@@ -293,8 +300,10 @@ window.OASoftwareUpdates={mount(rpc,installed){
   }else if(job==='FAILED'&&code==='UPDATE_CHECK_UNAVAILABLE'){
    checkUnavailable('RELEASE_CHANNEL_UNAVAILABLE');
    sayJob('暂时无法核对安装目标。可重新检查更新。',job);
+  }else if(job==='FAILED'&&failedPhase){
+   sayJob('升级停在「{0}」。请查看技术详情或升级指引。',job,ui.message(failedPhase));
   }else if(job==='FAILED'&&value.downloaded===true){
-   sayJob('更新文件已下载，安装未完成。',job);
+   sayJob('更新已下载，安装未完成。可查看升级指引恢复原安装。',job);
   }else{
    sayJob(messages[job],job,value.version||installed);
   }

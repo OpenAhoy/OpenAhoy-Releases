@@ -127,8 +127,7 @@ def minimax_cards():
 
 
 def native_page_body(logo, platform_settings):
-    """Single native workspace; secret input has its own view in this resource."""
-    from .own_inline_binding_ui import HTML as binding_html
+    """Shared native workspace for platform and account management."""
     from .video_director_ui import HTML as director_html
     from .workbench_ui import SURFACES, chrome
     from .character_library_ui import HTML as characters_html
@@ -295,6 +294,9 @@ def native_page_body(logo, platform_settings):
 <div id="xAccountEvidence" hidden></div>
 <p id="notice" class="notice" role="status" aria-live="polite">正在连接管理工具…</p>
 <section id="wechatOfficialAccount" aria-label="公众号资料与权限" hidden>
+ <button type="button" id="wechatStatusBack">返回账号</button>
+ <button type="button" id="wechatProfileRefresh" hidden>刷新本号官方资料</button>
+ <p id="wechatProfileFeedback" role="status"></p><div id="wechatStatusAvatar"></div>
  <p id="wechatOfficialState" role="status"></p>
  <dl id="wechatOfficialFields"></dl>
  <div id="wechatOfficialGraphic"></div>
@@ -314,6 +316,7 @@ def native_page_body(logo, platform_settings):
 <p id="unsupportedSettings" class="empty" hidden>当前平台暂不支持这些设置，未调用其他平台工具。</p>'''+platform_settings+'''</section>
 <dialog id="wechatComponentDialog" class="oa-account-remove-dialog" aria-labelledby="wechatComponentTitle">
 <h2 id="wechatComponentTitle">绑定公众号</h2>
+<p id="wechatComponentTarget" hidden></p>
 <p>请用该公众号管理员的微信，在微信官方页面扫码授权。</p>
 <p id="wechatComponentStatus" role="status" aria-live="polite"></p>
 <div class="actions">
@@ -321,18 +324,12 @@ def native_page_body(logo, platform_settings):
  <button id="wechatComponentCheck" type="button" hidden>检查授权结果</button>
  <button id="wechatComponentCancel" type="button">取消</button>
 </div>
-<button id="wechatComponentDirect" type="button">维护自有直连</button>
+
 </dialog>
-<dialog id="accountNameDialog" class="oa-account-remove-dialog" aria-labelledby="accountNameTitle">
-<form id="accountNameForm"><h2 id="accountNameTitle">编辑显示名称</h2>
-<label for="accountDisplayName">显示名称</label><input id="accountDisplayName" required maxlength="64" autocomplete="off" autofocus>
-<p id="accountNameStatus" role="status"></p>
-<div class="actions"><button id="accountNameCancel" type="button">取消</button><button id="accountNameSave" class="primary" type="submit">保存</button></div>
-</form></dialog>
 <dialog id="accountRemoveDialog" class="oa-account-remove-dialog" aria-labelledby="accountRemoveTitle">
 <h2 id="accountRemoveTitle">移除账号</h2>
 <p id="accountRemoveTarget"></p>
-<p>将断开此账号在 Jiusera 的连接并停止后续自动任务。平台账号、内容、资产和操作记录会保留。</p>
+<p id="accountRemoveNote"></p>
 <div class="actions"><button id="accountRemoveCancel" type="button" autofocus>取消</button>
 <button id="accountRemoveConfirm" class="danger" type="button">确认移除</button></div>
 </dialog>
@@ -345,7 +342,7 @@ def native_page_body(logo, platform_settings):
 <p id="accountRecoveryStatus" role="status"></p>
 </dialog>
 <footer class="oa-footer"><span>Jiusera · 本机账号管理</span></footer></div><section id="mediaStudio" aria-label="Jiusera" hidden>
-'''+director_html+'''</section>'''+characters_html+binding_html+'''</main></div>'''
+'''+director_html+'''</section>'''+characters_html+'''</main></div>'''
 
 
 HOME_STYLE = '''
@@ -452,17 +449,15 @@ def page_body(logo, rules_html, technical_html, routes_html):
 <button id="settings-technical" role="tab" aria-selected="false">技术格式</button></div>'''+rules_only+'''
 <section id="officialRoutes" class="panel" hidden>'''+routes_html+'''</section><section id="technicalPanel" class="panel" hidden>'''+technical_html.replace('<details id="htmlTechnicalStandard">','<details id="htmlTechnicalStandard" open>')+'''</section></section>
 <section id="bindingDrawer" class="panel" hidden aria-labelledby="bindingTitle"><div class="drawer-head"><h2 id="bindingTitle">添加公众号</h2><button id="cancelAdding" class="quiet">取消</button></div>
-<p class="help">使用公众号 AppID 与 AppSecret 绑定。核对账号后再填写密钥。</p>
-<div class="oa-add-fields"><label>AppID<input id="appid" maxlength="18" autocomplete="off" spellcheck="false" placeholder="wx 开头的 AppID"></label>
-<label>显示名称<input id="label" maxlength="64" autocomplete="off" placeholder="公众号名称"></label>
-<button id="add" class="primary">下一步 · 核对账号</button></div>
+<p class="help" id="legacyBindingHelp" tabindex="-1">请从 Codex 打开 OpenAhoy → 公众号配置。添加账号请选择「＋ 添加公众号」；重新授权请选择该账号的「⋯ → 重新绑定」，由管理员微信扫码。</p>
+<div class="oa-add-fields" hidden inert><input id="appid" type="hidden"><input id="label" type="hidden"><button id="add" type="button" hidden disabled></button></div>
 <section id="review" class="review-card" hidden><h2 id="reviewTitle" tabindex="-1"></h2><pre id="reviewSummary" class="review-summary"></pre><div id="bodyRecoveryPreview"></div>
 <label id="riskLabel" hidden>风险确认短语<input id="riskAck" maxlength="32" autocomplete="off"><span id="riskHelp" class="help"></span></label>
 <details class="technical"><summary>完整账号与操作信息</summary><pre id="reviewDetails"></pre></details>
-<label id="secretLabel">新号 AppSecret<input id="secret" type="password" maxlength="256" autocomplete="off" spellcheck="false" autocapitalize="off"></label>
+<span id="secretLabel" hidden><input id="secret" type="hidden"></span>
 <label class="consent"><input id="consent" type="checkbox"><span>我已核对以上账号及本次操作，同意执行。</span></label>
 <div class="actions"><button id="commit" class="primary" disabled>确认绑定</button><button id="cancel">取消本次操作</button></div></section>
-<p class="help">密钥仅通过本机安全表单提交，验证后存入该号系统钥匙串。</p></section>
+</section>
 <section id="operationPanel" class="panel" hidden aria-live="polite"><h2>操作结果</h2><p id="resultTitle"></p><p id="resultCopy" class="help"></p>
 <div class="actions"><button id="readResult">查询原结果</button><button id="continue">继续管理</button></div>
 <div id="ipPanel" hidden><p id="ipValue" class="ip-value"></p><button id="copyIP" disabled>复制来源 IP</button></div>
@@ -504,7 +499,7 @@ const OAManagement=(()=>{
    const avatar=$('selectedAccount').querySelector('.avatar');if(row&&avatar&&!row.presentation?.avatar){avatar.textContent=Array.from(names.get(id)||'公众号').slice(-2,-1).join('');const hint=$('selectedAccount').querySelector('.account-hint');if(hint)hint.textContent='未设置头像';}
    if(row?.account_id){const p=document.createElement('p');p.className='account-id';p.textContent='AppID '+row.account_id;$('selectedAccount').append(p);}}
  function reviewing(intent){$('bindingTitle').textContent=intent==='ADD'?'添加公众号':'账号操作';$('bindingDrawer').hidden=false;document.querySelector('.oa-add-fields').hidden=intent!=='ADD';}
- function adding(){reviewing('ADD');view();$('bindingDrawer').hidden=false;$('bindingDrawer').scrollIntoView({block:'start'});$('appid').focus();}
+ function adding(){reviewing('ADD');view();$('bindingDrawer').hidden=false;$('bindingDrawer').scrollIntoView({block:'start'});$('legacyBindingHelp').focus();}
  function cancelled(){$('bindingDrawer').hidden=true;view();}
  function result(value){$('operationPanel').hidden=value.state==='NOT_SUBMITTED';if(['BOUND_IDLE','UPGRADED','DISCONNECTED','TOKEN_CHECK_SUCCEEDED'].includes(value.state))$('bindingDrawer').hidden=true;}
  function busy(value){for(const id of ['showAdd','cancelAdding','platformWeChat','detailProfile','accountRules'])$(id).disabled=value||(['detailProfile','accountRules'].includes(id)&&!selected);$('detailProfile').disabled||=!['MISSING','SAVED'].includes(entries.find(r=>r.connection_id===selected)?.presentation?.state);}

@@ -57,9 +57,23 @@ body.oa-management.oa-native.oa-wechat-view #wechatAccountPicker #accountPanel #
  overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;
  background:transparent;border:0;border-radius:0;box-shadow:none
 }
-body.oa-management.oa-native.oa-wechat-view #wechatAccountPicker #accountPanel #accounts>.account{
+body.oa-management.oa-native.oa-wechat-view #wechatAccountPicker #accountPanel #accounts>:is(.account,.oa-wechat-add-account){
  width:auto;min-width:0;max-width:none;border:0;border-radius:12px;
  background:var(--oh-surface);box-shadow:var(--oh-control);color:var(--oh-text)
+}
+.oa-management.oa-native.oa-wechat-view #accounts>.oa-wechat-add-account{
+ display:flex;align-items:center;justify-content:center;gap:5px;min-height:53px;
+ padding:6px 8px;border-radius:12px;font-size:13px;font-weight:650;
+ white-space:normal;overflow-wrap:anywhere
+}
+.oa-management.oa-native.oa-wechat-view #accounts>.oa-wechat-add-account>span:first-child{
+ font-size:17px;line-height:1
+}
+.oa-management.oa-native.oa-wechat-view #accounts>.oa-wechat-add-account:focus-visible{
+ outline:2px solid var(--wb-active);outline-offset:2px
+}
+body.oa-management.oa-native.oa-wechat-view #wechatAccountPicker #accounts>.oa-wechat-add-account:active:not(:disabled){
+ box-shadow:var(--oh-press);color:var(--oh-selected)
 }
 body.oa-management.oa-native.oa-wechat-view #wechatAccountPicker #accountPanel #accounts>.account.is-selected{
  box-shadow:var(--oh-press);color:var(--oh-selected)

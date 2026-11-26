@@ -45,6 +45,7 @@ SCRIPT = r'''
  'use strict';
  const $=id=>document.getElementById(id),bridge=window.parent,pending=new Map();
  const accountPanel=$('accountPanel'),accountList=$('accounts'),platformNavigation=$('platformNavigation');
+ const addWechatAccount=document.createElement('button');
  const compactAccounts=matchMedia('(max-width:560px)');
  const wechatSide=$('wbWechatTools'),wechatBack=$('wechatWorkspaceBack');
  const wechatActions=$('accountTools').parentElement;
@@ -52,7 +53,7 @@ SCRIPT = r'''
  const wechatTabs=$('wechatWorkspaceNavigation');
  const wechatDock=OAWorkbenchDockDisclosure(document.querySelector('.wb-dock [data-wb-route=openahoy]'),wechatTabs,
    ()=>wechatTabs.querySelector('[aria-pressed=true]'));
- let wasWechat=false,bindingFocus=null;
+ let wasWechat=false;
  let accountsExpanded=false,renderedAccounts=[];
  const floatingMenus='details.oa-more-settings[open],details.oa-account-menu[open],details.oa-task-menu[open]';
  function closeFloatingMenus(except=null){
@@ -86,6 +87,7 @@ SCRIPT = r'''
  const xPlatform='x';
  const douyinPlatform='douyin';
  const accountRoutes=new Set([wechatPlatform,xPlatform,douyinPlatform]);
+ let profileReadIntent=0,profileReadOwner='';
  let wechatPage='settings',wechatConnection='',xConnection='',boardEntry=null;
  const wechatPages=['monitor','settings','profile','articles','media','readers','messages','comments',
    'menu','shop','coupons','stores','channels','web','operations','publish'];
@@ -101,7 +103,7 @@ SCRIPT = r'''
  const official=row=>row.platform_id===wechatPlatform&&row.official_profile?.state==='ACTIVE'?row.official_profile:null;
  const name=row=>{
    const info=official(row);
-   return (info?.use_official&&info.nickname)||row.presentation?.display_name||'';
+   return ((info?.use_official||Number.isSafeInteger(info?.identity_verified_at))&&info?.nickname)||row.presentation?.display_name||'';
  };
  const platformNames=new Map([['wechat_official_account','公众号'],['x','X'],['xiaohongshu','小红书']]);
  const platformName=id=>platformNames.get(id);
@@ -212,7 +214,7 @@ SCRIPT = r'''
      if(url.href!==location.href)history[push?'pushState':'replaceState'](history.state,'',url);
    }catch(_){}
  }
- const initializedEditors=new Set();let binding=null,xManagement=null,xhsManagement=null,projectContext=null,contextOpen=false;
+ const initializedEditors=new Set();let xManagement=null,xhsManagement=null,projectContext=null,contextOpen=false;
  const localExports=new Map(),selectedByPlatform=new Map();let selectEpoch=0,platformEpoch=0,selectionIntent=0,pendingSelection=null;
  const hostDownloadsUnknown=new Set();
  async function hostDownload(resource, onUnknown){
@@ -227,7 +229,6 @@ SCRIPT = r'''
       (result.isError===false||result.isError===undefined))return {state:'HOST_DOWNLOADED'};
    onUnknown();return {state:'HOST_DOWNLOAD_UNCONFIRMED'};
  }
- const originalSelection={platform:'',account:''};
  const editors=new Map(Object.entries(OAPlatformSettings).map(([id,adapter])=>[id,adapter.mount((operation,args)=>platformCall(id,operation,args),()=>{navigationEpoch++;},{
   templateCall:(name,args)=>tool(name,args),
   async configurationSources(connection_id,templates){
@@ -296,7 +297,7 @@ SCRIPT = r'''
    }
   }
  })]));
- function dispose(){OAWorkspaceTheme.dispose();disableIMW();OAStudio.dispose();homeIntro?.close();showMedia('');studioSound.close();video.dispose();if(audioMode)audioWorkspace.close();binding?.dispose();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
+ function dispose(){OAWorkspaceTheme.dispose();disableIMW();OAStudio.dispose();homeIntro?.close();showMedia('');studioSound.close();video.dispose();if(audioMode)audioWorkspace.close();xManagement?.dispose();xhsManagement?.dispose();projectContext?.dispose();closed=true;ready=false;for(const editor of editors.values())editor.setReady(false);
    for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('VIEW_CLOSED'));}pending.clear();
    for(const el of document.querySelectorAll('button,input,select,textarea'))el.disabled=true;
  }
@@ -360,6 +361,7 @@ SCRIPT = r'''
    OAUI.set($('showAdd').querySelector('span'),addLabel);OAUI.attr($('showAdd'),'aria-label',addLabel);OAUI.attr($('showAdd'),'title',addLabel);
    $('showAdd').disabled=!ready||refreshing||launching||!p?.binding_supported||
      (activePlatform==='xiaohongshu'&&!(xhsManagement?.canBegin()));
+   addWechatAccount.disabled=$('showAdd').disabled;
    $('accountRules').disabled=!ready||refreshing||!row||(componentOnly(row)&&row.state!=='BOUND_IDLE')||!platform(row.platform_id)?.settings_supported||!editors.has(row.platform_id);
    $('accountImport').disabled=$('accountRules').disabled;
    $('accountCreate').disabled=$('accountRules').disabled;
@@ -406,6 +408,19 @@ SCRIPT = r'''
  function avatar(row){
    const box=document.createElement('div');box.className='avatar';box.setAttribute('aria-label',name(row)+'，未设置头像');
    const info=official(row),a=(info?.use_official&&info.avatar)||row.presentation?.avatar;
+   if(Number.isSafeInteger(info?.identity_verified_at)&&typeof info.avatar_url==='string'){
+     try{
+       const url=new URL(info.avatar_url);
+       if(['https://mmbiz.qpic.cn','https://mmbiz.qlogo.cn','https://wx.qlogo.cn','https://thirdwx.qlogo.cn'].includes(url.origin)&&url.pathname!=='/'&&!url.search&&!url.hash&&!url.username&&!url.password){
+         const img=document.createElement('img');img.alt=OAUI.format('官方头像');img.referrerPolicy='no-referrer';
+         img.style.width=img.style.height='100%';img.style.objectFit='cover';
+         const fallback=()=>{box.textContent=Array.from(name(row))[0]||'账';box.setAttribute('aria-label',OAUI.format('头像暂不可用'));};
+         fallback();
+         img.addEventListener('load',()=>{box.replaceChildren(img);box.setAttribute('aria-label',img.alt);},{once:true});
+         img.referrerPolicy='no-referrer';img.src=url.href;return box;
+       }
+     }catch(_){}
+   }
    if(row.platform_id===douyinPlatform&&['image/jpeg','image/png','image/webp'].includes(a?.mime)&&
       typeof a.data==='string'&&a.data.length<=65536&&/^[A-Za-z0-9+/]+={0,2}$/.test(a.data)){
      const img=document.createElement('img');
@@ -423,37 +438,6 @@ SCRIPT = r'''
  }
  let removalTarget=null, removing=false;
  const removalDialog=$('accountRemoveDialog');
- const nameDialog=$('accountNameDialog'),displayName=$('accountDisplayName'),saveName=$('accountNameSave');
- let nameTarget=null;
- function canEditName(row){
-   return row.platform_id==='wechat_official_account'&&['BOUND','BOUND_IDLE','BUSY','CONNECTED'].includes(row.state)
-     &&['MISSING','SAVED'].includes(row.presentation?.state)&&Number.isSafeInteger(row.presentation.revision);
- }
- function currentNameTarget(row){
-   return !closed&&ready&&view==='platform'&&activePlatform===row.platform_id&&rows.some(item=>
-     key(item)===key(row)&&item.account_id===row.account_id&&item.binding_revision===row.binding_revision&&canEditName(item));
- }
- $('accountNameCancel').onclick=()=>nameDialog.close();
- nameDialog.addEventListener('close',()=>{if(!nameDialog.open)nameTarget=null;});
- $('accountNameForm').onsubmit=async event=>{
-   event.preventDefault();const row=nameTarget,desired=displayName.value.trim();
-   if(!event.isTrusted||saveName.disabled||!row||!currentNameTarget(row))return;
-   if(!desired){OAUI.set($('accountNameStatus'),'请输入显示名称。');return;}
-   saveName.disabled=true;displayName.disabled=true;
-   let observed;
-   try{
-     await tool('wce.ui.management.save_display_name',{connection_id:row.connection_id,
-       account_id:row.account_id,binding_revision:row.binding_revision,
-       expected_revision:row.presentation.revision,display_name:desired});
-   }catch(_){/* Read back the scoped account after a lost or failed response. */}
-   try{observed=await refresh({afterWrite:true});}catch(_){}
-   if(closed||nameTarget!==row||!nameDialog.open)return;
-   const found=observed?.find(item=>key(item)===key(row)&&item.account_id===row.account_id&&item.binding_revision===row.binding_revision);
-   if(found?.presentation?.display_name===desired&&found.presentation.revision>row.presentation.revision){
-     nameDialog.close();notice('已保存显示名称。');return;
-   }
-   OAUI.set($('accountNameStatus'),'名称未能确认。请关闭并重新打开此账号的编辑窗口，查看当前名称。');
- };
  const recoveryDialog=$('accountRecoveryDialog');
  let recoveryTarget=null,recoveryCheck=null;
  async function storageRecovery(row,action){
@@ -534,6 +518,10 @@ SCRIPT = r'''
      if(!rows.some(item=>key(item)===key(row)&&item.account_id===row.account_id&&item.binding_revision===row.binding_revision))return;
      menu.open=false;removalTarget=row;
      OAUI.raw($('accountRemoveTarget'),[name(row),platformName(row.platform_id),row.account_id].filter(Boolean).join(' · '));
+     OAUI.set($('accountRemoveNote'),row.platform_id===wechatPlatform?
+       '将停止此号在本工作区的连接并移除账号卡。文章、配置及其他账号会保留。微信侧授权可在微信后台管理。':
+       '将断开此账号在 Jiusera 的连接并停止后续自动任务。平台账号、内容、资产和操作记录会保留。');
+     OAUI.set($('accountRemoveTitle'),row.platform_id===wechatPlatform?'解绑并移除':'移除账号');
      removalDialog.showModal();
    };
    rebind.type='button';OAUI.set(rebind,'重新绑定');
@@ -543,27 +531,27 @@ SCRIPT = r'''
      await select(key(row));
      const chosen=current();
      if(closed||!chosen||key(chosen)!==key(row)||chosen.binding_revision!==row.binding_revision)return;
-     if(row.platform_id==='wechat_official_account')return binding.open(row);
+     if(row.platform_id===wechatPlatform)return openWechatBinding(row,toggle);
      if(row.platform_id==='xiaohongshu')return xhsManagement.reconnect(row.connection_id);
      await openXAuthorization(true);
    };
-   if(bindingAvailable&&canEditName(row)){
-     const edit=document.createElement('button');edit.type='button';OAUI.set(edit,'编辑显示名称');
-     edit.onclick=event=>{
-       if(!event.isTrusted||refreshing||!currentNameTarget(row))return;
-       closeFloatingMenus();nameTarget=row;displayName.value=row.presentation?.display_name||'';
-       displayName.disabled=false;saveName.disabled=false;OAUI.set($('accountNameStatus'),'');
-       nameDialog.showModal();displayName.select();
-     };
-     actions.append(edit);
-   }
    if(row.platform_id==='x'){
      const developer=document.createElement('button');developer.type='button';
      OAUI.raw(developer,'X Developer Console');
      developer.onclick=()=>{menu.open=false;void openXDeveloper(row);};
      actions.append(developer);
    }
-   if(bindingAvailable)actions.append(rebind,remove);
+   if(row.platform_id===wechatPlatform){
+     const status=document.createElement('button');status.type='button';OAUI.set(status,'查看状态详情');
+     status.onclick=async()=>{
+       menu.open=false;
+       const live=rows.find(item=>key(item)===key(row)&&item.account_id===row.account_id);
+       if(!isWechat()||!live)return;
+       await showWechatStatus(live);
+     };
+     OAUI.set(remove,'解绑并移除');
+     actions.append(rebind,status,remove);
+   }else if(bindingAvailable)actions.append(rebind,remove);
    menu.append(toggle,actions);
    bindWorkspacePopover(menu);
    return menu;
@@ -606,7 +594,11 @@ SCRIPT = r'''
  accountList.addEventListener('scroll',()=>closeFloatingMenus(),{passive:true});
  accountPanel.addEventListener('scroll',()=>closeFloatingMenus(),{passive:true});
  $('accountRemoveCancel').onclick=()=>removalDialog.close();
- removalDialog.addEventListener('close',()=>{removalTarget=null;});
+ removalDialog.addEventListener('close',()=>{
+   const account=removalTarget;removalTarget=null;
+   if(!removing&&account&&isWechat())
+     Array.from(accountList.children).find(el=>el.dataset.accountKey===key(account))?.querySelector('summary')?.focus();
+ });
  $('accountRemoveConfirm').onclick=async event=>{
    const row=removalTarget;
    if(!event.isTrusted||!row||removing||closed||!ready||refreshing)return;
@@ -617,7 +609,9 @@ SCRIPT = r'''
    let disconnected=false;
    try{
      const result=await tool('wce.ui.management.disconnect',{
-       platform_id:row.platform_id,connection_id:row.connection_id,account_id:row.account_id,binding_revision:row.binding_revision
+       platform_id:row.platform_id,connection_id:row.connection_id,account_id:row.account_id,binding_revision:row.binding_revision,
+       ...(row.platform_id===wechatPlatform&&Number.isSafeInteger(row.component_grant?.generation)?
+         {expected_grant_generation:row.component_grant.generation}:{})
      });
      const value=content(result);
      disconnected=!result.isError&&value.connection_id===row.connection_id&&value.state==='DISCONNECTED';
@@ -677,7 +671,7 @@ SCRIPT = r'''
    };
    el.append(pick);
    const canManage=row.account_id&&/^[a-f0-9]{64}$/.test(row.binding_revision)&&row.error!=='CONNECTION_ENTRY_UNAVAILABLE';
-   if((canManage||row.platform_id==='x')&&!componentOnly(row))el.append(accountMenu(row,canManage));
+   if((canManage||row.platform_id==='x'||(row.platform_id===wechatPlatform&&row.account_id&&!row.recovery)))el.append(accountMenu(row,canManage));
    else if(row.platform_id==='wechat_official_account'&&row.recovery)el.append(recoveryAction(row));
    return el;
  }
@@ -727,13 +721,13 @@ SCRIPT = r'''
  }
  function targetAnalytics(){
    const row=current();
-   const valid=isWechat()&&wechatPage==='monitor'&&$('inlineBinding').hidden&&!componentOnly(row)&&
+   const valid=isWechat()&&wechatPage==='monitor'&&!componentOnly(row)&&
      row?.platform_id===activePlatform&&['BOUND','BOUND_IDLE','CONNECTED','BUSY'].includes(row.state);
    analytics?.target(valid?row:null,valid?name(row):'');
  }
  function renderWechatWorkspace(){
    const inWechat=isWechat();
-   const shown=inWechat&&$('inlineBinding').hidden;
+   const shown=inWechat;
    if(inWechat!==wasWechat){
      wasWechat=inWechat;
      if(inWechat){wechatSide.append(wechatBack,wechatActions);}
@@ -768,6 +762,13 @@ SCRIPT = r'''
    if(contentRoute)accountDesk.nav(wechatPage,$('wechatInlineDeskNavigation'));
    articleReader.target(articles?current():null);
    if(profile)paintOfficialProfile();
+   const identity=profile?current():null;
+   const owner=identity&&(identity.component_grant||componentOnly(identity))?
+     JSON.stringify([identity.connection_id,identity.account_id,identity.component_grant?.generation]):'';
+   if(owner!==profileReadOwner){
+     profileReadOwner=owner;profileReadIntent++;$('wechatProfileRefresh').disabled=false;
+     if(owner)void refreshWechatProfile();
+   }
    syncAuthorizedDrafts(profile?current():null);
    targetAnalytics();
  }
@@ -851,24 +852,35 @@ SCRIPT = r'''
  function paintOfficialProfile(){
    const row=current(),info=row&&official(row),snapshot=row?.official_profile;
    const state=$('wechatOfficialState'),fields=$('wechatOfficialFields'),graphic=$('wechatOfficialGraphic');
-   fields.replaceChildren();graphic.replaceChildren();
+   fields.replaceChildren();graphic.replaceChildren();$('wechatStatusAvatar').replaceChildren();
    OAUI.set(state,!row?'先选择一个公众号':({
      ACTIVE:'已取得微信官方资料',SERVICE_NOT_CONFIGURED:'第三方授权服务尚未配置',
      AUTH_REQUIRED:'本号尚未取得第三方授权',REVOKED:'本号已撤销第三方授权',
      STALE:'本号官方资料已过期，等待授权服务同步',UNAVAILABLE:'本号官方资料暂时不可用',
    })[snapshot?.state]||'本号官方资料暂未同步');
+   $('wechatProfileRefresh').hidden=true;
+   const feedback=$('wechatProfileFeedback');
+   if(feedback.dataset.connection!==(row?.connection_id||'')){feedback.textContent='';feedback.dataset.connection=row?.connection_id||'';}
    if(!row)return;
-   const type=info&&[OAUI.format('订阅号'),OAUI.format('订阅号（历史类型）'),OAUI.format('服务号')][info.account_type];
-   const checked=info?.verification;
+   $('wechatProfileRefresh').hidden=!row.component_grant&&!componentOnly(row);
+   const type=info&&[OAUI.format('订阅号'),OAUI.format('订阅号（历史类型）'),OAUI.format('服务号')][info.service_type_id??info.account_type];
+   const checked=info?.verify_type_id??info?.verification;
    const verification=Number.isInteger(checked)?OAUI.format(
      ({'-1':'未认证',0:'已微信认证',1:'已微博认证',3:'资质已认证，名称未认证',4:'资质及微博已认证，名称未认证'})[checked]||
        '认证类型 {0}',[checked]):'';
-   const permissionLabels={1:'消息管理',2:'用户管理',3:'账号服务',7:'群发与通知',11:'素材管理',15:'菜单管理'};
-   const observed=Number.isSafeInteger(snapshot?.observed_at)?new Date(snapshot.observed_at*1000).toLocaleString(document.documentElement.lang):'';
+   const grant=row.component_grant,permissions=grant?.state==='ACTIVE'?grant.permissions:info?.permissions;
+   const permissionLabels={1:'消息管理',2:'用户管理',3:'账号服务',4:'网页服务',6:'客服管理',7:'群发与通知',11:'素材管理',15:'菜单管理'};
+   const checkedAt=info?.identity_verified_at??snapshot?.observed_at;
+   const observed=Number.isSafeInteger(checkedAt)?new Date(checkedAt*1000).toLocaleString(document.documentElement.lang):'';
    for(const [label,value] of [
-     ['AppID',row.account_id],['官方昵称',info?.nickname],['账号主体',info?.principal_name],
+     ['连接方式',OAUI.format(componentOnly(row)?'管理员扫码':grant?'原直连及管理员扫码':'原直连')],
+     ['账号状态',OAUI.format(accountState(row))],
+     ['权限来源',grant?OAUI.format('微信第三方平台授权回执'):info?OAUI.format('已同步的微信官方资料'):''],
+     ['AppID',row.account_id],['官方昵称',info?.nickname],['微信号',info?.alias],
+     ...(row.presentation?.name_source==='REGISTRY_LABEL'&&row.presentation.display_name?
+       [['本地名称',row.presentation.display_name]]:[]),['账号主体',info?.principal_name],
      ['原始 ID',info?.original_id],['账号类型',type],['微信认证',verification],
-     ['已授予的权限集',info?.permissions?.length?info.permissions.map(id=>
+     ['已授予的权限集',permissions?.length?permissions.map(id=>
        permissionLabels[id]?OAUI.format(permissionLabels[id])+' ('+id+')':String(id)).join(' · '):
        info?OAUI.format('未返回已授予权限集'):''],
      ...(componentOnly(row)?[['微信凭证状态',({
@@ -882,6 +894,7 @@ SCRIPT = r'''
      if(value)OAUI.raw(detail,value);else OAUI.set(detail,'未返回');
      fields.append(term,detail);
    }
+   $('wechatStatusAvatar').replaceChildren(avatar(row));
    const qr=profileImage(info?.qrcode,'公众号二维码');
    if(qr){const label=document.createElement('p');OAUI.set(label,'公众号二维码');graphic.append(qr,label);}
  }
@@ -936,6 +949,7 @@ SCRIPT = r'''
  async function renderAccounts({preserveSelection=false}={}){
    const visible=rows.filter(row=>row.platform_id===activePlatform&&
      !(isXWorkspace()&&row.connection_id==='x-unavailable'));
+   const addWasFocused=document.activeElement===addWechatAccount;
    if(!accountList.childElementCount||visible.length!==renderedAccounts.length||visible.some((row,i)=>row!==renderedAccounts[i])){
      const samePlatform=renderedAccounts[0]?.platform_id===activePlatform;
      const previousScroll=samePlatform?accountList.scrollTop:0;
@@ -946,6 +960,10 @@ SCRIPT = r'''
      renderedAccounts=visible;
      accountList.scrollTop=previousScroll;
    }
+   if(isWechat()){
+     if(addWechatAccount.parentElement!==accountList)accountList.append(addWechatAccount);
+     if(addWasFocused) addWechatAccount.focus({preventScroll:true});
+   }else addWechatAccount.remove();
    if(isXWorkspace()&&!visible.length){
      const empty=accountList.querySelector('.empty');
      const state=openAhoyBoard.readState(xPlatform);
@@ -1044,7 +1062,7 @@ SCRIPT = r'''
      chevron.className='oa-platform-chevron';chevron.setAttribute('aria-hidden','true');
      button.append(chevron);
      button.onclick=async event=>{
-       if(!ready||closed||!$('inlineBinding').hidden)return;
+       if(!ready||closed)return;
        if(view==='platform'&&activePlatform===id){
          closeFloatingMenus();accountsExpanded=!accountsExpanded;syncAccountNavigation();revealSelectedAccount();
        }else await openView(id,{user:true,focus:true});
@@ -1119,18 +1137,6 @@ SCRIPT = r'''
      }
    }
  }
- binding=OAInlineBinding.mount(async(operation,args)=>content(await platformCall(originalSelection.platform,operation,args)),{
-  enter(){bindingFocus=document.activeElement;originalSelection.platform=activePlatform;originalSelection.account=selected;$('nativeWorkspace').hidden=true;closeAccountNavigation({compactOnly:true});syncAccountNavigation();},
-  leave(){
-    $('nativeWorkspace').hidden=false;activePlatform=originalSelection.platform;renderWechatWorkspace();syncAccountNavigation();select(originalSelection.account);
-    if(isWechat()&&bindingFocus instanceof HTMLElement){
-      const trigger=bindingFocus.isConnected?bindingFocus:$('showAdd');
-      trigger.focus({preventScroll:true});
-    }
-    bindingFocus=null;
-  },
-  async complete(cid,existing=false,state='BOUND_IDLE'){$('nativeWorkspace').hidden=false;activePlatform=originalSelection.platform;syncAccountNavigation();await refresh({afterWrite:true});const row=rows.find(r=>r.connection_id===cid&&r.platform_id===activePlatform);if(row){await select(key(row));if(isWechat()&&key(row)===selected){wechatConnection=cid;updateAccountURL(wechatPlatform,cid,wechatPage);paintWechatConnection();}}notice(state==='DISCONNECTED'?'原绑定已提交，账号当前已断开。':state==='ACTION_REQUIRED'?'原绑定已提交，当前账号需要处理，请查看账号状态。':existing?'账号已绑定，已选中原账号。':'已验证并绑定。');}
- });
  async function sendChatRequest(text){
   if(!hostCapabilities.message?.text)throw new Error('HOST_MESSAGE_UNAVAILABLE');
   const result=await rpc('ui/message',{role:'user',content:[{type:'text',text}]});if(!result||typeof result!=='object'||Array.isArray(result)||(result.isError!==undefined&&typeof result.isError!=='boolean')||result.isError)throw new Error('HOST_MESSAGE_NOT_CONFIRMED');return result;
@@ -1259,7 +1265,8 @@ SCRIPT = r'''
  }
  const componentDialog=$('wechatComponentDialog');
  const componentStart=$('wechatComponentStart'),componentCheck=$('wechatComponentCheck');
- const componentCancel=$('wechatComponentCancel'),componentDirect=$('wechatComponentDirect');
+ const componentCancel=$('wechatComponentCancel');
+ let componentTarget=null,profileReturnPage='settings';
  const componentActive=new Set(['STARTING','PENDING','START_UNKNOWN','EXCHANGING','EXCHANGE_UNKNOWN','START_RECOVERY_REQUIRED']);
  let componentBusy=false,componentState='IDLE',componentTrigger=null;
  const componentInfo=key=>OAUI.set($('wechatComponentStatus'),key);
@@ -1267,21 +1274,24 @@ SCRIPT = r'''
    componentStart.disabled=componentBusy;
    componentCheck.hidden=false;
    componentCheck.disabled=componentBusy;
-   componentDirect.disabled=componentBusy||componentActive.has(componentState);
    componentCancel.disabled=componentBusy;
    OAUI.set(componentCancel,['STARTING','PENDING'].includes(componentState)?'取消授权':'关闭');
  };
  function closeComponent(){
    if(componentDialog.open)componentDialog.close();
    if(componentTrigger?.isConnected)componentTrigger.focus();
+   else if(componentTarget&&isWechat()){
+     const account=Array.from(accountList.children).find(el=>el.dataset.accountKey===key({platform_id:wechatPlatform,...componentTarget}));
+     (account?.querySelector('summary')||addWechatAccount).focus();
+   }
  }
  async function componentAction(operation){
    if(componentBusy)return;
    componentBusy=true;paintComponent();
    try{
-     const reply=await tool('wce.ui.wechat.component_binding',{operation});
-     if(reply?.isError)throw Error(reply.structuredContent?.error||'WECHAT_COMPONENT_SERVICE_UNAVAILABLE');
-     const value=content(reply);
+     const reply=await tool('wce.ui.wechat.component_binding',{operation,
+       ...(componentTarget&&operation!=='WORKSPACE_STATUS'?{connection_id:componentTarget.connection_id}:{})});
+     const value=reply?.isError?{status:reply.structuredContent?.error||'WECHAT_COMPONENT_SERVICE_UNAVAILABLE'}:content(reply);
      const previous=componentState;
      componentState=value.status;
      if(['WORKSPACE_CONFLICT','WECHAT_COMPONENT_SERVICE_UNAVAILABLE'].includes(value.status)&&componentActive.has(previous))
@@ -1296,6 +1306,13 @@ SCRIPT = r'''
        CANCELLED:'已取消本次授权。',EXPIRED:'扫码已过期，可以重新发起。',
        REJECTED:'微信授权未获同意，可以重新发起。',REVOKED:'公众号已撤回这次授权。',
        IDLE:'当前没有待检查的扫码。',
+       REAUTH_TARGET_UNAVAILABLE:'这个公众号的绑定身份暂不可核对。请刷新账号后重试。',
+       REAUTH_INTENT_CONFLICT:'本工作区已有其他扫码请求。请回到发起扫码的账号查看结果。',
+       TARGET_UNVERIFIED:'此工作区尚未核实这个公众号的归属。请核对当前工作区和所选公众号后重试。',
+       TARGET_BUSY:'微信正在更新这个公众号的授权。请稍后从本号重试。',
+       TARGET_STALE:'本号授权已变化，请刷新账号后再试。',
+       REAUTH_TARGET_UNCONFIRMED:'微信尚未确认目标公众号。请检查本次授权结果。',
+       REAUTH_ACCOUNT_MISMATCH:'扫码结果与所选公众号不符。请使用原公众号的管理员微信重试。',
        WORKSPACE_PROOF_NOT_CONFIGURED:'此工作区尚未建立扫码授权凭据。',
        WORKSPACE_NOT_REGISTERED:'此工作区尚未获准使用公众号扫码服务。',
        WORKSPACE_CONFLICT:'官网已有待处理授权或该公众号已归属另一工作区。请检查原授权。',
@@ -1309,18 +1326,19 @@ SCRIPT = r'''
        return;
      }
      if(value.status==='BOUND'){
+       if(componentTarget&&(componentTarget.account_id!==value.account_id||componentTarget.connection_id!==value.connection_id)){
+         componentInfo(messages.REAUTH_ACCOUNT_MISMATCH);return;
+       }
        const results=await refresh({afterWrite:true});
-       const row=results?.find(item=>item.platform_id===wechatPlatform&&item.account_id===value.account_id);
+       const row=results?.find(item=>item.platform_id===wechatPlatform&&item.account_id===value.account_id&&
+         (!componentTarget||item.connection_id===componentTarget.connection_id));
        if(!row||!isWechat()){componentInfo('授权已读回，请刷新账号列表。');return;}
        closeComponent();
-       await select(key(row));
-       if(!isWechat()||key(current()||{})!==key(row))return;
-       wechatConnection=row.connection_id;
-       setWechatPage('profile');
-       $('wechatConfigTab').focus({preventScroll:true});
+       await showWechatStatus(row);
        return;
      }
-     componentInfo(messages[value.status]||'公众号扫码服务暂时不可用。');
+     componentInfo(value.status==='EXCHANGING'&&value.cancel_requested?'已请求取消，正在核对原扫码结果。请检查本次授权。':
+       messages[value.status]||'公众号扫码服务暂时不可用。');
      if(operation==='BEGIN'&&value.status==='PENDING'&&value.authorization_url){
        const url=new URL(value.authorization_url);
        if(url.origin!=='https://www.readysteadysound.com'||url.pathname!=='/jiusera/api/oauth/wechat/authorize'||
@@ -1334,24 +1352,53 @@ SCRIPT = r'''
    }finally{componentBusy=false;paintComponent();}
  }
  componentStart.onclick=()=>void componentAction('BEGIN');
- componentCheck.onclick=()=>void componentAction(componentState==='TICKET_OR_COMPONENT_UNAVAILABLE'
+ componentCheck.onclick=()=>void componentAction(!componentTarget&&componentState==='TICKET_OR_COMPONENT_UNAVAILABLE'
    ?'WORKSPACE_STATUS':'STATUS');
  componentCancel.onclick=()=>{if(componentBusy)return;
    if(['STARTING','PENDING'].includes(componentState))void componentAction('CANCEL');else closeComponent();
  };
  componentDialog.addEventListener('cancel',event=>{event.preventDefault();componentCancel.click();});
- componentDirect.onclick=()=>{if(componentBusy||componentActive.has(componentState))return;closeComponent();void binding.open();};
+ async function showWechatStatus(row){
+   if(wechatPage!=='profile')profileReturnPage=wechatPage;
+   await select(key(row));
+   if(!isWechat()||current()?.connection_id!==row.connection_id||current()?.account_id!==row.account_id)return;
+   $('wechatProfileFeedback').textContent='';
+   wechatConnection=row.connection_id;setWechatPage('profile');$('wechatStatusBack').focus({preventScroll:true});
+ }
+ async function refreshWechatProfile(){
+   const row=current(),trigger=$('wechatProfileRefresh');
+   if(!row||trigger.disabled||!isWechat()||wechatPage!=='profile')return;
+   const epoch=++profileReadIntent;trigger.disabled=true;
+   const visible=()=>epoch===profileReadIntent&&isWechat()&&wechatPage==='profile'&&current()?.connection_id===row.connection_id;
+   try{
+     const result=await tool('wce.ui.wechat.component_binding',{operation:'PROFILE_STATUS',connection_id:row.connection_id});
+     if(!visible())return;
+     if(result.isError||content(result).status!=='PROFILE_READ')throw Error();
+     await refresh();
+     if(visible())OAUI.set($('wechatProfileFeedback'),'已刷新本号官方资料。');
+   }catch(_){if(visible())OAUI.set($('wechatProfileFeedback'),'本次未能读取官方资料。请稍后重试。');}
+   finally{if(epoch===profileReadIntent)trigger.disabled=false;}
+ }
+ $('wechatProfileRefresh').onclick=refreshWechatProfile;
+ $('wechatStatusBack').onclick=()=>{
+   setWechatPage(profileReturnPage);
+   accountList.querySelector('.is-selected .account-select')?.focus({preventScroll:true});
+ };
+ async function openWechatBinding(row=null,trigger=document.activeElement){
+   if(!ready||refreshing||componentBusy||componentDialog.open)return;
+   componentTarget=row?{connection_id:row.connection_id,account_id:row.account_id}:null;
+   componentTrigger=trigger;componentState='IDLE';
+   OAUI.set($('wechatComponentTitle'),row?'重新绑定公众号':'绑定公众号');
+   const target=$('wechatComponentTarget');
+   target.hidden=!row;target.textContent=row?[name(row),row.account_id].filter(Boolean).join(' · '):'';
+   componentInfo('');componentDialog.showModal();paintComponent();
+   await componentAction('BEGIN');
+ }
  async function secure(){
    if(!ready||!bindingPlatform()?.binding_supported)return;
    if(activePlatform==='xiaohongshu'){await xhsManagement.begin();return;}
    if(activePlatform==='x'){await openXAuthorization(false);return;}
-   if(activePlatform===wechatPlatform){
-     if(componentDialog.open)return;
-     componentTrigger=document.activeElement;
-     componentInfo('');componentDialog.showModal();paintComponent();
-     await componentAction('BEGIN');return;
-   }
-   await binding.open();
+   if(activePlatform===wechatPlatform)await openWechatBinding();
  }
  async function manageBoardAccount(id,row,reauthorize=false){
    if(id===douyinPlatform){
@@ -1361,6 +1408,8 @@ SCRIPT = r'''
    if(id===wechatPlatform||id===xPlatform){
      boardEntry={platform:id,connection:row?.connection_id||''};
      await openView(id,{user:true,focus:true,connection:boardEntry.connection});
+     if(id===wechatPlatform&&reauthorize&&row&&isWechat()&&current()?.connection_id===row.connection_id)
+       await openWechatBinding(current());
      if(id===xPlatform&&reauthorize&&row&&isXWorkspace()&&current()?.connection_id===row.connection_id)
        await openXAuthorization(true);
      return;
@@ -1682,7 +1731,7 @@ SCRIPT = r'''
      button.setAttribute('aria-current',mediaView&&mainStudio===button.dataset.studioPage?'page':'false');
  }
  function enterStudio(section,{kind,asset,shot,user=false,focus=false,routeTarget}={}){
-   if(closed||!ready||!$('inlineBinding').hidden)return;
+   if(closed||!ready)return;
    if(section==='monitor')return openView('l-unify',{imwVideo:true,shot,user,focus});
    if(view!=='studio'){
      platformEpoch++;selectionIntent++;selectEpoch++;
@@ -1766,7 +1815,7 @@ SCRIPT = r'''
    syncIntro();
    $('openAhoyHome').hidden=view!=='about';
    syncModelWorkspace();
-   $('nativeWorkspace').hidden=view!=='platform'||!$('inlineBinding').hidden;
+   $('nativeWorkspace').hidden=view!=='platform';
    const screen=view==='studio'?(mediaView==='desk'?'canvas':mediaView):view;
    const previous=document.body.dataset.workbench;
    if(previous==='l-unify'&&screen!==previous){globalThis.OAIMWVideo?.forgetFolded?.();OAStudio.closeStudio();}
@@ -1991,7 +2040,7 @@ SCRIPT = r'''
    if(target==='jiusera-monitor'||target==='media'){target='l-unify';imwVideo=true;}
    imwIntent++;imwPending=null;setIMWOpening(false);
    closeFloatingMenus();
-   if(closed||!ready||!$('inlineBinding').hidden)return;
+   if(closed||!ready)return;
    const previousModel=view==='models'?activeModel:'';
    const wasWechat=isWechat();
    const wasX=isXWorkspace();
@@ -2072,7 +2121,7 @@ SCRIPT = r'''
        account:row?{id:row.connection_id,label:name(row)||row.label||row.account_id||'',state:accountState(row)}:null};
    },
    async locate(target,step,currentRequest,scope,tab='text'){
-     if(!ready||closed||!$('inlineBinding').hidden||(step===4&&!platform(target)))return false;
+     if(!ready||closed||(step===4&&!platform(target)))return false;
      await openView(target,{user:true});
      if(!currentRequest()||closed)return false;
      let control;
@@ -2113,6 +2162,12 @@ SCRIPT = r'''
  for(const button of studioEntries.querySelectorAll('[data-studio-page]'))
    button.onclick=()=>enterStudio(button.dataset.studioPage,{user:true,focus:true});
  $('refresh').addEventListener('click',()=>void refresh());$('showAdd').addEventListener('click',secure);
+ addWechatAccount.type='button';
+ addWechatAccount.className='oa-wechat-add-account';
+ const addWechatIcon=document.createElement('span'),addWechatLabel=document.createElement('span');
+ addWechatIcon.textContent='＋';addWechatIcon.setAttribute('aria-hidden','true');
+ OAUI.set(addWechatLabel,'添加公众号');addWechatAccount.append(addWechatIcon,addWechatLabel);
+ addWechatAccount.addEventListener('click',secure);
  $('accountCreate').addEventListener('click',async()=>{
    const row=current(),original=selected,editor=row&&editors.get(row.platform_id);if(!editor||!platform(row.platform_id)?.settings_supported)return;
    revealAccountConfiguration(row);
@@ -2171,7 +2226,6 @@ def resource():
     from .studio_ui import resource as studio_resource
     from .writing_workflow_ui import SCRIPT as writing_rules_script
     from .own_wechat_management import settings_html, settings_script
-    from .own_inline_binding_ui import SCRIPT as binding_script
     from .video_inline_ui import SCRIPT as video_script
     from .audio_workspace_ui import STYLE as audio_style, SCRIPT as audio_script
     from .wechat_analytics_ui import STYLE as stats_style, SCRIPT as stats_script
@@ -2208,9 +2262,9 @@ def resource():
         + '<style>' + studio_resource('css') + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + review_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + wechat_setup_style + wechat_setup_preview_style + wechat_articles_style + PLATFORM_ACCOUNT_NAV_STYLE + guide_style + workbench_style + openahoy_board_style + assets_style + sources_style + trend_resource('css') + relief_style() + model_layout_style + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
         + '<style>' + wechat_desk_style + '</style>'
-        + '<script>' + WORKSPACE_THEME + locale_script() + platform_branding_script() + settings_script(compact=True) + wechat_articles_script + wechat_desk_script + binding_script + video_script + frame_script + provider_script + vidmuse_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + character_turntable_script + characters_script + assets_script + sources_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + guide_script + trend_resource('js') + workbench_script + openahoy_board_script + writing_rules_script + studio_resource('js') + model_layout_script + SCRIPT + '</script></body></html>')
+        + '<script>' + WORKSPACE_THEME + locale_script() + platform_branding_script() + settings_script(compact=True) + wechat_articles_script + wechat_desk_script + video_script + frame_script + provider_script + vidmuse_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + character_turntable_script + characters_script + assets_script + sources_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + guide_script + trend_resource('js') + workbench_script + openahoy_board_script + writing_rules_script + studio_resource('js') + model_layout_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
-        '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://mmbiz.qpic.cn', 'https://mmbiz.qlogo.cn', 'https://cdn1.suno.ai',
+        '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://wx.qlogo.cn', 'https://thirdwx.qlogo.cn', 'https://mmbiz.qpic.cn', 'https://mmbiz.qlogo.cn', 'https://cdn1.suno.ai',
                                                                  'https://cdn2.suno.ai', 'https://suno-data-uploads.s3.amazonaws.com', 'https://acemusic.ai'], 'frameDomains': []}},
                   'openai/ui': {'availableDisplayModes': ['inline', 'fullscreen'], 'preferredDisplayMode': 'inline'}}}]}
 
