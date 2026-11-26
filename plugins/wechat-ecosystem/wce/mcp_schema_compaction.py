@@ -142,7 +142,7 @@ MODEL_DESCRIPTIONS = {
     'own.production.rules.read': 'Read rules, text and chunk manifests.',
     'own.production.rules.update': 'Edit fields with both revisions. Max 8192 chars/32768 B. Repeat identical args after UNKNOWN.',
     'own.projects.initialize': 'Initialize authorized project AGENTS and Skill pins.',
-    'own.projects.read': 'Read scoped project and AGENTS/Skill pins.',
+    'own.projects.read': 'Read project/Skill pins. Builtin source permits empty project_id.',
     'own.projects.sync': 'Index authorized project and Skills.',
     'own.schedules.read': 'Read account schedules.',
     'own.schedules.update': 'Record the real automation_update receipt for the original task and account.',

@@ -22,7 +22,8 @@ from .project_context import text as project_text
 from .service import digest
 from .video_director import require
 from .video_jobs import Jobs
-from .video_director_media import IMAGE_CHUNK, local_file, preview_image, rename_image, source_image
+from .video_director_media import IMAGE_CHUNK, local_file, preview_image_bytes, rename_image
+from .video_jobs import image
 
 
 INDEX = 'character-library.json'
@@ -848,6 +849,7 @@ def verify_reference(directory, project_id, row, work_id=None, *, selecting=Fals
 def file_pin(root, spec):
     path = local_file(root, spec)
     pin = file_state(path.lstat())
+    require(os.access(path, os.R_OK), 'DIRECTOR_CHARACTER_ORIGINAL_PERMISSION')
     # Zero-byte read still checks root, every directory, owner and the opened file.
     list(FileSource(root).iter_html(path.relative_to(root).as_posix(), expected_state=pin, length=0))
     return pin
@@ -855,7 +857,8 @@ def file_pin(root, spec):
 
 @lru_cache(maxsize=96)
 def thumbnail(root, relative, checksum, pin, *, small=True):
-    result = preview_image(root, {'path': relative, 'sha256': checksum}, small)
+    _, data = original(root, relative, checksum, pin)
+    result = preview_image_bytes(data, checksum, small)
     require(file_pin(root, {'path': relative, 'sha256': checksum}) == pin, 'DIRECTOR_ASSET_CHANGED')
     return result
 
@@ -864,7 +867,7 @@ def thumbnail(root, relative, checksum, pin, *, small=True):
 def original(root, relative, checksum, pin):
     with tempfile.TemporaryDirectory(prefix='openahoy-character-') as folder:
         spec = {'path': relative, 'sha256': checksum}
-        result = source_image(root, spec, Path(folder))
+        result = image(local_file(root, spec), root, checksum, Path(folder), character=True)
         require(file_pin(root, spec) == pin, 'DIRECTOR_ASSET_CHANGED')
         return result
 
@@ -912,18 +915,26 @@ def validate_crop(root, source, crop):
         raise WCEError('DIRECTOR_CHARACTER_CROP_INVALID') from None
 
 
-def safe_availability(root, spec):
+def availability(root, spec):
     try:
         pin = file_pin(root, spec)
         if spec['use'] in ('voice', 'accessory'):
             read_character_original(spec, root, spec['path'], spec['sha256'], pin)
         else:
             thumbnail(root, spec['path'], spec['sha256'], pin)
-        return 'available'
+        return 'available', None
     except FileNotFoundError:
-        return 'missing'
-    except (WCEError, OSError):
-        return 'unavailable'
+        return 'missing', 'DIRECTOR_CHARACTER_ORIGINAL_MISSING'
+    except PermissionError:
+        return 'unavailable', 'DIRECTOR_CHARACTER_ORIGINAL_PERMISSION'
+    except WCEError as problem:
+        return 'unavailable', problem.code
+    except OSError:
+        return 'unavailable', 'DIRECTOR_CHARACTER_ORIGINAL_UNAVAILABLE'
+
+
+def safe_availability(root, spec):
+    return availability(root, spec)[0]
 
 
 class CharacterLibrary:
@@ -937,7 +948,28 @@ class CharacterLibrary:
 
     def list(self, project_rows=None, *, readonly=False):
         projects = []
-        for project in self.director.registered() if project_rows is None else project_rows:
+        registrations = self.director.registered()
+        registered = {project['id'] for project in registrations}
+        origins = {}
+
+        def origin_status(origin):
+            upstream_id = origin['project_id']
+            if upstream_id not in registered:
+                return None
+            if upstream_id not in origins:
+                try:
+                    origins[upstream_id] = self.index(upstream_id)
+                except (OSError, WCEError):
+                    origins[upstream_id] = None
+            upstream = origins[upstream_id]
+            if upstream is None:
+                return None
+            version = upstream['assets'].get(origin['version_id'])
+            if version is not None and version['sha256'] == origin['sha256']:
+                return status_of(upstream, version)
+            return None
+
+        for project in registrations if project_rows is None else project_rows:
             try:
                 root, pin = self.director.project(project['id'])
                 directory = self.director.storage(root, pin)
@@ -961,6 +993,7 @@ class CharacterLibrary:
                                    'file': descriptor(row, project['id']), 'form': form_of(row),
                                    'category': row.get('category', 'standard'), 'primary': primary == row['id'],
                                    'primary_version_id': primary}
+                                | ({'origin_status': origin_status(row['origin'])} if 'origin' in row else {})
                                 | ({'work_title': works.get(row['work_id'], {}).get('title')}
                                    if 'work_id' in row else {}))
                 guides = read_browse_guides(root, index['assets'])
@@ -1056,9 +1089,11 @@ class CharacterLibrary:
                 if key in slots:
                     entry = 'conflict'
                 slots.add(key)
+            readable, reason = availability(root, existing or row)
             results.append({'id': row['id'], 'name': row['character']['name'],
                             'status': status_of(index, existing) if existing else row['initial_status'],
-                            'availability': safe_availability(root, existing or row), 'entry': entry})
+                            'availability': readable, 'entry': entry}
+                           | ({'availability_reason': reason} if reason else {}))
         require(self.director.project(project_id) == (root, pin), 'DIRECTOR_PROJECT_CHANGED')
         return {'revision': index['revision'], 'assets': results}
 
@@ -1114,17 +1149,18 @@ class CharacterLibrary:
             raise WCEError('DIRECTOR_CHARACTER_ORIGINAL_MISSING') from None
         except OSError:
             raise WCEError('DIRECTOR_CHARACTER_ORIGINAL_UNAVAILABLE') from None
-        return record, mime, data
+        return record, status_of(index, record), mime, data
 
     def import_version(self, project_id, root, pin, index, origin, source):
-        upstream, mime, data = source
+        upstream, origin_status, mime, data = source
         checksum = origin['sha256']
         ext = {'image/png': 'png', 'image/jpeg': 'jpg', 'audio/wav': 'wav'}[mime]
         version_id = imported_id(origin)
         previous = index['assets'].get(version_id)
         target = Path(previous['path']) if previous else managed_path(checksum, ext)
         row = {key: upstream[key] for key in ENTRY['properties'] if key in upstream}
-        row.update(id=version_id, path=target.as_posix(), initial_status='candidate', origin=origin)
+        initial_status = 'historical' if origin_status == 'historical' else 'candidate'
+        row.update(id=version_id, path=target.as_posix(), initial_status=initial_status, origin=origin)
         if row.get('appearance', {}).get('combination'):
             # The exact component IDs belong to the source project.
             row['appearance'] = {key: val for key, val in row['appearance'].items() if key != 'combination'}
@@ -1148,7 +1184,8 @@ class CharacterLibrary:
             if needs_layout(row):
                 self.enable_layout(index, needs_appearance(row))
         return {'state': 'UNCHANGED' if previous else 'IMPORTED', 'revision': index['revision'],
-                'version_id': version_id, 'file': descriptor(row, project_id), 'origin': origin}, previous is None
+                'version_id': version_id, 'file': descriptor(row, project_id), 'origin': origin,
+                'origin_status': origin_status, 'status': status_of(index, previous or row)}, previous is None
 
     @staticmethod
     def enable_layout(index, appearance=False):
@@ -1270,9 +1307,12 @@ class CharacterLibrary:
             require(self.director.project(project_id) == (root, project_pin), 'DIRECTOR_PROJECT_CHANGED')
             offset = args['offset']
             require(0 <= offset < len(data), 'DIRECTOR_CHARACTER_OFFSET_INVALID')
+            chunk = 128 * 1024 if mime.startswith('image/') else IMAGE_CHUNK
             return {'mime_type': mime, 'sha256': spec['sha256'], 'total': len(data),
-                    'offset': offset, 'data': b64encode(data[offset:offset + IMAGE_CHUNK]).decode('ascii')}
+                    'offset': offset, 'data': b64encode(data[offset:offset + chunk]).decode('ascii')}
         except FileNotFoundError:
             raise WCEError('DIRECTOR_CHARACTER_ORIGINAL_MISSING') from None
+        except PermissionError:
+            raise WCEError('DIRECTOR_CHARACTER_ORIGINAL_PERMISSION') from None
         except OSError:
             raise WCEError('DIRECTOR_CHARACTER_ORIGINAL_UNAVAILABLE') from None

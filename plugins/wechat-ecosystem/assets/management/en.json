@@ -3296,5 +3296,20 @@
   "核对身份与基准图": "Check identity and reference image",
   "检查视角与表情槽位": "Check views and expressions",
   "检查体态、服装与配饰槽位": "Check pose, clothing and accessories",
-  "另开一张演练单": "Start another rehearsal"
+  "另开一张演练单": "Start another rehearsal",
+  "无法读取原图。请检查文件后重试。": "Could not read the original. Check the file and retry.",
+  "没有读取原图的权限。": "Permission to read the original is missing.",
+  "形象图片的宽和高均须在 300–6000 像素之间。": "Both sides of a character image must be 300–6000 pixels.",
+  "图片无法解码。请选择完整的单张 PNG 或 JPEG。": "Could not decode the image. Select a complete single-frame PNG or JPEG.",
+  "原图须小于 30 MB。": "The original must be under 30 MB.",
+  "图片已返回，当前界面无法解码显示。": "The image arrived but could not be displayed.",
+  "原图传输未完成，请重试。": "The original did not finish transferring. Retry.",
+  "无法生成原图预览。": "Could not create an image preview.",
+  "未登记正面纯人头": "No front head-only image",
+  "正面纯人头暂无法读取": "Front head-only image unavailable",
+  "本项目状态": "Status in this project",
+  "来源项目状态": "Status in source project",
+  "未能核实": "Unverified",
+  "已显示 {0} 预览。{1}": "Showing the {0} preview. {1}",
+  "正在读取原图，先显示预览。": "Showing a preview while loading the original."
 }

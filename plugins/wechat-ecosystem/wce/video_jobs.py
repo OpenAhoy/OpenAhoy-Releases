@@ -58,7 +58,7 @@ def provider_usage(value):
     return usage
 
 
-def image(path, root, expected, scratch, *, h3=False):
+def image(path, root, expected, scratch, *, h3=False, character=False):
     if not path.is_absolute() or '..' in path.parts or not path.is_relative_to(root):
         raise WCEError('VIDEO_FRAME_OUTSIDE_PROJECT')
     raw = bytearray()
@@ -72,10 +72,14 @@ def image(path, root, expected, scratch, *, h3=False):
     with tempfile.NamedTemporaryFile(prefix='.frame-', dir=scratch) as temporary:
         temporary.write(data)
         temporary.flush()
-        facts = probe('image-h3' if h3 else 'image', temporary.name, error='VIDEO_FRAME_INVALID')
+        mode = 'image-character' if character else 'image-h3' if h3 else 'image'
+        error = 'DIRECTOR_CHARACTER_IMAGE_DECODE_FAILED' if character else 'VIDEO_FRAME_INVALID'
+        facts = probe(mode, temporary.name, error=error)
+    if character and facts.get('error') == 'dimensions':
+        raise WCEError('DIRECTOR_CHARACTER_IMAGE_DIMENSIONS')
     mime = {'public.png': 'image/png', 'public.jpeg': 'image/jpeg'}.get(facts.get('type'))
     if mime is None:
-        raise WCEError('VIDEO_FRAME_INVALID')
+        raise WCEError(error)
     return mime, data
 
 

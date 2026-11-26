@@ -145,6 +145,9 @@ class ProjectContextRouter:
     def call(self, name, args):
         if name not in SPECS:
             return self.inner.call(name, args)
+        if (name == READ and args.get('view') == 'source' and args.get('source_id') == 'builtin-openahoy'
+                and 'project_id' not in args):
+            args = args | {'project_id': ''}
         validate(args, SPECS[name])
         if name == DISCONNECT:
             cid = args['connection_id']
