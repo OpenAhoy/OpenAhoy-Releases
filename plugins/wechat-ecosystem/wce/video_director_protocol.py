@@ -14,6 +14,7 @@ from .video_director import Director, WORK_FIELDS, canvas_state, lookup, primary
 from . import video_director_delivery as delivery
 from . import character_library as characters
 from . import asset_image_library as asset_images
+from . import gallery_cache
 from . import studio_showcase, stage_assets, asset_trial, music_presets, source_library
 from .video_director_media import (CATALOG, IMAGE_CHUNK, IMAGE_ROLES, compute_request, import_image_chunk, models, preview_image,
                                    preview_result, preview_whitebox, validate_revision)
@@ -98,7 +99,8 @@ TRANSCRIBE_OPTIONS = {'language': {'type': 'string', 'enum': ['auto', 'zh', 'en'
 TIMELINE_WRITE = WORK_ARG | WRITE | {'expected_timeline_version': ORDINAL}
 LEVEL = {'type': 'integer', 'minimum': 0, 'maximum': 100}
 TIMELINE_CLIP = schema({'id': PROJECT, 'delivery_id': PROJECT, 'sha256': HANDLE,
-                        'in_ms': MS, 'out_ms': MS, 'volume': LEVEL}, {'look': look_schema(MS), 'audio_detached': {'type': 'boolean', 'const': True}})
+                        'in_ms': MS, 'out_ms': MS, 'volume': LEVEL},
+                       {'gap_before_ms': {**MS, 'maximum': 3_600_000}, 'look': look_schema(MS), 'audio_detached': {'type': 'boolean', 'const': True}})
 TIMELINE_MUSIC = schema({'attempt_id': ATTEMPT, 'sha256': HANDLE, 'in_ms': MS,
                          'start_ms': MS, 'volume': LEVEL}, {'out_ms': MS})
 
@@ -181,6 +183,7 @@ SPECS = {
         action('asset_trial_create', {}),
         action('asset_trial_switch', {'number': {'type': 'integer', 'minimum': 1, 'maximum': 2}}),
         action('showcase_blob', {'media_id': studio_showcase.MEDIA_ID, 'offset': ORDINAL}),
+        *gallery_cache.specs(action, PROJECT, HANDLE, ATTEMPT),
         action('asset_image_library', {}),
         action('asset_image_thumbnail', PROJECT_ARG | {'sha256': HANDLE}, {'connection_id': ARTICLE_SELECTOR['connection_id']}),
         action('asset_image_original', PROJECT_ARG | {'sha256': HANDLE, 'offset': ORDINAL}, {'connection_id': ARTICLE_SELECTOR['connection_id']}),
@@ -233,6 +236,7 @@ class DirectorRouter:
         self.vidmuse_panel = VidMusePanel(self)
         self.trial = asset_trial.AssetTrial(self)
         self.registry = self.director.projects.registry
+        self.gallery = gallery_cache.Gallery(self)
 
     def __getattr__(self, name):
         return getattr(self.inner, name)
@@ -308,6 +312,8 @@ class DirectorRouter:
             return self.trial.switch(args['number'])
         if command == 'showcase_blob':
             return studio_showcase.chunk(args['media_id'], args['offset'])
+        if command in gallery_cache.ACTIONS:
+            return self.gallery.call(command, args)
         if command == 'asset_image_library':
             return asset_images.catalog(self.director)
         if command in {'asset_image_original', 'asset_image_thumbnail'}:

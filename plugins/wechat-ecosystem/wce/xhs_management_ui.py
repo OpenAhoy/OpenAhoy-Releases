@@ -5,9 +5,9 @@ HTML='''<section id="xhsSettings" class="panel" data-platform-id="xiaohongshu" h
 <h2>登录状态</h2>
 <p id="xhsStatus" class="notice" role="status">读取本机接入状态后可开始。</p>
 <div class="actions"><button id="xhsReconnect" hidden>重新登录当前账号</button><button id="xhsCheck" hidden>检查登录结果</button><button id="xhsCancel" hidden>关闭登录窗口</button></div>
-<details><summary>小红书平台能力</summary><p class="help">本人扫码绑定 · 本号资料与笔记读取 · 原生图文发布 · 原笔记链接读回</p>
+<section><h3 class="oa-content-heading">小红书平台能力</h3><p class="help">本人扫码绑定 · 本号资料与笔记读取 · 原生图文发布 · 原笔记链接读回</p>
 <p class="help">通过本机标准 Chrome 的正常页面操作，不代表已取得官方发布 API。Codex 负责标题、正文、图片和话题；这里不使用公众号 HTML。</p>
-<p class="help">登录在插件独立的 Chrome 窗口中完成，不读取你的其他浏览器账号。验证码、风控或协议确认请本人在官方页面处理。项目与 Skills 可保留本平台自己的创作偏好。</p></details></section>'''
+<p class="help">登录在插件独立的 Chrome 窗口中完成，不读取你的其他浏览器账号。验证码、风控或协议确认请本人在官方页面处理。项目与 Skills 可保留本平台自己的创作偏好。</p></section></section>'''
 
 SCRIPT=FALLBACK + r'''
 const OAXHSManagement={mount(call,onBound,selectedConnection=()=>null,onState=()=>{}){

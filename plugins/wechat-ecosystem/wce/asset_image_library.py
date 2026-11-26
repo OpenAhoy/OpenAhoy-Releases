@@ -9,7 +9,7 @@ from .video_director import canvas_state, require
 from .video_director_media import IMAGE_CHUNK, preview_image_bytes
 
 
-def images_in(project_id, snapshot, registry):
+def images_in(project_id, snapshot, registry, failures=None):
     rows = {}
 
     def add(file, label, usage):
@@ -30,6 +30,8 @@ def images_in(project_id, snapshot, registry):
             try:
                 article = article_source(work['article'], registry)
             except (OSError, WCEError):
+                if failures is not None:
+                    failures.append(work['id'])
                 continue
             owner['work'] = article['title']
             for slot, item in article['images'].items():
@@ -79,7 +81,7 @@ def catalog(director):
     return {'projects': projects}
 
 
-def original(director, args, *, thumbnail=False):
+def original(director, args, *, thumbnail=False, allowed_uses=None):
     project_id = args['project_id']
     root, project_pin = director.project(project_id)
     snapshot = director.load(project_id, director.storage(root, project_pin))
@@ -89,6 +91,10 @@ def original(director, args, *, thumbnail=False):
     checksum = args['sha256']
     connection = args.get('connection_id')
     for path, spec in row[1].items():
+        if allowed_uses is not None:
+            cid=spec.get('pointer',{}).get('connection_id')
+            if not any(use.get('connection_id')==cid for use in allowed_uses):
+                continue
         if connection and spec.get('pointer', {}).get('connection_id') != connection:
             continue
         if 'pointer' in spec:

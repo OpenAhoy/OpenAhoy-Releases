@@ -79,9 +79,9 @@ body.oa-management{color-scheme:light;--bg:#fff;--surface:#fff;--soft:#f5f5f5;--
 
 STYLE += "\n@media(min-width:1000px) and (min-height:600px){.oa-management #xSettings{overflow:hidden!important}.oa-management #xOperatingPanel{flex:1;min-height:0;overflow:hidden;height:calc(100% - 30px)}.oa-management #xConfigWorkspace{height:100%}.oa-management .oa-task-sheet{height:100%}}"
 
-STYLE += "\n.oa-management #xSettings>.oa-capability-details{display:block}.oa-management .oa-x-tools #xOperatingPanel{display:none}.oa-management .oa-task-menu>summary{display:inline-flex;align-items:center;min-height:33px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}.oa-management .oa-task-menu[open]>.actions{padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:var(--raised);margin-top:8px}"
+STYLE += "\n.oa-management #xSettings>.oa-capability-details{display:block}.oa-management.oa-x-tools #xOperatingPanel{display:none}.oa-management .oa-task-menu>summary{display:inline-flex;align-items:center;min-height:33px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}.oa-management .oa-task-menu[open]>.actions{padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:var(--raised);margin-top:8px}"
 
-STYLE += "\n.oa-management #xSettings>details.oa-capability-details:not(#xOperatingPanel){display:block!important}.oa-management:not(.oa-native) [data-workspace-project]{display:none}.oa-management .oa-task-menu{position:relative}.oa-management .oa-task-menu[open]>.actions{position:absolute;left:0;top:100%;z-index:50;min-width:230px;display:grid!important;gap:6px}.oa-management .oa-task-menu[open]>.actions button{justify-content:flex-start;white-space:normal;text-align:left}"
+STYLE += "\n.oa-management:not(.oa-native) [data-workspace-project]{display:none}.oa-management .oa-task-menu{position:relative}.oa-management .oa-task-menu[open]>.actions{position:absolute;left:0;top:100%;z-index:50;min-width:230px;display:grid!important;gap:6px}.oa-management .oa-task-menu[open]>.actions button{justify-content:flex-start;white-space:normal;text-align:left}"
 STYLE += """
 .oa-x-recovery{display:grid;grid-template-columns:minmax(66px,auto) minmax(0,1fr) auto;gap:6px;margin-top:7px}
 .oa-x-recovery input,.oa-x-recovery select{width:100%;min-width:0}
@@ -495,10 +495,7 @@ body.oa-management.oa-native .oa-starter-options strong {
 @media (prefers-reduced-motion:no-preference) {
   .oa-management.oa-native :is(.oa-account-header > .actions > button, .oa-task-tools > button,
    .oa-task-tools > .oa-task-menu > summary, .oa-starter-options > button,
-   #rulesSave, #xConfigSave, #creatorSave):not(:disabled) { transition: translate 90ms ease, box-shadow 90ms ease; }
-  .oa-management.oa-native :is(.oa-account-header > .actions > button, .oa-task-tools > button,
-   .oa-task-tools > .oa-task-menu > summary, .oa-starter-options > button,
-   #rulesSave, #xConfigSave, #creatorSave):active:not(:disabled) { translate: 0 1px; }
+   #rulesSave, #xConfigSave, #creatorSave):not(:disabled) { transition: box-shadow 90ms ease; }
 }
 
 /* Preview surfaces use fill and diffuse elevation without decorative strokes. */
@@ -702,3 +699,13 @@ PLATFORM_ACCOUNT_NAV_STYLE = """
  }
 }
 """
+
+STYLE += r'''
+.oa-management .oa-content-heading{font-size:14px;line-height:1.35;margin:10px 0 6px}
+.oa-management :is(#xBilling,#xProductionResume,.oa-capability-details) button{white-space:normal;overflow-wrap:anywhere}
+.oa-management .oa-x-setup-help{margin-block:6px 10px}
+.oa-management .oa-x-recovery>output{overflow-wrap:anywhere}
+.oa-native:not(.oa-x-tools) #xSettings > :is(.oa-capability-details,.oa-x-production,#xSchedulePanel),
+.oa-native.oa-x-billing-view #xSettings > :not(#xWorkspaceBack,#xBilling){display:none!important}
+.oa-native.oa-x-tools #xSettings{overflow:auto!important}
+'''

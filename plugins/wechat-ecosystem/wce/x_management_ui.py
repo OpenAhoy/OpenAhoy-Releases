@@ -25,12 +25,11 @@ HTML = '''<style>
  .oa-management.oa-native.oa-x-developer-open .oa-footer{display:none}
  .oa-management.oa-native.oa-x-developer-open .oa-content{padding-block:8px}
 }
-#xManualSetup:not([open])>:not(summary){display:none}
 .oa-x-binding-step{margin:6px 0;padding:8px 12px;border-radius:10px;background:var(--oa-fill,var(--bg))}
 .oa-x-binding-step h4{margin:0 0 6px;font-size:13px}
 .oa-management.oa-native #xSettings:has(>#xAuthorization:not([hidden])),.oa-management.oa-native.oa-x-developer-open #xSettings{max-inline-size:620px}
 #xAuthorization p:empty,#xDeveloperNotice:empty{display:none}
-#xAuthorization details.oa-x-setup-help{margin:4px 0;font-size:11px}
+#xAuthorization .oa-x-setup-help{margin:4px 0;font-size:11px}
 #xAuthorization #xSaveApplication{margin-top:5px}
 .oa-management.oa-native .oa-x-binding-step input{background:var(--surface)}
 .oa-management.oa-native:not(.oa-x-developer-open) #xSettings:has(>#xAuthorization:not([hidden]))>:not(#xAuthorization,#xWorkspaceBack){display:none!important}
@@ -51,8 +50,7 @@ HTML = '''<style>
 <p id="xProductionConfigStatus" class="help" role="status"></p>
 <div class="actions"><button id="xProduceNow" class="primary" disabled>立即生产并发布</button><button id="xProductionResult" hidden>查看原任务结果</button><button id="xProductionSchedule" disabled>配置定时生产发布</button><button id="xProductionEdit">编辑内容配置</button></div>
 <p id="xProductionStatus" class="notice" role="status">一次启动由当前 Codex 完成新文字、新配图、公开发布及真实链接读回。</p>
-<details id="xProductionResume" hidden>
- <summary>接续原 X 请求</summary>
+<section id="xProductionResume" hidden><h3 class="oa-content-heading">接续原 X 请求</h3>
  <dl><dt>X 账号</dt><dd><span id="xResumeAccount"></span> <code id="xResumeConnection"></code></dd>
  <dt>原上传 ID</dt><dd><code id="xResumeUpload"></code></dd>
  <dt>原发帖 ID</dt><dd><code id="xResumePost"></code></dd></dl>
@@ -60,33 +58,33 @@ HTML = '''<style>
  <button id="xResumeCopy" type="button">复制接续指令</button>
  <p id="xResumeStatus" class="help" role="status"></p>
  <textarea id="xResumeText" rows="5" readonly hidden aria-label="原 X 请求接续指令"></textarea>
-</details>
+</section>
 <p class="help">使用已保存的本号配置。未关联项目或选填项为空时沿默认方法；保存配置不会启动任务。发送后请查看当前聊天，重新打开本页不代表原任务已结束。</p></section>
 <section id="xAuthorization" hidden><h3 id="xBindingTitle">绑定 X 账号</h3><p id="xBindingTarget" class="help"></p>
 <section class="oa-x-binding-step"><h4>1. 配置 X Developer Console 应用</h4>
 <div class="actions"><button id="xSetupAssist" type="button">让 Codex 协助创建 X 应用</button><button id="xBindingConsole" type="button">打开 X Developer Console</button></div>
 <p id="xSetupStatus" class="help" role="status"></p>
-<details id="xManualSetup" open><summary>应用资料</summary>
-<details class="oa-x-setup-help"><summary>回调地址与应用要求</summary>
+<section id="xManualSetup"><h4 class="oa-content-heading">应用资料</h4>
+<section class="oa-x-setup-help"><h5 class="oa-content-heading">回调地址与应用要求</h5>
 <p class="help">使用启用读写权限的 Native App。X 费用由该应用的开发者账户承担。</p>
 <code class="oa-x-callback" id="xCallback"></code>
-</details>
+</section>
 <div class="oa-x-app-fields"><label>应用名称<input id="xApplicationName" maxlength="80"></label><label>OAuth 2.0 Client ID<input id="xClientId" maxlength="4096" spellcheck="false" autocomplete="off"></label></div>
 <div class="actions"><button id="xSaveApplication" type="button">保存应用资料</button></div>
-</details>
+</section>
 <p id="xSaveApplicationStatus" class="help" role="status"></p>
 </section><section class="oa-x-binding-step"><h4>2. 在 X 授权发文</h4>
 <p id="xAuthorizationHint" class="help"></p>
 <div class="actions"><button id="xSwitchAccount" type="button" hidden>前往 X 切换账号</button><button id="xReauthorizeCurrent" class="primary" type="button" hidden>重新授权原应用</button><button id="xAuthorize" type="button">授权已保存的应用</button><button id="xCheck">检查授权结果</button><button id="xCancel" hidden>取消本次授权</button></div>
 <p id="xStatus" class="notice" role="status">正在读取 X 设置…</p>
 </section></section>
-<details id="xBilling"><summary>账单与余额</summary>
+<section id="xBilling" hidden><h3 id="xBillingTitle" class="oa-content-heading" tabindex="-1">账单与余额</h3>
 <p id="xBillingApplication" class="help"></p><p class="help">余额属于开发者账户。同一应用上的多个 X 账号共用余额。</p>
 <dl id="xBillingBalance" class="oa-x-balance" hidden><div><dt>总余额</dt><dd id="xTotalBalance"></dd></div><div><dt>预付余额</dt><dd id="xPrepaidBalance"></dd></div><div><dt>免费额度</dt><dd id="xFreeBalance"></dd></div></dl>
 <ul id="xFreeGrants" hidden></ul><p id="xBillingStatus" class="notice" role="status"></p>
-<div class="oa-x-billing-actions"><button id="xRefreshBilling" type="button">刷新余额</button><button id="xOpenConsole" type="button">去 X 充值 / 查看账单</button></div></details></section>'''
+<div class="oa-x-billing-actions"><button id="xRefreshBilling" type="button">刷新余额</button><button id="xOpenConsole" type="button">去 X 充值 / 查看账单</button></div></section></section>'''
 HTML = HTML.replace('<section id="xAuthorization" hidden>', SCHEDULE_HTML + '<section id="xAuthorization" hidden>')
-HTML = HTML.replace('<details id="xSchedulePanel"', OPERATING_HTML + '<details id="xSchedulePanel"')
+HTML = HTML.replace('<section id="xSchedulePanel"', OPERATING_HTML + '<section id="xSchedulePanel"')
 
 SCRIPT = FALLBACK + r'''
 window.OAXManagement = {
@@ -226,11 +224,10 @@ window.OAXManagement = {
    else format().set($('xBindingTarget'),'绑定新的 X 账号');
    format().set($('xAuthorizationHint'),target.username
     ?'授权目标：@{0}。请先在浏览器的 X 头像菜单切换到该账号。':'',target.username);
-   $('xAuthorization').hidden=false;$('xManualSetup').open=!compact||!!clientId.value||!!appName.value;
+   $('xAuthorization').hidden=false;
    buttons();
-   if($('xManualSetup').open)appName.focus();
-   else if(!$('xSetupAssist').hidden&&!$('xSetupAssist').disabled)$('xSetupAssist').focus();
-   else $('xManualSetup').querySelector('summary').focus();
+   if(compact&&!clientId.value&&!appName.value&&!$('xSetupAssist').hidden&&!$('xSetupAssist').disabled)$('xSetupAssist').focus();
+   else appName.focus();
    if(!requestToLoad)return !!target&&!target.loading;
    try{
     const value=await action('APP_DRAFT_READ',accountArgs(requestToLoad));
@@ -240,14 +237,13 @@ window.OAXManagement = {
      if(!appName.value&&!clientId.value){
       appName.value=value.draft.application_name;
       clientId.value=value.draft.client_id;
-      $('xManualSetup').open=true;
      }
      showSaveStatus();
     }
     return true;
    }catch(_){
     if(target===requestToLoad){
-     target.loadFailed=true;$('xManualSetup').open=true;
+     target.loadFailed=true;
      format().set($('xSaveApplicationStatus'),'暂时无法读取已保存的应用资料，请重新打开应用设置。');
     }
     return false;
@@ -280,7 +276,7 @@ window.OAXManagement = {
     }finally{$('xSaveApplication').removeAttribute('aria-busy');}
    });
   }
-  function openBilling(){billingPanel.open=true;billingPanel.querySelector('summary').focus();billingPanel.scrollIntoView({block:'nearest'});}
+  function openBilling(){billingPanel.hidden=false;$('xBillingTitle').focus();}
   function sameSetup(request){
    const current=captureSelection();
    return ready&&target?.cid===request.cid&&(!request.cid||selectedAccount()===request.cid)
@@ -324,7 +320,6 @@ window.OAXManagement = {
      const draft=result.draft;
      if(request.cid&&request.cid!=='x-'+draft.user_id)throw new Error('X_AUTHORIZATION_ACCOUNT_MISMATCH');
      appName.value=draft.application_name;clientId.value=draft.client_id;
-     $('xManualSetup').open=true;
      filled={...request,draft};
      showSaveStatus();
      stopSetup('应用资料已填好。请核对后保存。');
@@ -339,7 +334,6 @@ window.OAXManagement = {
      return;
     }
     if(!canSendChatRequest()){
-     $('xManualSetup').open=true;
      format().set(status,'当前宿主无法发起聊天任务。可打开 X Developer Console 手动配置。');
      return;
     }
@@ -365,7 +359,6 @@ window.OAXManagement = {
      }else if(setup===request)setupTargetChanged();
     }catch(error){
      if(setup!==request)return;
-     $('xManualSetup').open=true;
      if(error.message==='HOST_MESSAGE_UNAVAILABLE'){
       stopSetup('当前宿主无法发起聊天任务。可打开 X Developer Console 手动配置。');
      }else{

@@ -2,6 +2,7 @@ import { detachedPlayback } from "./detached-playback.mjs";
 import { mountFrameRuler } from "./frame-ruler.mjs";
 import { ceilFrame, clipEditing } from "./clip-editing.mjs";
 import { mountDetachedTracks } from "./detached-tracks.mjs";
+import { mountTimelineSelection } from "./timeline-selection.mjs";
 import { mountVideoView } from "./imw-view.mjs";
 import { TrackMonitor, MonitorGains } from "./track-monitor.mjs";
 import { audibleState, playStudioBus } from "./studio-live-transport.mjs";
@@ -190,6 +191,7 @@ class Studio extends HTMLElement {
     this.trackEditor = mountTrackEditor(this);
     this.disclosure = mountVideoDisclosure(this);
     this.imw = mountVideoView(this);
+    this.timelineSelection = mountTimelineSelection(this);
     this.detachedTracks = mountDetachedTracks(this);
     const settings = this.$("imw-settings");
     const settingsToggle = document.getElementById("imw-settings-toggle");
@@ -312,6 +314,7 @@ class Studio extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this.timelineSelection.dispose();
     this.detachedTracks.dispose();
     this.stop();
     clearAnalysis(this);
@@ -443,6 +446,7 @@ class Studio extends HTMLElement {
       return;
     }
 
+    this.timelineSelection?.clear();
     this.load?.abort();
     this.trackEditor.closeMenu();
     this.trackEditor.close();
@@ -1046,6 +1050,17 @@ class Studio extends HTMLElement {
     this.placeClip(group, clip, length);
   }
 
+  clipPlayhead() {
+    return {
+      position: () => {
+        if (!this.imw.enabled()) return this.playing && this.context ? this.clockPosition() : this.seconds;
+        const clock = globalThis.OAIMWVideo?.state();
+        return clock?.ready ? this.frameRuler.current(clock.seconds) : null;
+      },
+      mark: snapped => this.toggleAttribute("data-playhead-snap", snapped),
+    };
+  }
+
   bindClipControl(control, group, track, part, action) {
     const constraints = () => {
       const parts = this.draft.splits[track.id];
@@ -1057,6 +1072,7 @@ class Studio extends HTMLElement {
         right: after ? clipBounds(after).start : Infinity,
         timelineLimit, startLimit: this.version.timelineLimit ?? (parts ? timelineLimit : 120),
         reserveTail: !!parts || this.version.localImport, rate: buffer?.sampleRate, frames: buffer?.length,
+        moveRate: buffer?.sampleRate,
       };
     };
     const commit = clip => {
@@ -1090,7 +1106,7 @@ class Studio extends HTMLElement {
       this.changed({ continueStems: true });
     };
     clipEditing.bind(control, {
-      action, constraints, read: () => this.clip(track, part), commit,
+      action, constraints, read: () => this.clip(track, part), commit, playhead: this.clipPlayhead(),
       geometry: () => ({
         width: this.imw.enabled() ? this.imw.dragWidth() : this.$("lane").getBoundingClientRect().width,
         length: this.imw.enabled() ? this.rulerLength : this.length,
@@ -1236,6 +1252,7 @@ class Studio extends HTMLElement {
   }
 
   drawRuler(length = this.rulerLength) {
+    this.timelineSelection?.paint();
     const lane = this.$("lane");
     if (!lane.clientWidth) return;
     if (this.imw?.enabled()) return this.frameRuler.draw(this.imw.displayLength() || 1);

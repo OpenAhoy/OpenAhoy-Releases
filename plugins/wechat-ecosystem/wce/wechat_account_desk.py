@@ -26,8 +26,8 @@ STYLE = r'''
 .wx-menu-fields label{display:grid;gap:4px;margin:8px 0}
 .wx-menu-fields .actions{margin-block:8px;flex-wrap:wrap}
 .wx-desk-entrypoints{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 4px}
-#wechatSettings[data-desk-view="readers"] #wxOpsAdmin details:not(:has(#wxOpsTagsRead)),
-#wechatSettings[data-desk-view="channels"] #wxOpsAdmin details:not(:has(#wxOpsChannelMake)),
+#wechatSettings[data-desk-view="readers"] #wxOpsAdmin>section:not(:has(#wxOpsTagsRead)),
+#wechatSettings[data-desk-view="channels"] #wxOpsAdmin>section:not(:has(#wxOpsChannelMake)),
 #wechatSettings[data-desk-view="comments"] #wxOpsMenuRead,
 #wechatSettings[data-desk-view="comments"] #wxOpsMenuRows{display:none}
 @media(max-width:720px){.wx-menu-designer{grid-template-columns:minmax(0,1fr)}}

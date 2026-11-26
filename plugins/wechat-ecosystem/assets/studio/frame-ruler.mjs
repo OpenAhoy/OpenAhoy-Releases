@@ -39,10 +39,10 @@ export function mountFrameRuler(studio) {
   const lane = $("lane");
   const grid = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   const lines = document.createElementNS(grid.namespaceURI, "path");
-  grid.setAttribute("class", "frame-grid");
+  grid.setAttribute("class", "frame-marks");
   grid.setAttribute("aria-hidden", "true");
   grid.append(lines);
-  lane.prepend(grid);
+  ruler.append(grid);
   const cursor = document.createElement("span");
   cursor.className = "frame-time";
   const originalTitle = ruler.title;
@@ -66,7 +66,7 @@ export function mountFrameRuler(studio) {
     if (pixelsPerFrame <= 0) return;
     const viewport = Math.max(1, scroll.clientWidth);
     const page = Math.floor(scroll.scrollLeft / viewport);
-    const signature = [width, lane.clientHeight, axis, rateKey, viewport, page].join("/");
+    const signature = [width, axis, rateKey, viewport, page].join("/");
     if (signature === rendered) return;
     rendered = signature;
     // Only materialize frame boundaries near the viewport. Each line is located on the rational time grid.
@@ -76,10 +76,11 @@ export function mountFrameRuler(studio) {
     grid.style.left = origin + "px";
     grid.style.width = Math.max(0, Math.min(width, lastFrame * pixelsPerFrame) - origin) + "px";
     const divisions = [];
-    if (pixelsPerFrame >= 2) {
-      for (let i = firstFrame; i < lastFrame; ++i) {
-        if (i % rate.nominal) divisions.push("M" + ((i - firstFrame) * pixelsPerFrame + .5).toFixed(3) + " 0V" + lane.clientHeight);
-      }
+    // Thin only subpixel marks. Every visible tick remains on the exact source frame grid.
+    const stride = Math.max(1,Math.ceil(2/pixelsPerFrame));
+    for (let i = Math.ceil(firstFrame/stride)*stride; i < lastFrame; i+=stride) {
+      const height = i % rate.nominal === 0 ? 14 : i % 5 === 0 ? 10 : 6;
+      divisions.push("M"+((i-firstFrame)*pixelsPerFrame+.5).toFixed(3)+" 0v"+height);
     }
     lines.setAttribute("d", divisions.join(""));
     let step = [1, 2, 5, 10, rate.nominal, rate.nominal * 2, rate.nominal * 5]
@@ -95,11 +96,10 @@ export function mountFrameRuler(studio) {
       ticks.push(tick);
     }
     $("ticks").replaceChildren(...ticks);
-    // Seconds and label divisions remain solid; the finest grid follows individual video frames.
+    // Use only coarse time divisions across the media rows.
     const second = rate.nominal * pixelsPerFrame;
-    lane.style.setProperty("--major-step", (second >= 8 ? second : step * pixelsPerFrame) + "px");
-    lane.style.setProperty("--frame-pitch", pixelsPerFrame + "px");
-    lane.toggleAttribute("data-frame-grid", pixelsPerFrame >= 2);
+    const coarse = second >= 8 ? second : second * Math.ceil(95 / second);
+    lane.style.setProperty("--major-step", coarse + "px");
     lane.removeAttribute("data-detail");
     lane.removeAttribute("data-beat");
     $("ruler-unit").textContent = "时间";
@@ -125,7 +125,7 @@ export function mountFrameRuler(studio) {
       rendered = "";
       const origin = source ? (rate.n / rate.d).toFixed(3).replace(/\.?0+$/, "") : "默认 30";
       menu.options[0].text = selected === "auto" ? "跟随素材（" + origin + " fps）" : "跟随素材";
-      ruler.title = "点击定位，按住拖动扫片，← / → 逐帧，空格播放或暂停";
+      ruler.title = "点击定位，拖动划定时间选区，← / → 逐帧";
       cursor.setAttribute("data-shown", "true");
     }
     document.addEventListener("keydown", stepWithKeyboard);
@@ -231,11 +231,12 @@ export function mountFrameRuler(studio) {
     event.stopImmediatePropagation();
     if (!event.detail && event.clientX) seekFrame(pointerFrame(event));
   }, true);
-  return { draw, sync, audioScroll:() => zoomed() ? savedScroll : scroll.scrollLeft, reset() {
+  return { draw, sync, current:seconds=>frameAt(seconds,rate)*rate.d/rate.n, snap:seconds=>Math.round(seconds*rate.n/rate.d)*rate.d/rate.n,
+    label:seconds=>frameLabel(Math.round(seconds*rate.n/rate.d),rate), audioScroll:() => zoomed() ? savedScroll : scroll.scrollLeft, reset() {
     cancelGesture();
     document.removeEventListener("keydown", stepWithKeyboard);
     rendered = ""; ruler.title = originalTitle; cursor.removeAttribute("data-shown");
-    $("lane").removeAttribute("data-frame-grid"); $("lane").style.removeProperty("--frame-zoom-width");
+    lane.style.removeProperty("--frame-zoom-width");
     studio.removeAttribute("data-frame-zoom"); zoom.value = "audio";
   } };
 }

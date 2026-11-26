@@ -935,14 +935,14 @@ class CharacterLibrary:
         directory = self.director.storage(root, pin)
         return read_index(project_id, directory)
 
-    def list(self):
+    def list(self, project_rows=None, *, readonly=False):
         projects = []
-        for project in self.director.registered():
+        for project in self.director.registered() if project_rows is None else project_rows:
             try:
                 root, pin = self.director.project(project['id'])
                 directory = self.director.storage(root, pin)
                 index, storage = read_index(project['id'], directory, with_storage=True)
-                if storage and storage[0] == 3:
+                if not readonly and storage and storage[0] == 3:
                     # Preview installations could have written the full v3 document.
                     with locked(directory / 'writer.lock'):
                         index, storage = read_index(project['id'], directory, with_storage=True)

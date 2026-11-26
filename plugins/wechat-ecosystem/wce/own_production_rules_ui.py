@@ -171,6 +171,7 @@ JS = r'''
       let body=row;
       if(compact&&globalThis.OAAccountStarter&&choiceGroups[field]){
         const choices=OAAccountStarter.choices(area,choiceGroups[field],{
+          showCustom:!manual,
           canEdit:()=>!!meta&&!toggle.disabled&&!awaitingInheritance(field),
           read:()=>displayed(field),
           beforeEdit:()=>{if(toggle.checked)area.value=displayed(field);},
@@ -178,19 +179,20 @@ JS = r'''
         });
         choiceEditors[field]=choices;
         body=document.createElement('div');
+        if(manual&&field!=='audience_topics')row.append(area);
         body.append(row,choices.root);
       }else row.append(area);
       if(field==='audience_topics'&&manual){
         position=OAWechatPositionEditor(ui,area,toggle,source,()=>{
           toggle.checked=false;area.disabled=false;choiceEditors[field]?.refresh();summarize(field);remember();buttons();
-        },manual.back,definitions.map(([label])=>label),index=>manual.group(index));
-        const oldText=choiceEditors[field]?.root.querySelector('details:has(textarea)');
-        oldText?.remove();
+        });
         position.original.append(area);
         if(choiceEditors[field])position.suggestionSlot.append(choiceEditors[field].root);
         position.scopeSlot.append($('rulesScope').closest('.rules-context'));
         fieldRows[field]=position.panel;$('rulesFields').append(position.panel);
         area.addEventListener('input',()=>choiceEditors[field]?.refresh());
+      }else if(manual){
+        fieldRows[field]=body;$('rulesFields').append(body);
       }else if(compact){
         const detail=document.createElement('details'),summary=document.createElement('summary'),caption=document.createElement('strong'),preview=document.createElement('span');
         detail.className='rule-editor';fieldRows[field]=detail;ui.set(caption,labels[i]);preview.className='rule-summary';summaries[field]=preview;
@@ -245,10 +247,8 @@ JS = r'''
         shell.toggleAttribute('data-position-editor',focused);
         if(focused){
           position.scopeSlot.append(scope,historyPanel,previewPanel);
-          $('rulesSheetTitle').after(position.controls);
         }else{
           anchor.after(scope);fallback.after(historyPanel);previewAnchor.after(previewPanel);
-          position.controls.remove();
         }
         showPosition();
       }
@@ -259,7 +259,7 @@ JS = r'''
         summary:()=>keys.map(k=>displayed(k).trim().replace(/\s+/g,' ')).filter(Boolean).join(' · ')||['未设置'],
         show:shown=>{
           if(keys.includes('audience_topics'))position?.place(shown);
-          for(const k of keys){if(fieldRows[k]){fieldRows[k].hidden=!shown;fieldRows[k].open=shown;}}
+          for(const k of keys){if(fieldRows[k]){fieldRows[k].hidden=!shown;if(fieldRows[k] instanceof HTMLDetailsElement)fieldRows[k].open=shown;}}
         }
       })));
     }

@@ -225,16 +225,32 @@ STYLE += POSITION_EDITOR_STYLE + r'''
 .wx-manual-index>button span{color:var(--muted);font-size:12px;font-weight:400}
 .wx-manual-index .wx-manual-more{grid-column:1/-1;margin:0;padding:6px 0}
 .wx-manual-more>div{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
-.wx-manual-more summary{cursor:pointer;font-weight:600}
-#wechatManualToolbar{flex:none;margin:0 0 8px}
+.wx-manual-more h3{font-size:14px;font-weight:600;margin:0}
+#wechatManualToolbar,#wechatRuleNavigation{flex:none;margin:0 0 8px;padding:2px 3px}
+#wechatRuleNavigation:not([hidden]){display:flex;flex-wrap:wrap;align-items:center;gap:7px}
+#wechatManualBack{display:inline-flex;align-items:center;gap:7px}
+#wechatManualBack>span:first-child{transition:translate 140ms ease}
+@media(hover:hover){#wechatManualBack:hover>span:first-child{translate:-2px}}
+#wechatManualBack:focus-visible>span:first-child{translate:-2px}
+@media(prefers-reduced-motion:reduce){#wechatManualBack>span:first-child{translate:none!important;transition:none}}
+#wechatSettings #wechatRuleNavigation button{min-height:36px;max-width:100%;white-space:normal;line-height:1.3}
+#wechatSettings #wechatRuleNavigation button[aria-pressed="true"]{box-shadow:var(--inset);color:var(--accent)}
+@media(max-width:540px){
+ #wechatSettings #wechatRuleNavigation button,#wechatSettings #wechatManualBack{min-height:40px}
+}
+@media(max-width:400px){
+ #wechatRuleNavigation:not([hidden]){display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ #wechatSettings #wechatRuleNavigation button{padding-inline:7px}
+}
+
 #wechatSetupAdvanced>.oa-tabs[hidden]{display:none!important}
 #wechatSettings[data-manual-task] #wechatSetupHome,
-#wechatSettings[data-manual-task] #wechatSetupAdvanced>summary,
+#wechatSettings[data-manual-task] #wechatManualTitle,
 #wechatSettings[data-manual-task] #rulesWorkspace>.oa-task-summary{display:none!important}
 .oa-native.oa-wechat-view #settingsPanel #wechatSettings[data-manual-task]:not([hidden]){
  flex:1;min-height:0;overflow:hidden
 }
-.oa-native.oa-wechat-view #wechatSettings[data-manual-task] #wechatSetupAdvanced[open]{
+.oa-native.oa-wechat-view #wechatSettings[data-manual-task] #wechatSetupAdvanced{
  flex:1;min-height:0;display:flex;flex-direction:column;margin:0;overflow:hidden;
 }
 .oa-native.oa-wechat-view #settingsPanel #wechatSettings[data-manual-task] #productionRules:not([hidden]){
@@ -250,7 +266,7 @@ STYLE += POSITION_EDITOR_STYLE + r'''
  display:flex;flex:1;min-height:0
 }
 #wechatSettings[data-manual-task="position"] #rulesStarter,
-#wechatSettings[data-manual-task="position"] #rulesSheetClose,
+#wechatSettings[data-manual-task] #rulesSheetClose,
 #wechatSettings:not([data-manual-task="position"]) #rulesPositionCancel{display:none!important}
 #wechatSettings[data-manual-task="position"] #rulesSheet .oa-task-actions{justify-content:flex-end}
 #wechatSettings[data-manual-task="position"] #rulesStatus{margin-inline-end:auto}
@@ -258,9 +274,6 @@ STYLE += POSITION_EDITOR_STYLE + r'''
 #wechatSettings[data-manual-task="position"] .rules-body{max-width:850px}
 #wechatSettings[data-manual-task="position"] .rules-body,
 #wechatSettings[data-manual-task="position"] #rulesPositionEditor{min-width:0}
-#wechatSettings[data-manual-task="position"] #rulesSheet .wx-position-actions :is(button,select){
- min-width:0;width:auto;min-height:36px;font-size:13px;font-weight:500;line-height:1.3
-}
 #wechatSettings[data-manual-task="position"] .wx-position-scope details{grid-column:1/-1}
 @media(max-width:560px){
  .wx-manual-index{grid-template-columns:1fr;gap:7px}
@@ -269,7 +282,5 @@ STYLE += POSITION_EDITOR_STYLE + r'''
  #wechatSettings[data-manual-task="position"] #rulesSheet .oa-task-actions{flex-wrap:wrap}
  #wechatSettings[data-manual-task="position"] #rulesStatus{width:100%;margin-block:0;max-height:none}
  #wechatSettings[data-manual-task="position"] #rulesSheetTitle{font-size:16px}
- #wechatSettings[data-manual-task="position"] .wx-position-actions{gap:4px}
- #wechatSettings[data-manual-task="position"] .wx-position-actions button{padding-inline:6px}
 }
 '''

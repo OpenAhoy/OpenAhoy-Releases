@@ -205,12 +205,13 @@ function OADirectorTools(timeline,read,edit,getScope){
    const asr=control(group(),t('本地识别（最多 30 秒）','Transcribe audio (up to 30 s)'),async()=>{
      const clip=timeline.getToolClip(),scope=getScope(),g=generation;if(!clip||!scope||loading)return;
      const clips=timeline.getToolClips(),index=clips.findIndex(x=>x.id===clip.id);if(index<0)return;
-     let start=clips.slice(0,index).reduce((n,c)=>n+c.out_ms-c.in_ms,0);
+     const spanOf=c=>(c.gap_before_ms??0)+c.out_ms-c.in_ms;
+     let start=clips.slice(0,index).reduce((n,c)=>n+spanOf(c),0)+(clip.gap_before_ms??0);
      const snapshot=JSON.stringify(clips),music=origin.value==='song'?timeline.getToolMusic():null;
      if(origin.value==='song'&&!music){message(t('请先选择配乐','Select a music track first'));return;}
      const media=music||clip,sourceArgs=music?{attempt_id:music.attempt_id}:{delivery_id:clip.delivery_id};
      if(music)start=music.start_ms;
-     const end=Math.min(media.out_ms,media.in_ms+30000,media.in_ms+clips.reduce((n,c)=>n+c.out_ms-c.in_ms,0)-start);
+     const end=Math.min(media.out_ms,media.in_ms+30000,media.in_ms+clips.reduce((n,c)=>n+spanOf(c),0)-start);
      if(end<=media.in_ms){message(t('音源在时间线以外','Audio lies outside the timeline'));return;}
      loading=true;asr.disabled=true;message(t('正在本机识别…','Transcribing locally…'));
      try{const result=await read('timeline_transcribe',{...scope,...sourceArgs,sha256:media.sha256,start_ms:media.in_ms,

@@ -7,7 +7,9 @@ def settings_html(*, templates=False):
     from .html_technical_standard import render_html
     from .official_account_routes import render_html as routes
     raw_technical = render_html()
-    technical = raw_technical.replace('微信公众号', '公众号')
+    technical = (raw_technical.replace('微信公众号', '公众号')
+                 .replace('<details id="htmlTechnicalStandard"><summary>', '<section id="htmlTechnicalStandard"><h3 class="oa-content-heading">')
+                 .replace('</summary>', '</h3>').replace('</details>', '</section>'))
     rules = HTML.removeprefix(raw_technical).replace('class="card" style="margin-top:24px"', 'class="panel"')
     rules = rules.replace('全局默认可按号覆盖', '公众号默认规则可按号覆盖')
     rules = rules.replace('<option value="">全局默认</option>', '<option value="">公众号默认规则</option>')
@@ -19,13 +21,13 @@ def settings_html(*, templates=False):
     return ('<section id="wechatSettings" hidden data-platform-id="' + WECHAT + '">'
         '<div id="wechatConfigurationSurface"><div id="wechatSetupColumn">'
         + setup_html(templates=templates)
-        + '<details id="wechatSetupAdvanced" open><summary>手动配置与工具</summary>'
+        + '<section id="wechatSetupAdvanced" aria-labelledby="wechatManualTitle"><h2 id="wechatManualTitle" tabindex="-1">手动配置与工具</h2>'
         '<div id="wechatManualIndex" class="wx-manual-index">'
         '<button type="button" data-wechat-manual="position"><strong>写什么、写给谁</strong><span>选题和读者</span></button>'
         '<button type="button" data-wechat-manual="voice"><strong>改文风和署名</strong><span>文章怎么写、署谁的名</span></button>'
         '<button type="button" data-wechat-manual="visual"><strong>改配图和排版</strong><span>用什么图、文章怎么排</span></button>'
         '<button type="button" data-wechat-manual="content"><strong>管理素材与发布</strong><span>素材、草稿、发布和留言</span></button>'
-        '<details class="wx-manual-more" open><summary>更多工具</summary><div>'
+        '<section class="wx-manual-more" aria-labelledby="wechatMoreTitle"><h3 id="wechatMoreTitle">更多工具</h3><div>'
         '<button type="button" data-wechat-manual="delivery">设置交付偏好</button>'
         '<button type="button" data-wechat-manual="notes">补充写作要求</button>'
         '<button type="button" data-wechat-manual="pictures">制作图片消息</button>'
@@ -33,8 +35,13 @@ def settings_html(*, templates=False):
         + '<button type="button" data-wechat-manual="routes">查看微信官方通路</button>'
         '<button type="button" data-wechat-manual="technical">查看文章格式</button>'
         '<button id="wechatManualProject" type="button">项目与技能</button>'
-        '</div></details></div>'
-        '<div id="wechatManualToolbar" hidden><button id="wechatManualBack" type="button">返回配置总览</button></div>'
+        '</div></section></div>'
+        '<div id="wechatManualToolbar" hidden><button id="wechatManualBack" type="button" aria-label="返回配置总览"><span aria-hidden="true">←</span> <span>返回总览</span></button></div><div id="wechatRuleNavigation" role="group" aria-label="配置分组" hidden>'
+        '<button type="button" data-rule-task="position">内容定位</button>'
+        '<button type="button" data-rule-task="voice">文风和署名</button>'
+        '<button type="button" data-rule-task="visual">配图和排版</button>'
+        '<button type="button" data-rule-task="delivery">交付偏好</button>'
+        '<button type="button" data-rule-task="notes">写作要求</button></div>'
         '<div class="oa-tabs" role="tablist" aria-label="公众号平台设置" hidden>'
         '<button id="settings-rules" role="tab" aria-selected="true">生产规则</button>'
         '<button id="settings-pictures" role="tab" aria-selected="false">图片消息</button>'
@@ -45,8 +52,8 @@ def settings_html(*, templates=False):
         '<button id="wechatOpenProjectSettings" type="button">项目与 Skills</button></div>' + rules
         + '<section id="officialRoutes" class="panel" hidden>' + routes().replace('微信公众号', '公众号') + '</section>'
         + '<section id="technicalPanel" class="panel" hidden>'
-        + technical.replace('<details id="htmlTechnicalStandard">', '<details id="htmlTechnicalStandard" open>')
-        + '</section>' + picture_html + content_html + (template_html if templates else '') + '</details></div>'
+        + technical
+        + '</section>' + picture_html + content_html + (template_html if templates else '') + '</section></div>'
         '<button id="wechatSampleToggle" aria-expanded="false" aria-controls="wechatSetupPreview">看示例文章</button>'
         + preview_html() + '</div></section>')
 
@@ -67,7 +74,9 @@ const OAPlatformSettings = {
      const operations={'own.production.rules.read':'READ_RULES',
        'wce.settings.production.save':'SAVE_RULES','wce.settings.production.restore':'RESTORE_RULES'};
      const $=id=>document.getElementById(id);
-     const panel=$('wechatSettings'),advanced=$('wechatSetupAdvanced');
+     const panel=$('wechatSettings'),ruleNav=$('wechatRuleNavigation');
+     const ruleButtons=[...ruleNav.querySelectorAll('button')];
+     let manualOrigin=null;
      let preview=null;
      const groups=['position','voice','visual','delivery','notes'];
      const inRules=selected=>groups.includes(selected);
@@ -77,7 +86,7 @@ const OAPlatformSettings = {
      },{compact:true,manual:{back:overview,preview:()=>preview?.render(),saved:()=>{
        overview();
        globalThis.OAUI.set($('wechatSetupStatus'),'已保存本号的内容定位。');
-     },group:index=>enter(groups[index])}},host);
+     }}},host);
      const templates=host.templateCall?OACreativeTemplates.mount(rules,host):null;
      const pictures=host.templateCall?OAWechatPictures(host):null;
      const content=host.templateCall?OAWechatContentTools(host):null;
@@ -94,35 +103,40 @@ const OAPlatformSettings = {
        setTab('');
        $('wechatManualIndex').hidden=false;
        $('wechatManualToolbar').hidden=true;
-       advanced.open=true;
-       advanced.querySelector('.wx-manual-more').open=true;
+       ruleNav.hidden=true;
        setup.sync();
        const target=host.templateTarget?.();
        if(target&&rules.scope()!==target.connection_id)void rules.selectScope(target.connection_id,{isCurrent:target.isCurrent}).then(()=>setup.sync());
-       if(focus)advanced.querySelector(':scope > summary').focus();
+       if(focus)(manualOrigin?.getClientRects().length?manualOrigin:$('wechatManualTitle')).focus();
+       manualOrigin=null;
      }
      function enter(task,{read=true}={}){
        const isRule=inRules(task);
-       advanced.open=true;
        panel.dataset.manualTask=task;
        $('wechatManualIndex').hidden=true;
-       $('wechatManualToolbar').hidden=task==='position'||isRule;
+       $('wechatManualToolbar').hidden=task==='creator';
+       ruleNav.hidden=!isRule;
+       for(const button of ruleButtons)button.setAttribute('aria-pressed',String(button.dataset.ruleTask===task));
        setTab(isRule||task==='creator'?'rules':task);
        if(isRule){rules.closeCreator();rules.showGroup(groups.indexOf(task));}
        if(task==='templates'&&read)templates?.show();
        if(task==='pictures')pictures?.refresh();
        if(task==='content')content?.refresh();
-       panel.scrollTop=0;
+       for(const id of ['settingsPanel','wechatSettings','wechatConfigurationSurface','wechatSetupColumn'])$(id).scrollTop=0;
+       if(isRule)$('rulesFields').closest('.oa-task-fields').scrollTop=0;
        const heading=isRule?$('rulesSheetTitle'):$('wechatManualBack');
-       heading.tabIndex=0;heading.focus({preventScroll:true});
+       if(isRule)heading.tabIndex=-1;
+       heading.focus({preventScroll:true});
      }
      for(const button of panel.querySelectorAll('[data-wechat-manual]'))
-       button.onclick=()=>{onNavigation();enter(button.dataset.wechatManual);};
+       button.onclick=()=>{manualOrigin=button;onNavigation();enter(button.dataset.wechatManual);};
+     for(const button of ruleButtons)button.onclick=()=>{
+       if(panel.dataset.manualTask!==button.dataset.ruleTask)enter(button.dataset.ruleTask);
+     };
      for(const tab of tabs)$('settings-'+tab).onclick=()=>{onNavigation();enter(tab==='rules'?'position':tab);};
      const setup=OAWechatSetup(rules,templates,host,enter);
      preview=OAWechatSetupPreview(rules);
      $('wechatManualBack').onclick=()=>overview();
-     $('rulesSheetClose').addEventListener('click',()=>overview());
      $('wechatManualProject').onclick=()=>$('wechatOpenProjectSettings').click();
      $('wechatOpenProjectSettings').onclick=()=>host.openProjectSettings?.();
      $('wechatSetupFiles').onclick=()=>{

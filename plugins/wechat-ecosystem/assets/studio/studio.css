@@ -24,7 +24,8 @@
   --track-height: 108px;
   --imw-video-row-height:100px;
   --track-action-height: 39px;
-  --ruler-height: 34px;
+  --audio-ruler-height: 34px;
+  --ruler-height: var(--audio-ruler-height);
   font: 12px/1.45 system-ui, sans-serif;
   color: var(--ink);
 }
@@ -50,11 +51,11 @@ button { cursor:pointer; }
 #cut-quiet,#undo-cut { white-space:nowrap; }
 button:where(:hover:not(:disabled)):not(:where(.clip,.track-name,.song,.song-cover,.trim-handle)),
 select:where(:hover:not(:disabled)) { color:var(--accent); background:var(--oa-hover); }
-button:where(:active:not(:disabled)):not(:where(.clip,.track-name,.song,.song-cover,.trim-handle)) {
-  color:var(--accent); background:var(--selected); box-shadow:var(--soft-inset);
+:is(button,summary,a[download]):is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true],.clip,.trim-handle) {
+  background-color:var(--lus-press-fill); box-shadow:var(--soft-inset);
 }
 button:disabled { opacity:.6; cursor:default; }
-button:focus-visible,select:focus-visible,.ruler:not([data-pointer-seek]):has(input:focus-visible) {
+button:focus-visible,summary:focus-visible,select:focus-visible,.ruler:not([data-pointer-seek]):has(input:focus-visible) {
   outline:2px solid var(--focus); outline-offset:-2px;
 }
 .body { display:grid; grid-template-columns:minmax(0,1fr) clamp(230px,23%,288px); flex:1; min-height:0; position:relative; }
@@ -101,8 +102,11 @@ button:focus-visible,select:focus-visible,.ruler:not([data-pointer-seek]):has(in
   border:0; color:var(--ink); font:650 11px/1 system-ui,sans-serif;
   background:var(--canvas); box-shadow:var(--key-up);
 }
-.track-monitor-controls button:is(:active,[aria-pressed="true"]) {
+.track-monitor-controls button[aria-pressed="true"] {
   color:var(--accent); background:var(--canvas); box-shadow:var(--key-down); font-weight:800;
+}
+.track-head :is(.track-name,.track-monitor-controls button):is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true]) {
+  background-color:var(--lus-press-fill); box-shadow:var(--key-down);
 }
 .track-monitor-controls button:focus-visible {outline:2px solid var(--focus);outline-offset:1px}
 .track-head[data-monitor-inherited] [data-track-monitor="mute"] {border:1px dashed currentColor}
@@ -153,6 +157,7 @@ button:focus-visible,select:focus-visible,.ruler:not([data-pointer-seek]):has(in
 #loop-band { position:absolute; z-index:0; inset-block:0; pointer-events:none; background:var(--loop); border-inline:1px solid color-mix(in srgb,var(--head) 55%,transparent); }
 #loop-band::before { content:""; display:block; height:2px; background:var(--head); }
 .playhead { pointer-events:none; position:absolute; z-index:4; inset-block:0; width:1px; background:var(--head); }
+:host([data-playhead-snap]) .playhead {width:2px;box-shadow:0 0 7px var(--head)}
 .playhead::before {
   content:""; width:9px; height:8px; position:absolute; top:0; left:-4px;
   background:var(--head); clip-path:polygon(0 0,100% 0,50% 100%);
@@ -207,6 +212,9 @@ aside {
   color:var(--oa-action-ink); background:color-mix(in srgb,var(--oa-action) 92%,transparent); box-shadow:none;
 }
 .song-cover[aria-pressed="true"] .song-icon { background:var(--selected); color:var(--accent); }
+.song-cover:is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true]) .song-icon {
+  background-color:var(--lus-press-fill); color:var(--accent); box-shadow:var(--soft-inset);
+}
 .song-cover:focus-visible { outline-offset:-2px; z-index:1; }
 .song-cover:disabled { box-shadow:var(--soft-inset); }
 .adopt-take { grid-column:2; justify-self:start; font-size:10px; min-height:24px; }
@@ -226,7 +234,7 @@ aside {
 #clip-details dt { color:var(--muted); }
 #clip-details dd { margin:0; text-align:end; font:10px ui-monospace,monospace; white-space:nowrap; }
 @media (max-width:680px) {
-  :host { --track-height:96px; --imw-video-row-height:88px; --track-action-height:65px; --ruler-height:32px; }
+  :host { --track-height:96px; --imw-video-row-height:88px; --track-action-height:65px; --audio-ruler-height:32px; }
   .mobile { display:inline-flex!important; align-items:center; }
   .body { display:block; }
   .editor { height:100%; padding-block-end:calc(var(--wb-dock,70px) + 28px); }
@@ -256,7 +264,9 @@ aside {
 }
 
 @media (prefers-reduced-motion:no-preference) {
-  .song-cover, .adopt-take { transition:color 90ms ease-out; }
+  :is(button,summary,a[download]):not(.clip,.trim-handle), .song-icon {
+    transition:background-color 100ms ease-out,color 100ms ease-out;
+  }
 }
 
 .clip-menu {
@@ -441,7 +451,7 @@ aside {
 :host([data-imw-dense]) #regions .trim-handle::before {height:100%}
 :is(#imw-frame-rate-field,#imw-frame-zoom-field) {display:none}
 :host([data-imw-video]) :is(#imw-frame-rate-field,#imw-frame-zoom-field) {display:inline-flex;align-items:center;gap:5px}
-:host([data-imw-video]) {--ruler-height:20px}
+:host([data-imw-video]) {--ruler-height:40px}
 :host([data-imw-video]) .track-heading,:host([data-imw-video]) .ruler {height:var(--ruler-height)}
 .frame-time {display:none}
 :host([data-imw-video]) .ruler {overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;}
@@ -450,7 +460,7 @@ aside {
   display:inline; font:600 10px/1 ui-monospace,monospace; font-variant-numeric:tabular-nums;
   color:var(--ink); white-space:nowrap
 }
-:host([data-imw-video]) .ruler span {top:50%;transform:translateY(-50%);white-space:nowrap}
+:host([data-imw-video]) .ruler #ticks span {top:2px;line-height:17px;white-space:nowrap}
 
 :host([data-imw-video]) #imw-add-track:not([hidden]) {display:block;max-width:calc(100% - 8px);margin:4px;min-height:24px;font-size:10px;}
 :host([data-imw-video]) #imw-captions {display:inline-flex;margin-bottom:6px}
@@ -515,6 +525,7 @@ aside {
   color:var(--muted);font-size:10px;text-align:left;padding:0 9px;box-shadow:none
 }
 #imw-folded-video:hover,#imw-folded-video:focus-visible {background:var(--selected);color:var(--accent)}
+#imw-folded-video:is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true]) {background-color:var(--lus-press-fill)}
 :host([data-imw-video]) #imw-folded-video {display:none}
 :host([data-imw-video]) #imw-video-label {--track-height:var(--imw-video-row-height)}
 :host([data-imw-empty-video]) #imw-folded-video {display:block;height:var(--imw-video-row-height)}
@@ -525,18 +536,52 @@ aside {
 :host([data-imw-video]) :is(#imw-picture-lane,#imw-video-header) {height:var(--imw-video-row-height,var(--track-height))}
 
 :host([data-imw-video][data-frame-zoom]) #lane {width:var(--frame-zoom-width)!important}
-.frame-grid {display:none;position:absolute;top:0;height:100%;overflow:hidden;pointer-events:none}
-:host([data-imw-video]) #lane[data-frame-grid] > .frame-grid {display:block}
-.frame-grid path {fill:none;stroke:color-mix(in srgb,var(--ink) 24%,transparent);stroke-width:1;stroke-dasharray:2 3;shape-rendering:crispEdges}
-:host([data-imw-video]) #lane[data-frame-grid] .ruler::after {
-  content:"";position:absolute;inset:auto 0 0;height:3px;pointer-events:none;
-  background:repeating-linear-gradient(to right,var(--grid-beat) 0 1px,transparent 1px var(--frame-pitch));
+.frame-marks {display:none;position:absolute;top:20px;height:18px;overflow:hidden;pointer-events:none}
+:host([data-imw-video]) .frame-marks {display:block;border-top:1px solid var(--line)}
+.frame-marks path {fill:none;stroke:var(--muted);stroke-width:1;shape-rendering:crispEdges}
+#lane {cursor:crosshair}
+:host([data-command-grab]) {
+  --clip-cursor:grab; --clip-active-cursor:grabbing; --clip-edge-cursor:ew-resize;
 }
+#timeline-selection {position:absolute;z-index:4;pointer-events:none;overflow:hidden;white-space:nowrap;
+  box-sizing:border-box;border-inline:1px solid var(--focus);border-block:1px solid color-mix(in srgb,var(--focus) 55%,transparent);
+  background:color-mix(in srgb,var(--focus) 22%,transparent);color:var(--ink);padding-inline:3px;
+  font:600 10px/16px ui-monospace,monospace}
+@supports (backdrop-filter:hue-rotate(120deg)) {
+  #timeline-selection {
+    background:color-mix(in srgb,var(--focus) 16%,transparent);
+    backdrop-filter:hue-rotate(120deg) saturate(1.45) contrast(1.08);
+  }
+}
+#timeline-selection[data-video-range]::before {
+  content:"";position:absolute;inset-inline:0;top:var(--selection-video-y);
+  height:calc(var(--selection-video-height) - 2px);box-sizing:border-box;
+  border:1px solid #ffdc91;border-inline-width:3px;
+  box-shadow:inset 0 0 0 1px #241a14;
+  background:linear-gradient(180deg,#20150836,transparent 32%,transparent 68%,#20150836),#ffd47b27;
+}
+#timeline-selection[data-video-range] > span {
+  position:relative;color:#fff8e7;text-shadow:0 1px 2px #17110b,0 0 3px #17110b;
+}
+#timeline-selection[hidden] {display:none}
 
 /* Until the shared disclosure animation settles, fading heads occupy their own original track positions. */
 :host([data-imw-track-motion]) .track-head[data-imw-track]:not([data-imw-current]),
 :host([data-imw-track-motion]) .track-head[data-imw-track] {display:grid;overflow:clip;min-height:0}
 
+/* Blend compact insets into the audio layout on the same timeline as the panel. */
+:host([data-imw-track-motion][data-imw-compact]) #regions .clip-group {
+  --compact-top:min(2px,5%); --compact-height:max(1px,90%);
+  top:calc(var(--compact-top) * (1 - var(--lus-imw-fold)) + 6px * var(--lus-imw-fold));
+  height:calc(var(--compact-height) * (1 - var(--lus-imw-fold)) + (var(--track-height) - 12px) * var(--lus-imw-fold));
+}
+:host([data-imw-track-motion][data-imw-dense]) #regions .clip-group {
+  --compact-top:0px; --compact-height:100%;
+}
+:host([data-imw-track-motion][data-imw-compact]) #regions .clip canvas {
+  top:calc(4% * (1 - var(--lus-imw-fold)) + 8px * var(--lus-imw-fold));
+  height:calc(92% * (1 - var(--lus-imw-fold)) + (100% - 16px) * var(--lus-imw-fold));
+}
 :host([data-imw-track-motion][data-imw-dense]) #regions .clip canvas {display:block}
 
 #detached-lanes {position:relative}

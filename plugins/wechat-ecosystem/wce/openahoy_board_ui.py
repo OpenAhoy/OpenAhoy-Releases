@@ -59,7 +59,7 @@ STYLE = '''
  background:transparent;border:0;border-radius:11px;box-shadow:none;cursor:pointer;
  -webkit-tap-highlight-color:transparent
 }
-.oa-management.oa-native[data-workbench=openahoy] #wbOpenAhoy button.ob-platform-entry:active{
+.oa-management.oa-native[data-workbench=openahoy] #wbOpenAhoy .ob-column:not(.ob-workspace-column) button.ob-platform-entry:is(:active,[data-jiu-pressed]){
  background:transparent;box-shadow:none;opacity:.8
 }
 .oa-native #wbOpenAhoy .ob-title .oa-platform-mark{
@@ -113,7 +113,7 @@ STYLE = '''
 #obPlatformDetails p{margin:3px 0}
 #obPlatformDetails .ob-actions{margin:8px 0}
 .ob-more{border:1px solid var(--wb-line);padding:4px 10px 8px;border-radius:10px}
-.oa-management .ob-more>summary{cursor:pointer;min-height:32px;padding-top:7px;font-weight:650;color:var(--wb-ink)}
+.ob-more>h3,.ob-more>h4{margin:8px 7px;font-size:14px;font-weight:650;color:var(--wb-ink)}
 .ob-service{padding:10px 0;border-top:1px solid var(--wb-line);margin-top:10px}
 .ob-service h3{margin-top:0!important}
 .ob-service ol{padding-inline-start:19px;margin:7px 0}
@@ -184,7 +184,7 @@ body.oa-management.oa-native:is([data-workbench=openahoy],[data-workbench=platfo
 }
 body.oa-management.oa-native:is([data-workbench=openahoy],[data-workbench=platform])
  :is(#wbOpenAhoy,#nativeWorkspace,#inlineBinding,.oa-sidebar)
- :is(button:not(.ob-account-name,.account-select,.ob-platform-entry), .oa-more-settings>summary, .ob-more>summary){
+ :is(button:not(.ob-account-name,.account-select,.ob-platform-entry), .oa-more-settings>summary){
  border-color:var(--oh-edge);background:var(--oh-surface);color:var(--oh-text);
  box-shadow:var(--oh-control);filter:none;
  transition:box-shadow .16s ease,color .16s ease;-webkit-tap-highlight-color:transparent
@@ -201,7 +201,7 @@ body.oa-management.oa-native:is([data-workbench=openahoy],[data-workbench=platfo
 body.oa-management.oa-native:is([data-workbench=openahoy],[data-workbench=platform])
  :is(#wbOpenAhoy,#nativeWorkspace,#inlineBinding,.oa-sidebar)
  :is(button:not(:disabled,.ob-platform-entry):is(:active,[aria-pressed=true],[aria-selected=true],[aria-current=page],.is-selected),
- details:is(.oa-more-settings,.ob-more)[open]>summary,summary:active){
+ details.oa-more-settings[open]>summary,summary:active){
  background:var(--oh-surface);box-shadow:var(--oh-control-down);color:var(--oh-selected);filter:none
 }
 body.oa-management.oa-native:is([data-workbench=openahoy],[data-workbench=platform])
@@ -223,10 +223,7 @@ body.oa-management.oa-native:is([data-workbench=openahoy],[data-workbench=platfo
 .oa-management.oa-native[data-workbench=openahoy] #obPlatformDetails .ob-more{
  margin-block:8px;border:0;padding:4px;border-radius:9px
 }
-.oa-management.oa-native[data-workbench=openahoy] #obPlatformDetails .ob-more summary{
- padding:7px 9px;border-radius:8px;cursor:pointer
-}
-.oa-management.oa-native[data-workbench=openahoy] #obPlatformDetails .ob-more[open]>:not(summary){
+.oa-management.oa-native[data-workbench=openahoy] #obPlatformDetails .ob-more>:not(h3,h4){
  margin:8px 7px
 }
 .oa-management.oa-native[data-workbench=platform] #accountPanel #accounts,
@@ -563,8 +560,8 @@ function OAOpenAhoyBoard({ui,decorate,avatar,manage,reload,openLink,checkService
    const [id,name,official,implementation,requirements]=item,current=model(id);
    ui.set($('obPlatformTitle'),name);
    const body=$('obPlatformBody');body.replaceChildren();
-   const capabilities=el('details');capabilities.className='ob-more';capabilities.open=Boolean(current.adapter);
-   capabilities.append(el('summary','平台能力与账号条件'),el('p',official),
+   const capabilities=el('section');capabilities.className='ob-more';
+   capabilities.append(el('h3','平台能力与账号条件'),el('p',official),
      el('p',implementation&&current.adapter?implementation:'本机尚无接入适配器'),el('p',requirements));
    if(current.state==='FAILED')capabilities.append(el('p','账号读取失败'));
    if(current.read?.read_at)capabilities.append(timeLine('本机清单读取：{0}',current.read.read_at));
@@ -586,9 +583,9 @@ function OAOpenAhoyBoard({ui,decorate,avatar,manage,reload,openLink,checkService
  function serviceSection(service){
    const section=el('section');section.className='ob-service';section.dataset.service=service.id;
    section.append(el('h3',service.name),el('p',service.scope));
-   const instructions=el('details');instructions.className='ob-more';
+   const instructions=el('section');instructions.className='ob-more';
    const steps=el('ol');for(const step of service.steps)steps.append(el('li',step));
-   instructions.append(el('summary','接入步骤'),steps,el('p','授权后只读验证：{0}',ui.format(service.verification)));
+   instructions.append(el('h4','接入步骤'),steps,el('p','授权后只读验证：{0}',ui.format(service.verification)));
    const status=el('p','待通过官方授权');status.className='help';status.setAttribute('role','status');section.append(status);
    const endpointStatus=el('p');endpointStatus.className='help';endpointStatus.setAttribute('role','status');
    const probeTime=el('div');section.append(endpointStatus,probeTime);
@@ -721,8 +718,8 @@ function OAOpenAhoyBoard({ui,decorate,avatar,manage,reload,openLink,checkService
    catch(_){ui.set(docFeedback,'当前宿主无法打开链接，请从平台官方入口访问。');docFeedback.hidden=false;}
  }));
  douyinCapabilities.append(el('h3','平台能力与账号条件'),capabilityList,accessLinks,docFeedback);
- const douyinMcp=el('details');douyinMcp.className='ob-douyin-panel';
- douyinMcp.append(el('summary','抖音 MCP 接入与只读核验'),serviceSection(mcpServices[douyin][0]));
+ const douyinMcp=el('section');douyinMcp.className='ob-douyin-panel';
+ douyinMcp.append(el('h3','抖音 MCP 接入与只读核验'),serviceSection(mcpServices[douyin][0]));
  douyinMain.append(douyinIdentity,douyinCapabilities,douyinMcp);douyinPage.append(douyinList,douyinMain);
  ui.onChange(()=>{if(loaded)paint();paintDouyin();});
  paint();

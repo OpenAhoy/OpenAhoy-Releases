@@ -77,7 +77,7 @@ SCRIPT = r'''
  const allowed=new Set(['own.wechat.authorized_drafts','own.wechat.content','own.drafts.inventory','own.drafts.current.read',
    'own.drafts.current.merge','own.drafts.current.status','wce.ui.openahoy.mcp.check',
    'own.publications.current.dispatch','own.publications.current.poll','own.publications.current.status',
-   'wce.ui.wechat.component_binding',
+   'wce.ui.wechat.component_binding','wce.ui.characters.dry_run',
    'own.sources.library','audio.project.presets','wce.ui.management.overview','wce.ui.management.disconnect','wce.ui.management.save_display_name','wce.ui.platform.action','x.ui.action','xhs.ui.action','x.attempt.status','wce.ui.projects.action','own.templates.read','wce.ui.templates.download','video.ark.connection.status','video.tokenhex.connection.check','wce.ui.video.credential','wce.ui.video.vidmuse','wce.ui.video.workspace','video.director.read','video.director.edit','wce.ui.video.director.media','wce.ui.wechat.storage_recovery','wce.ui.wechat.analytics','wce.ui.writing.rules','wce.ui.studio']);
 
  let counter=0,navigationEpoch=0,ready=false,closed=false,refreshing=false,launching=false,backendOpening=false,hostCapabilities={},rows=[],directory=[],selected='',activePlatform='';
@@ -1167,13 +1167,18 @@ SCRIPT = r'''
    }return value;
   }});
  document.querySelectorAll('[data-workspace-project]').forEach(button=>button.addEventListener('click',()=>$('contextSettingsTab').click()));
- $('xWorkspaceTools').onclick=()=>{closeXTools();document.body.classList.add('oa-x-tools');};
- $('xWorkspaceBilling').onclick=()=>{closeXTools();document.body.classList.add('oa-x-tools');xManagement.openBilling();};
+ let xToolsOrigin=null;
+ $('xWorkspaceTools').onclick=()=>{
+   closeXTools();xToolsOrigin=$('xWorkspaceTools');document.body.classList.add('oa-x-tools');$('xWorkspaceBack').focus();
+ };
+ $('xWorkspaceBilling').onclick=()=>{
+   closeXTools();xToolsOrigin=$('xWorkspaceBilling');document.body.classList.add('oa-x-tools','oa-x-billing-view');xManagement.openBilling();
+ };
  $('xConnectOwnApplication').onclick=()=>openXDeveloper(current());
  let xDeveloperKey='';
  function closeXTools(){
-   xDeveloperKey='';$('xDeveloperSettings').hidden=true;$('xBilling').open=false;
-   xManagement.closeAuthorization();document.body.classList.remove('oa-x-tools','oa-x-developer-open');
+   xDeveloperKey='';$('xDeveloperSettings').hidden=true;$('xBilling').hidden=true;
+   xManagement.closeAuthorization();xToolsOrigin=null;document.body.classList.remove('oa-x-tools','oa-x-developer-open','oa-x-billing-view');
  }
  function updateXDeveloper(){
    if(!xDeveloperKey)return;
@@ -1190,7 +1195,7 @@ SCRIPT = r'''
    if(closed||intent!==selectionIntent||activePlatform!=='x'||selected!==key(row))return;
    closeAccountNavigation({compactOnly:true});
    closeXTools();contextOpen=false;projectContext.deactivate();showSettings('x');
-   xDeveloperKey=key(row);document.body.classList.add('oa-x-tools','oa-x-developer-open');
+   xDeveloperKey=key(row);document.body.classList.add('oa-x-tools','oa-x-developer-open');$('xBilling').hidden=false;
    $('xDeveloperSettings').hidden=false;OAUI.set($('xDeveloperNotice'),'');updateXDeveloper();
    $('xDeveloperHeading').focus();$('xDeveloperSettings').scrollIntoView({block:'nearest'});
    await xManagement.activate();
@@ -1211,10 +1216,10 @@ SCRIPT = r'''
    catch(_){if(target===xDeveloperKey)OAUI.set($('xDeveloperNotice'),'当前宿主无法打开 X Developer Console。');}
  };
  $('xProductionEdit').addEventListener('click',closeXTools);
- const xBack=document.createElement('button');xBack.id='xWorkspaceBack';OAUI.set(xBack,'返回内容配置');xBack.className='oa-x-tools-back';xBack.onclick=closeXTools;$('xSettings').prepend(xBack);
- const xCapabilities=document.createElement('details');xCapabilities.className='oa-capability-details';const xCaption=document.createElement('summary');OAUI.set(xCaption,'X 支持的自动能力');xCapabilities.append(xCaption,$('xCapabilities'));$('xSettings').prepend(xCapabilities);
- const xRecovery=document.createElement('details');xRecovery.className='oa-capability-details';
- const xRecoveryTitle=document.createElement('summary');OAUI.set(xRecoveryTitle,'查询原 X 任务');
+ const xBack=document.createElement('button');xBack.id='xWorkspaceBack';OAUI.set(xBack,'返回内容配置');xBack.className='oa-x-tools-back';xBack.onclick=()=>{const origin=xToolsOrigin;closeXTools();(origin||$('xWorkspaceTools')).focus();};$('xSettings').prepend(xBack);
+ const xCapabilities=document.createElement('section');xCapabilities.className='oa-capability-details';xCapabilities.append($('xCapabilities'));$('xWorkspaceBack').after(xCapabilities);
+ const xRecovery=document.createElement('section');xRecovery.className='oa-capability-details';
+ const xRecoveryTitle=document.createElement('h3');xRecoveryTitle.className='oa-content-heading';OAUI.set(xRecoveryTitle,'查询原 X 任务');
  const xRecoveryFields=document.createElement('div');xRecoveryFields.className='oa-x-recovery';
  const xRecoveryKind=document.createElement('select');OAUI.attr(xRecoveryKind,'aria-label','任务类型');
  for(const [value,label] of [['upload','上传'],['post','帖子'],['reply','回复'],['readback','核对原帖']]){
@@ -1225,7 +1230,7 @@ SCRIPT = r'''
  const xRecoveryGo=document.createElement('button');xRecoveryGo.type='button';OAUI.set(xRecoveryGo,'查询');
  const xRecoveryResult=document.createElement('output');xRecoveryResult.setAttribute('role','status');
  xRecoveryFields.append(xRecoveryKind,xRecoveryId,xRecoveryGo,xRecoveryResult);
- xRecovery.append(xRecoveryTitle,xRecoveryFields);$('xSettings').prepend(xRecovery);
+ xRecovery.append(xRecoveryTitle,xRecoveryFields);xCapabilities.after(xRecovery);
  let xRecoveryOwner='';
  function clearXRecovery(){
    const row=activePlatform==='x'?current():null;
@@ -1255,7 +1260,6 @@ SCRIPT = r'''
  xRecoveryId.addEventListener('keydown',event=>{
    if(event.key==='Enter'&&!event.isComposing){event.preventDefault();xRecoveryGo.click();}
  });
- xRecovery.addEventListener('toggle',()=>{if(!xRecovery.open)OAUI.raw(xRecoveryResult,'');});
  $('contextSettingsTab').addEventListener('click',()=>{closeXTools();contextOpen=true;showSettings(activePlatform);xManagement.deactivate();xhsManagement.deactivate();$('xCapabilities').hidden=activePlatform!=='x';projectContext.activate();});
  $('platformSettingsTab').addEventListener('click',()=>{contextOpen=false;projectContext.deactivate();showSettings(activePlatform);if(activePlatform==='x')xManagement.activate();if(activePlatform==='xiaohongshu')xhsManagement.activate();});
  async function openXAuthorization(existing){
@@ -1655,7 +1659,7 @@ SCRIPT = r'''
    setWechatPage('settings');
    $('contextSettingsTab').click();
  }
- const characters=OACharacterLibrary(mediaTool,openProjectSettings);
+ const characters=OACharacterLibrary(mediaTool,openProjectSettings,sendChatRequest,()=>!!hostCapabilities.message?.text);
  const director=OADirector(mediaTool,sendChatRequest,()=>!!hostCapabilities.message?.text,{
     guideChanged:()=>guide?.render(),imwWork:showIMWWork,
     imwChoose:scope=>{if(imwOn){imwIntent++;imwPending=null;imwTarget=scope;imwKnown=null;imwCurrent='';imwSong=null;updateIMWBinding(null,null,null);}},
@@ -2219,6 +2223,7 @@ def resource():
     from .own_settings_ui import LOGO, STYLE
     from .own_management_ui import HOME_STYLE, STYLE as management_style, native_page_body
     from .management_workspace_ui import NATIVE_FINISH_STYLE, PLATFORM_ACCOUNT_NAV_STYLE
+    from .button_feedback import STYLE as pressure_style, SCRIPT as pressure_script
     from .management_interactions import STYLE as interaction_style, SCRIPT as interaction_script
     from .workflow_guide_ui import STYLE as guide_style, SCRIPT as guide_script
     from .workbench_ui import STYLE as workbench_style, SCRIPT as workbench_script, relief_style, trend_resource
@@ -2247,6 +2252,9 @@ def resource():
     from .character_library_ui import STYLE as characters_style, SCRIPT as characters_script
     from .character_turntable_ui import SCRIPT as character_turntable_script
     from .asset_catalog_ui import STYLE as assets_style, SCRIPT as assets_script
+    from .model_overview_ui import image_source
+    offline_disk = image_source('management/asset-disk-offline.webp')
+    assets_style += f'\n#directorAssetKinds{{--jiu-asset-offline-art:url("{offline_disk}");}}'
     from .source_library_ui import STYLE as sources_style, SCRIPT as sources_script
     from .video_frame_player import STYLE as frame_style, SCRIPT as frame_script
     from .x_management_ui import HTML as x_html, SCRIPT as x_script
@@ -2261,8 +2269,8 @@ def resource():
         '<title>Jiusera · Workspace</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
         + '<style>' + studio_resource('css') + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + review_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + wechat_setup_style + wechat_setup_preview_style + wechat_articles_style + PLATFORM_ACCOUNT_NAV_STYLE + guide_style + workbench_style + openahoy_board_style + assets_style + sources_style + trend_resource('css') + relief_style() + model_layout_style + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
-        + '<style>' + wechat_desk_style + '</style>'
-        + '<script>' + WORKSPACE_THEME + locale_script() + platform_branding_script() + settings_script(compact=True) + wechat_articles_script + wechat_desk_script + video_script + frame_script + provider_script + vidmuse_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + character_turntable_script + characters_script + assets_script + sources_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + guide_script + trend_resource('js') + workbench_script + openahoy_board_script + writing_rules_script + studio_resource('js') + model_layout_script + SCRIPT + '</script></body></html>')
+        + '<style>' + wechat_desk_style + pressure_style + '</style>'
+        + '<script>' + pressure_script + WORKSPACE_THEME + locale_script() + platform_branding_script() + settings_script(compact=True) + wechat_articles_script + wechat_desk_script + video_script + frame_script + provider_script + vidmuse_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + character_turntable_script + characters_script + assets_script + sources_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + guide_script + trend_resource('js') + workbench_script + openahoy_board_script + writing_rules_script + studio_resource('js') + model_layout_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
         '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://wx.qlogo.cn', 'https://thirdwx.qlogo.cn', 'https://mmbiz.qpic.cn', 'https://mmbiz.qlogo.cn', 'https://cdn1.suno.ai',
                                                                  'https://cdn2.suno.ai', 'https://suno-data-uploads.s3.amazonaws.com', 'https://acemusic.ai'], 'frameDomains': []}},

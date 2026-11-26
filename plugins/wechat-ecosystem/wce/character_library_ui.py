@@ -1,6 +1,7 @@
 """Character reference browser and exact-version storyboard picker."""
 
 from .character_ruler_ui import SCRIPT as RULER_SCRIPT, STYLE as RULER_STYLE
+from .character_set_trial_ui import SCRIPT as SET_TRIAL_SCRIPT, STYLE as SET_TRIAL_STYLE
 
 PAGE = '<section id="characterLibrary" aria-label="形象资产库" hidden></section>'
 
@@ -286,8 +287,9 @@ STYLE = RULER_STYLE + r'''
 .cl-browse-arena{container-type:size;display:grid;place-items:center start;min-width:0;min-height:0}
 .cl-browse-ring{
  --cl-ring-gap:6px;--cl-tile-gap:3px;
+ --cl-ring-capacity:10;
  --cl-ring-span:min(100cqw,100cqh);
- --cl-ring-slot:clamp(24px,calc((var(--cl-ring-span) - 2 * var(--cl-ring-gap) - 9 * var(--cl-tile-gap))/12),46px);
+ --cl-ring-slot:clamp(22px,calc((var(--cl-ring-span) - 2 * var(--cl-ring-gap) - (var(--cl-ring-capacity) - 1) * var(--cl-tile-gap))/(var(--cl-ring-capacity) + 2)),46px);
  --cl-ring-side:max(0px,calc(var(--cl-ring-span) - 2 * (var(--cl-ring-slot) + var(--cl-ring-gap))));
  display:grid;grid-template-columns:var(--cl-ring-slot) var(--cl-ring-side) var(--cl-ring-slot);
  grid-template-rows:var(--cl-ring-slot) var(--cl-ring-side) var(--cl-ring-slot);
@@ -331,6 +333,17 @@ STYLE = RULER_STYLE + r'''
  --cl-ring-shadow:light-dark(#be86b5,#c198ce)
 }
 #characterDetail .cl-browse-tile[data-located=true]{box-shadow:inset 0 0 0 1px var(--cl-accent)}
+#characterDetail .cl-browse-tile[data-missing=true]{
+ background:var(--cl-card);border-color:var(--cl-line);cursor:default
+}
+#characterDetail .cl-browse-tile[data-missing=true] .cl-ring-symbol{
+ --cl-ring-ink:light-dark(#767676,#aeaeae);
+ --cl-ring-fill:light-dark(#e4e4e4,#404040);
+ --cl-ring-shadow:light-dark(#bcbcbc,#777)
+}
+#characterDetail .cl-browse-tile[data-missing=true][data-located=true]{
+ box-shadow:inset 0 0 0 1px light-dark(#767676,#aeaeae)
+}
 .cl-ring-tooltip{position:fixed;z-index:3;pointer-events:none;max-width:min(210px,calc(100vw - 16px));
  padding:4px 8px;border-radius:6px;background:light-dark(#282534,#f0ecf4);color:light-dark(#fff,#252334);
  font-size:11px;line-height:1.35;text-align:center;overflow-wrap:anywhere;box-shadow:0 2px 9px #0003}
@@ -572,7 +585,7 @@ STYLE = RULER_STYLE + r'''
 '''
 
 SCRIPT = RULER_SCRIPT + r'''
-function OACharacterLibrary(tool,openProjectSettings){
+function OACharacterLibrary(tool,openProjectSettings,sendChat,canSend){
  const $=id=>document.getElementById(id);
  const page=$('characterLibrary'),picker=$('characterPicker'),detail=$('characterDetail'),importer=$('characterImport');
  const useText={full_body:'标准全身',face:'人脸',expression:'表情',pose:'动作',style:'风格／质感',
@@ -1470,7 +1483,7 @@ function OACharacterLibrary(tool,openProjectSettings){
    return {state,back};
  }
  const browseGroups={
-   base:'人物基础',features:'五官',details:'手脚与姿势',hair:'发型',wardrobe:'服装',accessories:'配饰',voice:'声音'
+   base:'人物基础',features:'五官',torso:'躯干',limbs:'四肢',details:'手脚与姿势',voice:'声音'
  };
  const referenceGroup=row=>row.browseNote?.group||(row.use==='pose'&&groupOf(row)==='base'?'details':groupOf(row));
  const browseGroup=row=>row.browseArchived?'history':referenceGroup(row);
@@ -1840,7 +1853,7 @@ function OACharacterLibrary(tool,openProjectSettings){
    const shown=state.displayed,angle=figureAngle(shown?.figure);
    const control=state.lookTriggers.get('wardrobe'),ready=!!angle&&!!state.figureRequest&&!!state.exhibitItems.length;
    const active=ready&&state.exhibitOpen;
-   control.disabled=!ready;
+   control.disabled=!ready&&control.dataset.missing!=='true';
    control.setAttribute('aria-expanded',String(active));
    state.exhibit.inert=!active;
    state.exhibit.setAttribute('aria-hidden',String(!active));
@@ -1857,6 +1870,26 @@ function OACharacterLibrary(tool,openProjectSettings){
    if(ready)warmExhibit(state);
  }
  const ringSides=['north','east','south','west'];
+ // The reference views and body regions already used by the character library.
+ // Each form keeps these positions even if only some of the sources are registered.
+ const ringSlots={
+   base:[['正面全身标准','front','front'],['全身斜侧面','three_quarter','three_quarter'],
+     ['全身正侧面','side','side'],['全身背面','back','back'],['无面全身','body_blank','body_blank'],
+     ['无头正面身体','headless']],
+   features:[['独立头部','head','head_front'],['光头无面头模','headBlank','head_blank'],
+     ['侧面脸部','profile'],['眼睛','eyes'],['左眼','eye',null,-1],['右眼','eye',null,1],
+     ['瞳孔与虹膜','iris'],['鼻子','nose'],['嘴唇','mouth'],
+     ['人物右耳（发丝遮挡）','earCovered',null,1],['人物左耳（画面右）','ear',null,-1],
+     ['人物右耳（画面左）','ear',null,1]],
+   torso:[['上身正面','torso'],['上身背面','torsoBack'],['侧面胸部轮廓','chestSide'],
+     ['腹部正面','waist'],['腹部侧面','abdomenSide'],['后腰背面','waistBack'],['侧面臀部轮廓','hip']],
+   limbs:[['左臂正面','arm',null,-1],['右臂正面','arm',null,1],
+     ['左腿正面','leg',null,-1],['右腿正面','leg',null,1]],
+   details:[['人物左手（画面右）','hand',null,-1],['人物右手（画面左）','hand',null,1],
+     ['双手手背俯视','handsBack'],['双手手心俯视','handsPalm'],['正面双脚','feetFront'],
+     ['双脚脚面俯视','feetTop'],['侧面脚部','foot'],['双脚脚跟背面','heels']],
+   voice:[['声音','voice']],
+ };
  // Each 32-unit illustration has an outlined silhouette, a shadow shape,
  // and optional engraving lines. The filled forms read at ring size.
  const ringIllustrations={
@@ -2115,10 +2148,10 @@ function OACharacterLibrary(tool,openProjectSettings){
  }
  function locateRing(state){
    const group=state.group;
-   for(const tile of state.root.querySelectorAll('[data-choice]'))
+   for(const tile of state.root.querySelectorAll('.cl-ring-edge [data-asset-group]'))
      tile.dataset.located=String(!!group&&group!=='history'&&tile.dataset.assetGroup===group);
  }
- function nameRingButton(state,option,label){
+ function nameRingButton(state,option,label,missing=false){
    OAUI.attr(option,'aria-label',label);
    const tip=state.tooltip;
    const hide=()=>{if(state.tooltipOwner===option){tip.hidden=true;state.tooltipOwner=null;}};
@@ -2133,33 +2166,68 @@ function OACharacterLibrary(tool,openProjectSettings){
    option.addEventListener('pointerleave',()=>{if(!option.matches(':focus-visible'))hide();});
    option.addEventListener('focus',()=>{if(option.matches(':focus-visible'))show();});
    option.addEventListener('blur',()=>{if(!option.matches(':hover'))hide();});
-   option.addEventListener('click',hide);
+   option.addEventListener('click',missing?show:hide);
  }
- function drawRing(state){
-   state.tooltip.hidden=true;state.tooltipOwner=null;
-   const entries=browseRows(state,state.group==='history');
-   if(state.group!=='history')state.figureEntries=entries.map(entry=>basicFigure(state,entry)).filter(figureAngle);
-   const tiles=entries.flatMap(entry=>{
-     const option=button(undefined,()=>{
-       void visitBrowse(state,entry);
-     });
-     option.className='cl-browse-tile';option.dataset.choice=entry.key;
-     option.dataset.assetGroup=entry.group;option.dataset.chapter=entry.symbol.chapter;
-     option.dataset.subjectSide=entry.symbol.side;
+ function markMissingSlot(state,option,label){
+   option.dataset.missing='true';
+   option.setAttribute('aria-disabled','true');
+   nameRingButton(state,option,t('{0} · 未登记资产',t(label)),true);
+ }
+ function ringTile(state,entry,slot){
+   const option=button(undefined,entry?()=>void visitBrowse(state,entry):null);
+   const symbol=entry?.symbol||slot;
+   option.className='cl-browse-tile';
+   option.dataset.assetGroup=slot?.group||entry.group;
+   option.dataset.chapter=symbol.chapter??slot.chapter;
+   option.dataset.subjectSide=symbol.side;
+   if(slot)option.dataset.ringSlot=slot.label;
+   if(entry){
+     option.dataset.choice=entry.key;
      nameRingButton(state,option,entry.label);
-     option.append(ringSymbol(entry.symbol.kind,entry.symbol.side));
-     if(state.group!=='history'&&entry.row.id===browseHome(state.form)?.id&&state.wardrobeRows.length)
-       return [option,state.fullTool];
-     return [option];
+   }else markMissingSlot(state,option,slot.label);
+   option.append(ringSymbol(symbol.kind,symbol.side));
+   return option;
+ }
+ function referenceSections(state,entries){
+   const unused=new Set(entries);
+   const home=browseHome(state.form);
+   const slots=Object.entries(ringSlots).flatMap(([group,items],chapter)=>items.map(([label,kind,view,side=0])=>
+     ({group,label,kind,view,side,chapter:group==='voice'?5:chapter})));
+   const tiles=slots.map(slot=>{
+     const candidates=[...unused].filter(entry=>entry.group===slot.group||
+       (slot.group==='features'&&entry.group==='base'&&slot.view&&entry.row.appearance?.view===slot.view));
+     const entry=candidates.find(item=>normalize(item.label)===normalize(slot.label))
+       ||candidates.find(item=>slot.view&&!item.region&&item.row.appearance?.view===slot.view)
+       ||candidates.find(item=>slot.view==='head_front'&&normalize(item.label)==='正面脸部近照')
+       ||candidates.find(item=>item.symbol.kind===slot.kind&&item.symbol.side===slot.side&&slot.kind!=='head')
+       ||candidates.find(item=>item.row===home&&!item.region&&(
+         slot.view==='front'&&figureAngle(basicFigure(state,item))==='front'
+         ||slot.view==='head_front'&&item.symbol.kind==='head'&&item.row.use==='face'));
+     unused.delete(entry);
+     return ringTile(state,entry,slot);
    });
    tiles.push(...state.lookTriggers.values());
    const sections=ringSections(tiles);
+   for(const entry of unused){
+     const index=sections.findIndex(side=>side.some(tile=>tile.dataset.assetGroup===entry.group));
+     sections[index===-1?sections.length-1:index].push(ringTile(state,entry));
+   }
+   if(state.wardrobeRows.length)sections[0].push(state.fullTool);
+   return sections;
+ }
+ function drawRing(state){
+   state.tooltip.hidden=true;state.tooltipOwner=null;
+   const history=state.group==='history';
+   const entries=browseRows(state,history);
+   if(!history)state.figureEntries=entries.map(entry=>basicFigure(state,entry)).filter(figureAngle);
+   const sections=history?ringSections(entries.map(entry=>ringTile(state,entry))):referenceSections(state,entries);
+   state.ring[0].parentElement.style.setProperty('--cl-ring-capacity',Math.max(10,...sections.map(side=>side.length)));
    for(const [index,rail] of state.ring.entries()){
      const items=sections[index];
      rail.replaceChildren(...items);
      rail.hidden=!items.length;
    }
-   state.empty.hidden=!!entries.length;
+   state.empty.hidden=!!entries.length||(!history&&[...state.lookTriggers.values()].some(tile=>tile.dataset.missing!=='true'));
    browseReflect(state);
    locateRing(state);
  }
@@ -2286,6 +2354,8 @@ function OACharacterLibrary(tool,openProjectSettings){
    profile.children[1].after(ruler.summary);
    state.ruler=ruler;state.rulerButton=control;
  }
+ const setTrial=OACharacterSetTrial({tool,sendChat,canSend,make:node,button,
+   thumbnail:row=>cachedCharacterImage('character_thumbnail',row)});
  function makeBrowsePage(view,person,form,trigger){
    const root=$('clDetailContent');
    root.replaceChildren();root.className='cl-detail cl-browse';
@@ -2403,29 +2473,36 @@ function OACharacterLibrary(tool,openProjectSettings){
      stage,stagePhoto,stageTitle,stageKind,feedback,fields,originalButton,cropButton,guideSelection,supplement,supplementTab,retryBrowse,
      exhibit,exhibitGroups,exhibitItems:[],exhibitOpen:false,shelfReturn,figureEntries:[]};
    attachRuler(state,profile,metadata,full);
+   const makeSet=button('制作整套形象资产',()=>setTrial.open(state,makeSet));
+   makeSet.id='clCharacterSetTrial';
+   makeSet.disabled=!form.rows.some(row=>row.file?.sha256&&!row.browseArchived&&row.use!=='voice'&&row.use!=='model');
+   controls.append(makeSet);
    state.fullTool=button(undefined,()=>void toggleCompleteLook(state));
    state.fullTool.className='cl-browse-tile cl-full-look';
    state.fullTool.dataset.look='complete';
    nameRingButton(state,state.fullTool,'全貌 · 正面完整造型');
    state.fullTool.append(ringSymbol('fullLook'));
-   const directory=form.guide?{base:'人物基准',features:'头部与五官',torso:'躯干',limbs:'四肢',details:'手脚',
-     ...(form.archive.size?{history:'历史'}:{}),voice:'声音'}:browseGroups;
+   const directory=form.guide?{...browseGroups,base:'人物基准',features:'头部与五官',details:'手脚',
+     ...(form.archive.size?{history:'历史'}:{})}:browseGroups;
    for(const [key,label] of [['','全部'],...Object.entries(directory)]){
-     if(['hair','wardrobe','accessories'].includes(key)||key==='voice'&&!form.rows.some(isVoice))continue;
      const tile=button(label,()=>browseRing(state,key));
      tile.dataset.group=key;tile.setAttribute('aria-pressed','false');tile.setAttribute('aria-controls',body.id);
      categories.append(tile);state.slots.set(key,tile);
    }
    for(const [type,label] of Object.entries(lookLabels)){
-     const control=button(undefined,()=>{
+     const relevant=type==='hair'?['hair']:['wardrobe','accessories'];
+     const available=form.rows.some(row=>relevant.includes(browseGroup(row)));
+     const control=button(undefined,available?()=>{
        if(type==='hair'){openLook(state,type);return;}
        closeBrowseLayers(state,true);
        state.exhibitOpen=!state.exhibitOpen;paintExhibit(state);
-     });
+     }:null);
      control.className='cl-browse-tile cl-look-entry';control.dataset.look=type;
+     control.dataset.ringSlot=label;
      control.setAttribute('aria-expanded','false');
      control.setAttribute('aria-controls',type==='hair'?lookPicker.id:exhibit.id);
-     nameRingButton(state,control,label);
+     if(available)nameRingButton(state,control,label);
+     else markMissingSlot(state,control,label);
      control.append(ringSymbol(type==='hair'?'hair':'outfit'));state.lookTriggers.set(type,control);
    }
    buildExhibit(state);
@@ -2570,7 +2647,7 @@ function OACharacterLibrary(tool,openProjectSettings){
    focus(){browser.title.focus();},
    close(){
      if(!page.hidden){keepBrowser();restoreBrowser=false;page.hidden=true;browserDetail=false;}
-     closeDetail();if(picker.open)picker.close();if(importer.open)importer.close();
+     setTrial.close();closeDetail();if(picker.open)picker.close();if(importer.open)importer.close();
    },
    closePicker(){if(picker.open){closeDetail();picker.close();}},
    choose,
@@ -2578,3 +2655,6 @@ function OACharacterLibrary(tool,openProjectSettings){
  };
 }
 '''
+
+STYLE += SET_TRIAL_STYLE
+SCRIPT = SET_TRIAL_SCRIPT + SCRIPT

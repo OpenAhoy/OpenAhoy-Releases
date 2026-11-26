@@ -89,8 +89,9 @@ STYLE = """
 .wx-stats-legend{display:flex;flex-wrap:wrap;gap:2px 9px;font-size:11.5px;color:var(--muted)}
 .wx-stats-legend>span{display:inline-flex;align-items:center;gap:4px}
 .wx-stats-legend i{width:7px;height:7px;border-radius:2px}
-.wx-stats-trends details{margin:2px 0 0;padding:0}
-.wx-stats-trends summary{display:list-item;min-height:26px;padding:5px 1px;font-size:12px;cursor:pointer}
+.wx-stats-daily h3{margin:8px 0 4px;font-size:12px}
+.wx-stats-daily-scroll{max-block-size:185px;overflow:auto;scrollbar-width:thin}
+.wx-stats-daily-scroll:focus-visible{outline:2px solid var(--oa-focus);outline-offset:-2px}
 .wx-stats-trends table{width:100%;border-collapse:collapse;text-align:end;font-size:12px;font-variant-numeric:tabular-nums}
 .wx-stats-trends :is(th,td){padding:3px 4px;border-block-end:1px solid var(--line);overflow-wrap:anywhere}
 .wx-stats-trends :is(th,td):first-child{text-align:start}
@@ -185,8 +186,10 @@ const OAWechatAnalytics=(invoke,openLink)=>{
      item.append(swatch,element('span',metrics[key]));legend.append(item);
    });
    caption.append(legend,element('small','基线短线为 0，留空为未报告'));
-   const details=element('details'),summary=element('summary','逐日数据'),table=element('table'),
-    head=element('thead'),columns=element('tr'),body=element('tbody');
+   const daily=element('section'),heading=element('h3','逐日数据'),scroller=element('div'),
+    table=element('table'),head=element('thead'),columns=element('tr'),body=element('tbody');
+   daily.className='wx-stats-daily';scroller.className='wx-stats-daily-scroll';
+   scroller.tabIndex=0;scroller.setAttribute('role','region');OAUI.attr(scroller,'aria-label','逐日数据');
    columns.append(element('th','日期'),...keys.map(key=>element('th',metrics[key])));head.append(columns);
    for(const row of rows){
      const line=element('tr'),date=element('th');date.scope='row';OAUI.raw(date,row.date);
@@ -194,7 +197,7 @@ const OAWechatAnalytics=(invoke,openLink)=>{
      for(const key of keys){const data=element('td');OAUI.raw(data,f(row[key]));line.append(data);}
      body.append(line);
    }
-   table.append(head,body);details.append(summary,table);node.replaceChildren(plot,caption,details);
+   table.append(head,body);scroller.append(table);daily.append(heading,scroller);node.replaceChildren(plot,caption,daily);
  }
  function statusLine(value){
    const feeds={getusersummary:'关注变化',getusercumulate:'累计关注',getbizsummary:'内容趋势',getarticletotaldetail:'单篇文章'};

@@ -52,17 +52,34 @@ function change(original, action, delta, {
   return changed;
 }
 
-function bind(control, {action, read, geometry, constraints, enabled, select, preview, commit, cancel}) {
+// Threshold in screen pixels, so the gesture feels the same across zoom levels.
+const snapPixels = 8;
+
+function playheadDelta(delta, edges, position, secondsPerPixel, accepts = () => true) {
+  if (!Number.isFinite(position)) return null;
+  const candidates = edges.map(edge => position - edge);
+  candidates.sort((a, b) => Math.abs(a - delta) - Math.abs(b - delta));
+  return candidates.find(next => Math.abs(next - delta) <= snapPixels * secondsPerPixel && accepts(next)) ?? null;
+}
+
+function bounds(clip) {
+  return [clip.start - clip.silenceHead, clip.start + clip.duration + clip.silenceTail];
+}
+
+function bind(control, {action, read, geometry, constraints, enabled, select, preview, commit, cancel, playhead}) {
   const moving = action === "move";
   let drag;
+  const doc = control.ownerDocument;
   const editable = () => !control.disabled && (!enabled || enabled());
   const same = (a,b) => Object.keys(a).every(key => a[key] === b[key]);
   function finish(event, accept) {
     if (!drag || (event?.pointerId != null && drag.id !== event.pointerId)) return;
     const { original, proposed, id, length } = drag;
+    drag.listeners.abort();
+    playhead?.mark(false);
     drag = undefined;
     if (control.hasPointerCapture?.(id)) control.releasePointerCapture(id);
-    if (!proposed) return;
+    if (!proposed || !control.isConnected) return;
     const detail = { action, original, length, event };
     if (accept && editable() && !same(original, proposed)) commit(proposed, detail);
     else cancel?.(original, detail);
@@ -86,28 +103,72 @@ function bind(control, {action, read, geometry, constraints, enabled, select, pr
     if (event.button !== 0 || drag || !editable()) return;
     const {width,length} = geometry();
     if (!(width>0 && length>0)) return;
+    event.preventDefault();
+    control.focus({preventScroll:true});
     select?.(event);
-    drag = { id:event.pointerId, x:event.clientX, original:read(), width,length };
+    if (!control.isConnected || !editable()) return;
+    const listeners = new AbortController();
+    drag = {id:event.pointerId, mouse:event.pointerType === "mouse", x:event.clientX, original:read(), width,length,listeners};
+    const options = {capture:true,signal:listeners.signal};
+    // Mouse capture can move to the host while a clip is being pulled past the timeline.
+    // Follow that one pointer until release, including a release outside its original button.
+    doc.addEventListener("pointermove",move,options);
+    doc.addEventListener("pointerup",up,options);
+    doc.addEventListener("pointercancel",abort,options);
+    control.addEventListener("lostpointercapture",lost,options);
+    doc.defaultView.addEventListener("blur",blur,{signal:listeners.signal});
+    doc.addEventListener("pointerout",leave,options);
     control.setPointerCapture(event.pointerId);
   }
   function move(event) {
     if (!drag || drag.id !== event.pointerId) return;
     if (!editable()) return finish(event,false);
+    if (drag.mouse && !(event.buttons & 1) && event.type === "pointermove") return finish(event,true);
     const distance = event.clientX - drag.x;
     if (!drag.proposed && (moving ? Math.abs(distance) < 3 : distance === 0)) return;
-    const seconds = distance/drag.width*drag.length;
-    const delta = moving ? Math.round(seconds*4)/4 : seconds;
-    if (drag.delta === delta) return;
+    const secondsPerPixel = drag.length / drag.width;
+    const seconds = distance * secondsPerPixel;
+    const limits = constraints();
+    const moveRate = limits.moveRate ?? 4;
+    const {original} = drag;
+    const sourceEdges = bounds(original);
+    const edge = action === "tail" ? 1 : 0;
+    const active = event.metaKey && playhead ? playhead.position() : null;
+    let snapped = null;
+    const exact = playheadDelta(seconds, moving ? sourceEdges : [sourceEdges[edge]], active, secondsPerPixel, delta => {
+      const proposed = change(original, action, delta, limits);
+      const expected = moving
+        ? Math.abs(proposed.start - original.start - delta)
+        : Math.abs(bounds(proposed)[edge] - active);
+      if (expected > (moving ? 1e-7 : .5 / (limits.rate || 1))) return false;
+      snapped = proposed;
+      return true;
+    });
+    const delta = exact ?? (moving ? Math.round(seconds * moveRate) / moveRate : seconds);
+    playhead?.mark(exact !== null);
+    if (drag.delta === delta && drag.snapped === (exact !== null)) return;
     drag.delta = delta;
-    drag.proposed = change(drag.original,action,delta,constraints());
+    drag.snapped = exact !== null;
+    drag.proposed = snapped ?? change(original, action, delta, limits);
     preview?.(drag.proposed,{action,original:drag.original,length:drag.length,event});
   }
   function up(event) {
-    move(event);
+    // Commit the displayed preview even if mouseup arrives with old coordinates.
+    if (!drag?.proposed) move(event);
     finish(event,true);
   }
-  const abort = event => finish(event,false);
-  const listeners = {keydown,pointerdown:down,pointermove:move,pointerup:up,pointercancel:abort,lostpointercapture:abort};
+  function lost(event) {
+    if (!drag || drag.id !== event.pointerId) return;
+    if (!drag.mouse || !(event.buttons & 1)) finish(event,drag.mouse);
+    else drag.uncaptured = true;
+  }
+  function leave(event) {
+    if (drag?.mouse && drag.uncaptured && event.relatedTarget === null) finish(event,true);
+  }
+  const blur = () => finish(null,!!drag?.mouse);
+  // A native mouse handoff ends the gesture at its displayed position. Touch scrolling cancels it.
+  const abort = event => finish(event,!!drag?.mouse);
+  const listeners = {keydown,pointerdown:down};
   for (const [name,listener] of Object.entries(listeners)) control.addEventListener(name,listener);
   return () => {
     finish(null,false);
@@ -115,4 +176,4 @@ function bind(control, {action, read, geometry, constraints, enabled, select, pr
   };
 }
 
-export const clipEditing = Object.freeze({change,bind});
+export const clipEditing = Object.freeze({change,bind,playheadDelta});

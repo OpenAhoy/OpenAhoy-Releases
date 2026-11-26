@@ -17,8 +17,8 @@ HTML = r'''
 <details id="projectSourcePreview"><summary>查看源文件</summary><p id="projectSourceInfo" class="help"></p><pre id="projectSourceText" class="project-source-text"></pre><div class="actions"><button id="projectSourcePrev">上一段</button><span id="projectSourcePage" class="help"></span><button id="projectSourceNext">下一段</button></div></details>
  </div><div class="project-preferences"><label>补充偏好<select id="projectPreference"><option value="topics">关注主题</option><option value="selection">选题与筛选方式</option><option value="writing">写作与表达</option><option value="reply_style">回复风格</option><option value="notes">其他约定</option></select></label>
 <textarea id="projectPreferenceText" rows="4" placeholder="填写本平台或本账号的补充要求，不填写密钥。"></textarea>
-<details id="projectXDiscovery" hidden><summary>X 内容生产与发布</summary><p class="help">关注主题决定写什么；选题与筛选方式说明信源、时效和取舍；写作与表达可填写文案语气、语言、配图与构图要求。Codex 读取本号生效配置及适用 AGENTS/Skills，自主完成新文、新图、原生发布和真实链接读回。选填项为空不阻断正常创作。</p><p class="help">立即任务从 X 平台设置页启动。定时只使用 Codex 的任务能力，须明确频率和时区后才建立；保存规则不等于启用任务。本流程不执行回复、点赞、关注或私信。</p></details>
-<details><summary>已保存的生效内容</summary><div id="projectEffective" class="help"></div></details>
+<section id="projectXDiscovery" hidden><h4 class="oa-content-heading">X 内容生产与发布</h4><p class="help">关注主题决定写什么；选题与筛选方式说明信源、时效和取舍；写作与表达可填写文案语气、语言、配图与构图要求。Codex 读取本号生效配置及适用 AGENTS/Skills，自主完成新文、新图、原生发布和真实链接读回。选填项为空不阻断正常创作。</p><p class="help">立即任务从 X 平台设置页启动。定时只使用 Codex 的任务能力，须明确频率和时区后才建立；保存规则不等于启用任务。本流程不执行回复、点赞、关注或私信。</p></section>
+<section><h4 class="oa-content-heading">已保存的生效内容</h4><div id="projectEffective" class="help"></div></section>
 <p class="help">模型跟随当前 Codex 聊天或任务。保存偏好不会新建任务、开启自动回复或执行发布。</p></div></div></div>
 <div class="actions project-save"><button id="projectSave" class="primary">保存设置</button><button id="projectQuery" hidden>查询原保存结果</button><button id="projectDiscard">放弃本页修改</button><button id="projectRefreshSources">刷新来源版本</button></div>
 </section>
@@ -100,7 +100,7 @@ const OAProjectContext=(()=>{
   let copied=false;
   try{await navigator.clipboard.writeText(text);copied=true;}catch(_){}
   if(closed||productionTarget()?.connection_id!==request.cid||productionRequest(request.cid)?.id!==request.id||
-     $('xProductionResume').hidden||!$('xProductionResume').open)return;
+     $('xProductionResume').hidden)return;
   fallback.hidden=copied;fallback.value=copied?'':text;
   if(!copied){fallback.focus();fallback.select();}
   ui.set(output,copied?'已复制接续指令。':'请复制下方接续指令。');
@@ -243,7 +243,7 @@ const OAProjectContext=(()=>{
   $('xProduceNow').addEventListener('click',()=>launchProduction('now'));
   $('xProductionResult').addEventListener('click',productionResult);
   $('xResumeCopy').addEventListener('click',copyProductionResume);
-  $('xProductionEdit').addEventListener('click',()=>{$('xOperatingPanel').open=true;$('xOperatingPanel').scrollIntoView({block:'nearest'});});
+  $('xProductionEdit').addEventListener('click',()=>{$('xOperatingPanel').scrollIntoView({block:'nearest'});});
   $('projectLink').addEventListener('click',async()=>{if(!message||!ready||linkState!=='NOT_SENT')return;linkState='SENDING';buttons();try{await message('请将当前聊天实际工作区的 AGENTS.md 与项目 Skills 关联到 Jiusera。使用 own.projects.read catalog 读取版本，再用 own.projects.sync 登记本聊天真实 project_root 与明确可用的 Skills；不从插件 cwd 猜路径、不扫描其他聊天或历史目录。不修改原文件、账号、权限、调度或发帖。登记后告知我已关联的项目，我会在页面选择应用范围。');linkState='SENT';say('关联请求已发到当前聊天；登记完成后点击本页刷新。');}catch(error){linkState='UNKNOWN';say('宿主未确认关联请求，请先查看当前聊天，避免重复发送。',true);}finally{buttons();}});
   $('projectInitialize').addEventListener('click',async()=>{
    if(!message||!ready||initialization.state!=='NOT_SENT')return;

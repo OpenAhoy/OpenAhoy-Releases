@@ -52,12 +52,11 @@ HTML = r'''
   </div>
   <p id="wxOpsPublishPermission" class="help"></p>
   <label id="wxOpsPublishConfirmRow" hidden><input type="checkbox" id="wxOpsPublishConfirm"> 确认将所选图文群发给当前公众号的全部关注者</label>
-  <details id="wxOpsOriginality">
-   <summary>逐篇核对原创状态</summary>
+  <section id="wxOpsOriginality" hidden><h3 class="oa-content-heading">逐篇核对原创状态</h3>
    <ol id="wxOpsOriginalityRows"></ol>
    <button id="wxOpsOriginalityOfficial" type="button">打开微信公众平台</button>
    <p class="help">在同一草稿组按篇次核对原创声明。插件只有在微信返回明确标识时才能核实。</p>
-  </details>
+  </section>
   <ol id="wxOpsPublishLinks"></ol>
  </div>
  <div id="wxOpsPublished" hidden>
@@ -100,30 +99,27 @@ HTML = r'''
  <div id="wxOpsAdmin" hidden>
   <h3>平台权限与本号授权</h3>
   <ul id="wxOpsGrantRows"></ul>
-  <details>
-   <summary>关注者标签</summary>
+  <section><h3 class="oa-content-heading">关注者标签</h3>
    <div class="actions"><button type="button" id="wxOpsTagsRead">读取本号标签</button>
     <label>新标签 <input id="wxOpsTagName" maxlength="30"></label>
     <button type="button" id="wxOpsTagMake">创建本号标签</button></div>
    <ul id="wxOpsTags"></ul>
-  </details>
-  <details>
-   <summary>公众号菜单</summary>
+  </section>
+  <section><h3 class="oa-content-heading">公众号菜单</h3>
    <p class="help">先读取当前菜单并预览差异，确认后更新微信。</p>
    <label>菜单名称 <input id="wxOpsMenuName" maxlength="30"></label>
    <label>入口链接 <input id="wxOpsMenuLink" type="url" autocomplete="off"></label>
    <div class="actions"><button type="button" id="wxOpsMenuPlan">对比本号菜单</button>
    <button type="button" id="wxOpsMenuApply" hidden>用预览中的菜单替换</button></div>
    <div id="wxOpsMenuPlanRows"></div>
-  </details>
-  <details>
-   <summary>渠道二维码</summary>
+  </section>
+  <section><h3 class="oa-content-heading">渠道二维码</h3>
    <p class="help">按微信服务号接口生成临时渠道码。扫码事件与按渠道统计需要回调服务。</p>
    <label>渠道标识 <input id="wxOpsChannelScene" maxlength="64" placeholder="release-2026"></label>
    <label>有效天数 <input id="wxOpsChannelDays" type="number" min="1" max="30" value="7"></label>
    <button type="button" id="wxOpsChannelMake">生成本号渠道码</button>
    <div id="wxOpsChannelResult"></div>
-  </details>
+  </section>
  </div>
  <div id="wxOpsOperations" hidden>
   <div class="actions">
@@ -140,14 +136,13 @@ HTML = r'''
   <p class="help">按公众号分别登记。同一作品在不同公众号使用相同作品编号，可分别保存版本和链接。</p>
   <div id="wxOpsLedgerTotals"></div>
   <ol id="wxOpsCalendarRows"></ol>
-  <details id="wxOpsLedgerImport" hidden>
-   <summary>导入本号账单</summary>
+  <section id="wxOpsLedgerImport" hidden><h3 class="oa-content-heading">导入本号账单</h3>
    <p class="help">UTF-8 CSV，每次最多 100 行。日期为 YYYY-MM-DD，金额填人民币分。同一来源、流水类型与账单行编号去重。</p>
    <p><code>date,entry,source,external_ref,title,amount_cents,work_ref,notes</code></p>
    <p class="help">流水类型 revenue/settlement/received/refund/cost；来源 advertising/praise/affiliate/paid_content/brand/licensing/production/other。</p>
    <label>本号账单文件 <input type="file" id="wxOpsLedgerStatement" accept=".csv,text/csv"></label>
    <button type="button" id="wxOpsLedgerImportSave">导入账单</button>
-  </details>
+  </section>
   <ol id="wxOpsLedgerRows"></ol>
   <button type="button" id="wxOpsLedgerMore" hidden>下一页</button>
   <div id="wxOpsLedgerEditor" hidden>
@@ -251,7 +246,6 @@ const OAWechatContentTools=host=>{
      originality.replaceChildren(...titles.map((title,index)=>{
        const item=make('li');OAUI.set(item,'第 {0} 篇 · {1} · 原创状态未核验',index+1,title);return item;
      }));
-     if(!titles.length)el('Originality').open=false;
    }
    el('Originality').hidden=!titles.length;
  }
@@ -1031,8 +1025,6 @@ const OAWechatContentTools=host=>{
    const control=view&&section.querySelector('[data-wx-pane="'+view+'"]');
    if(control&&active!==view)control.click();
    if(name==='media'&&!el('MaterialRows').childElementCount&&account&&!busy)el('MaterialList').click();
-   if(name==='readers')el('TagsRead').closest('details').open=true;
-   if(name==='channels')el('ChannelMake').closest('details').open=true;
  }};
 };
 '''

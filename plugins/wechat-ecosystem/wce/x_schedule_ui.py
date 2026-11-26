@@ -2,7 +2,7 @@
 
 from .management_locale import FALLBACK
 
-HTML = '''<details id="xSchedulePanel" class="oa-schedule"><summary>定时生产与发布</summary>
+HTML = '''<section id="xSchedulePanel" class="oa-schedule"><h3 id="xScheduleTitle" class="oa-content-heading" tabindex="-1">定时生产与发布</h3>
 <p class="help">到点开始创作，完成后发布；不是保证该分钟已经发出。由 Codex 原生任务运行，无需保持管理页打开。本机任务需要电脑在线、应用运行。</p>
 <p id="xScheduleAccount" class="help"></p>
 <div class="oa-schedule-grid"><label>重复方式<select id="xScheduleMode"><option value="daily">每日</option><option value="weekly">指定星期</option><option value="once">仅一次</option></select></label>
@@ -13,10 +13,10 @@ HTML = '''<details id="xSchedulePanel" class="oa-schedule"><summary>定时生产
     '<label><input type="checkbox" value="' + str(i) + '">' + name + '</label>'
     for i, name in enumerate(['周一', '周二', '周三', '周四', '周五', '周六', '周日'], 1)) + '''</fieldset>
 <p id="xScheduleDraft" class="help"></p><div class="actions"><button id="xScheduleSave">保存时段</button><button id="xScheduleEnable" class="primary">启用定时</button><button id="xSchedulePause">暂停</button><button id="xScheduleResume">恢复</button><button id="xScheduleCheck">核对原任务</button><button id="xScheduleReload">刷新显示</button></div>
-<p id="xScheduleStatus" role="status" class="notice">尚未读取定时设置。</p><details id="xScheduleHostDetails"><summary>原生任务详情</summary><div id="xScheduleTasks" class="help"></div></details>
-<p id="xScheduleLastRun" class="help"></p><p class="help">保存时段不会创建任务；“已交给 Codex”不是已启用。暂停只影响后续触发，不撤回已提交的帖子。</p></details>'''
+<p id="xScheduleStatus" role="status" class="notice">尚未读取定时设置。</p><section id="xScheduleHostDetails"><h4 class="oa-content-heading">原生任务详情</h4><div id="xScheduleTasks" class="help"></div></section>
+<p id="xScheduleLastRun" class="help"></p><p class="help">保存时段不会创建任务；“已交给 Codex”不是已启用。暂停只影响后续触发，不撤回已提交的帖子。</p></section>'''
 
-STYLE = '''.oa-schedule{margin-top:14px;border-top:1px solid var(--line,#dce4e1);padding-top:10px}.oa-schedule summary{font-weight:600;cursor:pointer}.oa-schedule-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.oa-schedule-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px}.oa-schedule input,.oa-schedule select{box-sizing:border-box;max-width:100%;min-width:0}.oa-schedule fieldset{border:0;padding:4px 0;display:flex;flex-wrap:wrap;gap:12px}.oa-schedule fieldset[hidden],.oa-schedule [hidden]{display:none}.oa-schedule fieldset label{display:flex;align-items:center;gap:3px;font-size:12px}.oa-schedule #xScheduleTasks{overflow-wrap:anywhere}@media(max-width:560px){.oa-schedule-grid{grid-template-columns:1fr}}'''
+STYLE = '''.oa-schedule{margin-top:14px;border-top:1px solid var(--line,#dce4e1);padding-top:10px}.oa-schedule-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.oa-schedule-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px}.oa-schedule input,.oa-schedule select{box-sizing:border-box;max-width:100%;min-width:0}.oa-schedule fieldset{border:0;padding:4px 0;display:flex;flex-wrap:wrap;gap:12px}.oa-schedule fieldset[hidden],.oa-schedule [hidden]{display:none}.oa-schedule fieldset label{display:flex;align-items:center;gap:3px;font-size:12px}.oa-schedule #xScheduleTasks{overflow-wrap:anywhere}@media(max-width:560px){.oa-schedule-grid{grid-template-columns:1fr}}'''
 
 SCRIPT = FALLBACK + r'''
 window.OAXSchedule={mount(call,message){
@@ -93,10 +93,9 @@ window.OAXSchedule={mount(call,message){
  for(const id of ['xScheduleMode','xScheduleTimezone','xScheduleTimes','xScheduleOnce'])$(id).addEventListener('input',()=>{if(target){modes();drafts.set(target.connection_id,cfg());render();}});
  $('xScheduleWeekdays').addEventListener('change',()=>{if(target){drafts.set(target.connection_id,cfg());render();}});
  for(const [id,action]of [['xScheduleSave','save'],['xScheduleEnable','enable'],['xSchedulePause','pause'],['xScheduleResume','resume'],['xScheduleCheck','check']])$(id).addEventListener('click',()=>run(action));
- function open(){if(!ready||!target)return;$('platformSettingsTab').click();$('xSchedulePanel').open=true;void load();}
+ function open(){if(!ready||!target)return;$('platformSettingsTab').click();$('xWorkspaceTools').click();$('xScheduleTitle').focus();void load();}
  $('xScheduleReload').addEventListener('click',()=>load());
  $('xProductionSchedule').addEventListener('click',open);$('projectXSchedule').addEventListener('click',open);
- $('xSchedulePanel').addEventListener('toggle',()=>{if($('xSchedulePanel').open)void load();});
  buttons();return {target(row){if(row?.connection_id===target?.connection_id){const changed=row?.state!==target?.state;target=row;if(changed){epoch++;render();if(ready)void load();}return;}if(target)drafts.set(target.connection_id,cfg());epoch++;target=row;value=null;busy=false;fields(row?(drafts.get(row.connection_id)||empty()):empty());render();if(ready)void load();},ready(ok,canMessage){ready=ok;if(!canMessage)message=null;if(ok&&target)void load();buttons();},dispose(){closed=true;ready=false;epoch++;buttons();}};
 }};
 '''

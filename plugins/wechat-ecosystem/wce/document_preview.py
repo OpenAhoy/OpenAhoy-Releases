@@ -8,6 +8,7 @@ import struct
 import threading
 import time
 
+from .button_feedback import PREVIEW_STYLE
 from .contracts import WCEError
 from .own_settings_http import LimitedServer
 from .documents import render_blocks
@@ -66,7 +67,7 @@ def html(document, images):
         # Chrome selectors never match submitted content; no inherited reading theme.
         style = 'body{margin:0}.wce-header{padding:18px;background:#f1f5f2;font:14px system-ui;color:#375142}.wce-main{max-width:720px;margin:24px auto;padding:0 12px}.wce-card{margin-bottom:20px;border:1px solid #dce5de;border-radius:10px}.wce-summary{padding:14px;font:14px system-ui;cursor:pointer;overflow-wrap:anywhere}.wce-content{padding:16px}@media(min-width:760px){.wce-content{padding:30px}}'
         result = ('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-            '<title>Jiusera · HTML 预览</title><style>' + style + '</style><header class="wce-header">Jiusera · 直接 HTML 本机预览</header><main class="wce-main">' + ''.join(articles) + '</main></html>').encode()
+            '<title>Jiusera · HTML 预览</title><style>' + style + PREVIEW_STYLE + '</style><header class="wce-header">Jiusera · 直接 HTML 本机预览</header><main class="wce-main">' + ''.join(articles) + '</main></html>').encode()
         if len(result) > 48 * 1024 * 1024:
             raise WCEError('DOCUMENT_PREVIEW_LIMIT')
         return result
@@ -79,7 +80,7 @@ def html(document, images):
             render_blocks(article, urls, preview=True) + '</article></details>')
     style = '''*{box-sizing:border-box}body{margin:0;background:#f4f6f3;color:#26342e;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow-wrap:anywhere}header{padding:20px 16px;border-bottom:1px solid #dfe7e1;background:#fff;font-size:13px;color:#64756a}main{max-width:720px;margin:24px auto;padding:0 16px}details{margin:0 0 16px;border:1px solid #dfe7e1;border-radius:12px;background:#fff;overflow:hidden}summary{white-space:pre-wrap;padding:16px;cursor:pointer;font-size:14px;font-weight:600;overflow-wrap:anywhere}summary span{color:#708477;margin-right:8px}article{padding:16px}h1{white-space:pre-wrap;font-size:28px;line-height:1.4;margin:0 0 12px}.author{white-space:pre-wrap;font-size:13px;color:#68796e;margin:0 0 24px}img{max-width:100%}blockquote{min-width:0}@media(min-width:760px){article{padding:32px}}'''
     result = ('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<title>Jiusera · 图文预览</title><style>' + style + '</style><header>Jiusera · 本机图文预览</header><main>' + ''.join(articles) + '</main></html>').encode()
+        '<title>Jiusera · 图文预览</title><style>' + style + PREVIEW_STYLE + '</style><header>Jiusera · 本机图文预览</header><main>' + ''.join(articles) + '</main></html>').encode()
     if len(result) > 48 * 1024 * 1024:
         raise WCEError('DOCUMENT_PREVIEW_LIMIT')
     return result

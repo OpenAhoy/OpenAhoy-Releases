@@ -235,7 +235,7 @@ globalThis.OAAccountStarter = (() => {
     }};
   }
 
-  function choices(input, labels, {canEdit, beforeEdit, commit, read = () => input.value}) {
+  function choices(input, labels, {canEdit, beforeEdit, commit, read = () => input.value, showCustom = true}) {
     const root = document.createElement('div');
     root.className = 'oa-choice-editor';
     const current = document.createElement('p');
@@ -245,10 +245,6 @@ globalThis.OAAccountStarter = (() => {
     const customLabel = document.createElement('strong');
     ui.set(customLabel, '当前自定义文字');
     customValue.append(customLabel, current);
-    const custom = document.createElement('details');
-    const heading = document.createElement('summary');
-    ui.set(heading, '自定义文字');
-    custom.append(heading, input);
     const buttons = [];
     for (const label of labels) {
       const group = document.createElement('div');
@@ -301,7 +297,13 @@ globalThis.OAAccountStarter = (() => {
       if (morePicks.children.length) group.append(extra);
       root.append(group);
     }
-    root.append(customValue, custom);
+    if (showCustom) {
+      const custom = document.createElement('details');
+      const heading = document.createElement('summary');
+      ui.set(heading, '自定义文字');
+      custom.append(heading, input);
+      root.append(customValue, custom);
+    }
     function selection(text) {
       // Resolve only exact values. A bare value shared by multiple groups, or
       // a list with an unknown entry, remains custom instead of guessing.
@@ -336,9 +338,11 @@ globalThis.OAAccountStarter = (() => {
           if (button.parentNode !== target && document.activeElement !== button) target.append(button);
         }
       }
-      const customText = rows.filter(row => !row.options.length).map(row => row.raw).join('\n');
-      customValue.hidden = !customText.trim();
-      current.textContent = customText;
+      if (showCustom) {
+        const customText = rows.filter(row => !row.options.length).map(row => row.raw).join('\n');
+        customValue.hidden = !customText.trim();
+        current.textContent = customText;
+      }
     }
     input.addEventListener('input', refresh);
     refresh();

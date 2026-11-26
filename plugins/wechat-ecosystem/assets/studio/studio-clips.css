@@ -9,7 +9,7 @@
 }
 .clip {
   position:absolute; inset:0;
-  width:100%; height:100%; padding:0; cursor:grab;
+  width:100%; height:100%; padding:0; cursor:var(--clip-cursor,crosshair);
   color:var(--clip-ink); background:transparent; box-shadow:none;
   border:0; border-radius:var(--clip-radius); overflow:hidden; touch-action:none;
 }
@@ -17,7 +17,10 @@
 .clip-silence { position:absolute; inset-block:0; pointer-events:none; }
 .clip-silence.head { left:0; width:var(--silence-head,0%); }
 .clip-silence.tail { right:0; width:var(--silence-tail,0%); }
-.clip:active { cursor:grabbing; }
+.clip:active { cursor:var(--clip-active-cursor,crosshair); }
+.clip:is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true]) {
+  box-shadow:inset 0 0 0 1px var(--focus,var(--oa-focus));
+}
 .clip canvas {
   position:absolute; top:8px; left:var(--silence-head,0%);
   width:calc(100% - var(--silence-head,0%) - var(--silence-tail,0%));
@@ -39,7 +42,7 @@
 }
 .trim-handle {
   position:absolute; inset-block:2px; z-index:1; min-height:0; width:14px; padding:0;
-  border:0; background:transparent; border-radius:3px; touch-action:none; cursor:ew-resize; color:var(--clip-ink);
+  border:0; background:transparent; border-radius:3px; touch-action:none; cursor:var(--clip-edge-cursor,crosshair); color:var(--clip-ink);
   box-shadow:none!important;
 }
 .trim-handle.head { left:-7px; }
@@ -52,6 +55,9 @@
 .trim-handle:disabled { visibility:hidden; }
 .trim-handle:focus-visible { outline:none; }
 .trim-handle:focus-visible::before { width:3px; height:17px; }
+.trim-handle:is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true])::before {
+  width:3px; height:17px; opacity:1;
+}
 @media (hover:none) {
   .trim-handle::before { opacity:.42; }
 }

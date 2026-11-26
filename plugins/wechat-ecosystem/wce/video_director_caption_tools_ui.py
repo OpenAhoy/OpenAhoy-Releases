@@ -54,7 +54,7 @@ const OADirectorCaptions=(()=>{
  function ranges(clips){
    let end=0;
    return clips.map(c=>{
-     const start=end;end+=c.out_ms-c.in_ms;
+     const start=end+(c.gap_before_ms??0);end=start+c.out_ms-c.in_ms;
      return {c,start,end};
    });
  }
@@ -84,7 +84,7 @@ const OADirectorCaptions=(()=>{
    if(!clips.length)error('请先加入视频片段','Add a video clip first');
    if(typeof raw!=='string'||raw.length>1048576)error('字幕文件最大 1 MiB','Subtitle file limit is 1 MiB');
    const v=raw.replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n').trim();
-   const total=clips.reduce((sum,c)=>sum+c.out_ms-c.in_ms,0);
+   const total=ranges(clips).at(-1).end;
    const cues=v.includes('-->')?srt(v):lrc(v,total);
    validate(cues,total);
    return {cues,assignments:assignments(cues,clips)};

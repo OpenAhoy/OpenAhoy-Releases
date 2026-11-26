@@ -5,6 +5,8 @@ export function mountVideoDisclosure(studio) {
   const timing = {duration:320, easing:"cubic-bezier(.32,0,.2,1)", fill:"both"};
   let animation = null, trackAnimations = [], before = new Map();
   const pictureRows = [studio.$("imw-picture-lane"), studio.$("imw-video-header")];
+  const rulers = [studio.$("ruler"),studio.shadowRoot.querySelector(".track-heading")];
+  let foldAtStart = 1;
   function reset() {
     animation?.cancel();
     for (const run of trackAnimations) run.cancel();
@@ -16,7 +18,9 @@ export function mountVideoDisclosure(studio) {
   }
   function takeHeight() {
     const height = panel.getBoundingClientRect().height;
-    before = new Map([...pictureRows,...studio.shadowRoot.querySelectorAll("[data-track-row]")].map(el=>[el,el.getBoundingClientRect().height]));
+    foldAtStart = studio.hasAttribute("data-imw-video")
+      ? Number(getComputedStyle(regions).getPropertyValue("--lus-imw-fold")) : 1;
+    before = new Map([...rulers,...pictureRows,...studio.shadowRoot.querySelectorAll("[data-track-row]")].map(el=>[el,el.getBoundingClientRect().height]));
     reset();
     return height;
   }
@@ -27,6 +31,11 @@ export function mountVideoDisclosure(studio) {
     const opened = studio.hasAttribute("data-imw-video");
     if (!opened) return;
     const closing = direction === "closing";
+    for (const ruler of rulers) {
+      const current = ruler.getBoundingClientRect().height;
+      const end = closing ? parseFloat(getComputedStyle(ruler).getPropertyValue("--audio-ruler-height")) : current;
+      animateHeight(ruler,before.get(ruler) ?? current,end);
+    }
     for (const el of pictureRows) {
       const current = el.getBoundingClientRect().height;
       const end = closing ? parseFloat(getComputedStyle(el).getPropertyValue("--track-height")) / 2 : current;
@@ -48,12 +57,13 @@ export function mountVideoDisclosure(studio) {
       heads.push([head, before.get(head) ?? head.getBoundingClientRect().height,
         closing ? normal + expanded : head.hasAttribute("data-imw-current") ? normal : 0]);
     }
-    const tracks = heights => ({
+    const tracks = (heights, fold) => ({
+      "--lus-imw-fold":String(fold),
       height:heights.reduce((sum,value)=>sum+value,0)+"px",
       gridTemplateRows:heights.map(value=>value+"px").join(" "),
     });
     studio.setAttribute("data-imw-track-motion","");
-    trackAnimations.push(regions.animate([tracks(start),tracks(end)],timing));
+    trackAnimations.push(regions.animate([tracks(start,foldAtStart),tracks(end,closing ? 1 : 0)],timing));
     for (const [el,from,to] of heads) animateHeight(el,from,to);
     if (studio.hasAttribute("data-imw-dense")) {
       const normal = parseFloat(getComputedStyle(rows[0]).getPropertyValue("--track-height"));

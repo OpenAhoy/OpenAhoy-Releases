@@ -116,7 +116,7 @@ export function mountDetachedTracks(studio) {
     };
     function bind(control,action) {
       item.dispose.push(clipEditing.bind(control,{
-        action,enabled,read:value,
+        action,enabled,read:value,playhead:studio.clipPlayhead(),
         geometry:()=>({width:lanes.getBoundingClientRect().width,length:displayLength()}),
         constraints:()=>({rate:1000,frames:item.row.source_ms,timelineLimit:Infinity}),
         select:()=>edit(row.id,"select"),

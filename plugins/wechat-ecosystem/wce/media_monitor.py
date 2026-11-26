@@ -110,8 +110,10 @@ def _project_receipts(projects, rows, project_id):
     return groups
 
 
-def collect(videos, gifs, audio, *, include_scope=False):
+def collect(videos, gifs, audio, *, include_scope=False, selected=None):
     projects = videos.projects.view()['projects']
+    if selected is not None:
+        projects = [row for row in projects if row['id'] == selected]
     receipts = []
     unavailable = []
     registered = {project['id'] for project in projects}
@@ -127,6 +129,8 @@ def collect(videos, gifs, audio, *, include_scope=False):
         try:
             if family == 'audio':
                 directory = audio.library_projects(projects)
+                if selected is not None:
+                    directory = [row for row in directory if row['id'] == selected]
             groups = _project_receipts(directory, read(), scope) if directory else {}
         except (WCEError, OSError, KeyError, TypeError):
             unavailable.extend({'family': family, 'project_label': row['name'], 'project_id': row['id']} for row in directory)

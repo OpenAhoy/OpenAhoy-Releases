@@ -8,14 +8,14 @@ from .management_locale import FALLBACK
 
 HTML = '<section id="xOperatingPanel" class="oa-x-config" aria-label="X 运营配置与创作 Skill">' + workspace('xConfig',
  '配置 X 的内容定位、表达风格、栏目节奏与创作偏好。',
- '<p id="xConfigTarget" class="help"></p>' + starter_entry('xConfig') + '<nav id="xConfigTabs" class="actions" aria-label="X 配置分类" hidden></nav><div id="xConfigSections"></div><details id="xConfigConflicts" hidden><summary>并发修改：核对冲突字段</summary><pre id="xConfigConflictText" class="x-config-skill"></pre></details>',
+ '<p id="xConfigTarget" class="help"></p>' + starter_entry('xConfig') + '<nav id="xConfigTabs" class="actions" aria-label="X 配置分类" hidden></nav><div id="xConfigSections"></div><section id="xConfigConflicts" hidden><h3 class="oa-content-heading">并发修改：核对冲突字段</h3><pre id="xConfigConflictText" class="x-config-skill"></pre></section>',
  '<p id="xConfigStatus" class="notice" role="status"></p><button id="xConfigSave" class="primary">保存并应用</button><button id="xConfigQuery" hidden>查询原保存结果</button>',
  '<details class="oa-task-menu"><summary>导入 / 下载</summary><div class="actions"><button id="xConfigImport">加载配置</button><button id="xConfigExport">下载配置</button><button id="xConfigSkillExport">下载 Skill</button><button id="xConfigReload">读取已保存配置</button><button id="xConfigNew">新建空白配置</button></div></details><button id="xConfigPreview">查看完整 Skill</button>',
  '<p class="help">保存配置不会启用定时或自动互动。</p><button type="button" data-workspace-project>项目与 Skills</button><button type="button" id="xWorkspaceTools">生产、定时与账号</button><button type="button" id="xWorkspaceBilling">账单与余额</button><button type="button" id="xConnectOwnApplication" hidden>连接自己的 X 开发者应用</button>'
 ) + '<input type="file" id="xConfigFile" accept=".json,application/json" hidden></section>'
 
 STYLE = r'''
-.oa-x-config{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:12px 0}.oa-x-config>summary{font-weight:600;cursor:pointer}.oa-x-config>.actions{flex-wrap:wrap;margin:8px 0}.oa-x-config label{font-size:12px}.oa-x-config textarea{min-height:65px;resize:vertical}.oa-x-config select,.oa-x-config input:not([type=checkbox]){width:100%}.x-config-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}.x-config-methods{display:flex;flex-wrap:wrap;gap:7px 14px}.x-config-methods label{display:flex;align-items:center;gap:5px}.oa-x-config [aria-selected=true]{background:var(--tint);color:var(--accent)}.x-config-column{border-top:1px solid var(--line);padding:8px 0}.x-config-column>summary{cursor:pointer;font-size:12px}.x-config-skill{white-space:pre-wrap;overflow-wrap:anywhere;max-height:330px;overflow:auto;font:12px/1.65 ui-monospace,monospace;background:var(--soft);padding:10px;border-radius:8px}.x-config-fields{max-height:390px;overflow:auto;padding:4px}.x-config-fields[hidden]{display:none}@media(max-width:600px){.x-config-grid{grid-template-columns:1fr}}
+.oa-x-config{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:12px 0}.oa-x-config>.actions{flex-wrap:wrap;margin:8px 0}.oa-x-config label{font-size:12px}.oa-x-config textarea{min-height:65px;resize:vertical}.oa-x-config select,.oa-x-config input:not([type=checkbox]){width:100%}.x-config-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}.x-config-methods{display:flex;flex-wrap:wrap;gap:7px 14px}.x-config-methods label{display:flex;align-items:center;gap:5px}.oa-x-config [aria-selected=true]{background:var(--tint);color:var(--accent)}.x-config-column{border-top:1px solid var(--line);padding:8px 0}.x-config-skill{white-space:pre-wrap;overflow-wrap:anywhere;max-height:330px;overflow:auto;font:12px/1.65 ui-monospace,monospace;background:var(--soft);padding:10px;border-radius:8px}.x-config-fields{max-height:390px;overflow:auto;padding:4px}.x-config-fields[hidden]{display:none}@media(max-width:600px){.x-config-grid{grid-template-columns:1fr}}
 '''
 
 SCRIPT = FALLBACK + r'''
@@ -75,10 +75,10 @@ const OAXOperating=(()=>{
    const l=document.createElement('label'),caption=document.createElement('span');ui.set(caption,label);const e=document.createElement(type);ui.attr(e,'aria-label',label);
    if(type==='textarea')e.rows=2;else e.type='text';e.value=get()||'';e.oninput=()=>{set(e.value);changed();};l.append(caption);
    if(choiceLabel&&globalThis.OAAccountStarter){
-    const choice=OAAccountStarter.choices(e,[choiceLabel],{canEdit:()=>!e.disabled,commit:()=>e.oninput()});
+    const choice=OAAccountStarter.choices(e,[choiceLabel],{showCustom:false,canEdit:()=>!e.disabled,commit:()=>e.oninput()});
     choiceEditors.push(choice);
     const field=document.createElement('div');
-    field.append(l,choice.root);
+    l.append(e);field.append(l,choice.root);
     parent.append(field);
    }else{l.append(e);parent.append(l);}
    return e;
@@ -87,7 +87,7 @@ const OAXOperating=(()=>{
   function renderColumns(parent,p){
    parent.replaceChildren();area(parent,'栏目时区',()=>p.timezone,v=>p.timezone=v,'input');
    const help=document.createElement('p');help.className='help';ui.set(help,'{0} 个内容栏目，未因此开启任何时段任务。时刻按当地日历日期解释；素材不具备时按本栏目缺料策略处理。',p.columns.length);parent.append(help);
-   p.columns.forEach((c,i)=>{const d=document.createElement('details');d.className='x-config-column';const s=document.createElement('summary');s.textContent=c.time+' · '+(c.name||'未命名栏目');d.append(s);const g=grid(d);
+   p.columns.forEach((c,i)=>{const d=document.createElement('section');d.className='x-config-column';const s=document.createElement('h4');s.className='oa-content-heading';s.textContent=c.time+' · '+(c.name||'未命名栏目');d.append(s);const g=grid(d);
     for(const [k,label]of [['time','当地时刻'],['name','栏目名称'],['purpose','栏目目的'],['selection','选材方法'],['missing','缺料处理'],['assets','素材来源']])area(g,label,()=>c[k],v=>{c[k]=v;s.textContent=c.time+' · '+(c.name||'未命名栏目');},['time','name'].includes(k)?'input':'textarea');
     const l=document.createElement('label');l.append(ui.label('内容形式'));const select=document.createElement('select');ui.attr(select,'aria-label','内容形式');for(const [v,t]of [['text','纯文字'],['image','图文'],['auto','按内容自选']]){const opt=new Option(t,v);ui.set(opt,t);select.add(opt);};select.value=c.format;select.onchange=()=>{c.format=select.value;changed();};l.append(select);g.append(l);
     const remove=document.createElement('button');ui.set(remove,'删除此栏目');remove.onclick=()=>{p.columns.splice(i,1);changed();renderColumns(parent,p);buttons();};d.append(remove);parent.append(d);
@@ -99,12 +99,12 @@ const OAXOperating=(()=>{
    ui.set($('xConfigTarget'),row?'目标账号：{0}':'选择已绑定的 X 账号。',row?[label,row.username?'@'+row.username:''].filter(Boolean).join(' · '):'');
   }
   function render(){const v=b();if(!v)return;const p=v.config.profile;
-   $('xConfigConflicts').hidden=!v.conflicts?.length;$('xConfigConflicts').open=!!v.conflicts?.length;$('xConfigConflictText').textContent=v.conflicts?.length?JSON.stringify(v.conflicts,null,2):'';
+   $('xConfigConflicts').hidden=!v.conflicts?.length;$('xConfigConflictText').textContent=v.conflicts?.length?JSON.stringify(v.conflicts,null,2):'';
    paintTarget();
    sections.forEach(s=>s.replaceChildren());choiceEditors=[];const g=grid(sections[0]);
    for(const [k,label,group]of [['topics','主题领域','主题'],['readers','目标读者','读者'],['allowed','允许内容','内容形式'],['language','语言','语言']])
     area(g,label,()=>p.positioning[k],s=>p.positioning[k]=s,'textarea',group);
-   const advanced=document.createElement('details'),advancedLabel=document.createElement('summary');
+   const advanced=document.createElement('section'),advancedLabel=document.createElement('h4');advancedLabel.className='oa-content-heading';
    ui.set(advancedLabel,'身份、排除内容与事实要求');advanced.append(advancedLabel);sections[0].append(advanced);
    for(const [k,label]of [['background','身份与品牌背景'],['excluded','排除内容'],['facts','事实表述']])
     area(advanced,label,()=>p.positioning[k],s=>p.positioning[k]=s);
@@ -167,7 +167,7 @@ const OAXOperating=(()=>{
     else{
      sections.forEach(section=>section.replaceChildren());
      choiceEditors=[];
-     $('xConfigConflicts').hidden=true;$('xConfigConflicts').open=false;$('xConfigConflictText').textContent='';
+     $('xConfigConflicts').hidden=true;$('xConfigConflictText').textContent='';
      workspace?.refresh();
     }
     say(row?'读取本号配置…':'');

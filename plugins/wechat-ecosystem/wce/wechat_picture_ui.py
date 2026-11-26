@@ -10,15 +10,14 @@ HTML = r'''
   <button id="wxPictureLoad" type="button">查找本号草稿</button>
  </div>
  <select id="wxPictureDraft" aria-label="选择图片消息草稿" hidden></select>
- <details id="wxPictureGroup" hidden>
-  <summary>合并本号草稿</summary>
+ <section id="wxPictureGroup" hidden><h3 class="oa-content-heading">合并本号草稿</h3>
   <div id="wxPictureGroupItems"></div>
   <label><input type="checkbox" id="wxPictureGroupConfirm"> 我确认合并所选草稿。新组核对一致后，微信草稿箱中的旧组将被移除。</label>
   <div class="actions">
    <button type="button" id="wxPictureMerge">合并所选草稿</button>
    <button type="button" id="wxPictureMergeStatus">查原合并</button>
   </div>
- </details>
+ </section>
  <ol id="wxPictureOrder"></ol>
  <label>标题 <input id="wxPictureTitle" maxlength="32"></label>
  <label>短文 <textarea id="wxPictureText" rows="4" maxlength="19999"></textarea></label>

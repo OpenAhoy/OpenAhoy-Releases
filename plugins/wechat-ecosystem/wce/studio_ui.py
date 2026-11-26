@@ -99,6 +99,9 @@ body.oa-native[data-workbench] #wbMusic>.lus-workspace {
  display:block;position:relative;overflow:visible;border:0;padding:0;min-height:0;
  background:transparent;box-sizing:border-box;
 }
+#wbMusic lus-studio[data-imw-video] #dmCutStrip [data-snapped] {z-index:3}
+#wbMusic lus-studio[data-imw-video] #dmCutStrip [data-drop="before"] .clip {box-shadow:inset 2px 0 var(--focus)}
+#wbMusic lus-studio[data-imw-video] #dmCutStrip [data-drop="after"] .clip {box-shadow:inset -2px 0 var(--focus)}
 /* Adjacent video regions share an edit point. Give each side its own half of the handle. */
 #wbMusic lus-studio[data-imw-video] #dmCutStrip .trim-handle.head {left:-10px;width:20px;clip-path:inset(0 0 0 50%)}
 #wbMusic lus-studio[data-imw-video] #dmCutStrip .trim-handle.tail {right:-10px;width:20px;clip-path:inset(0 50% 0 0)}

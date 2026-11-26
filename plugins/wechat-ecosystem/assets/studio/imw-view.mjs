@@ -168,7 +168,10 @@ export function mountVideoView(studio) {
   function updateRows() {
     if (!enabled()) return;
     const key=currentKey(), changed=boundKey!==key;
-    if (changed) {showOriginal=false;boundKey=key;selectedLane="";activeTrack="";}
+    if (changed) {
+      studio.timelineSelection?.clear();
+      showOriginal=false;boundKey=key;selectedLane="";activeTrack="";
+    }
     const tracks=trackSelection() ? studio.version?.tracks || [] : [];
     const ids=new Set(tracks.map(track=>track.id));
     if (!ids.has(activeTrack)) activeTrack=tracks[0]?.id || "";
@@ -188,6 +191,7 @@ export function mountVideoView(studio) {
       studio.updateSelection();
     }
     sourceRow();paintSelection();syncClock(engine()?.state?.());scheduleMeasure();
+    studio.timelineSelection?.paint();
   }
   function scheduleMeasure() {
     if (!frame) frame = requestAnimationFrame(()=>{
@@ -324,6 +328,7 @@ export function mountVideoView(studio) {
     if (on === enabled()) return;
     if (on && (!document.getElementById("directorMonitor") || !document.getElementById("dmCut"))) return;
     const clock = engine()?.state?.();
+    studio.timelineSelection?.clear();
     const previousHeight=studio.disclosure.takeHeight();
     const scrollLeft=studio.frameRuler.audioScroll();
     if (on) {

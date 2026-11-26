@@ -13,6 +13,7 @@ function OADirectorAutosave({read,edit,uid,equal,valid,notify}){
  function isDoc(doc){
    return Array.isArray(doc?.clips)&&doc.clips.length<=256&&doc.clips.every(c=>c&&typeof c.id==='string'&&
      typeof c.delivery_id==='string'&&typeof c.sha256==='string'&&Number.isSafeInteger(c.in_ms)&&Number.isSafeInteger(c.out_ms)&&
+     (c.gap_before_ms===undefined||(Number.isSafeInteger(c.gap_before_ms)&&c.gap_before_ms>=0&&c.gap_before_ms<=3600000))&&
      Number.isInteger(c.volume)&&(!c.look||typeof c.look==='object')&&(!c.look?.cues||Array.isArray(c.look.cues)))&&
      (doc.detached_audio===undefined||(Array.isArray(doc.detached_audio)&&doc.detached_audio.length<=256&&
        doc.detached_audio.every(r=>r&&['id','clip_id','delivery_id','sha256'].every(k=>typeof r[k]==='string')&&

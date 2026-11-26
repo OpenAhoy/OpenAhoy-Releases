@@ -324,7 +324,17 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
  const cut=()=>s.doc.clips.find(c=>c.id===selected);
  const sourceOf=c=>s.sources.find(r=>r.delivery_id===c?.delivery_id&&r.sha256===c.sha256);
  const songOf=m=>s.songs.find(r=>r.attempt_id===m?.attempt_id&&r.sha256===m.sha256);
- const total=()=>s.doc.clips.reduce((sum,c)=>sum+c.out_ms-c.in_ms,0);
+ const gapBefore=clip=>clip.gap_before_ms??0;
+ const durationOf=clip=>clip.out_ms-clip.in_ms;
+ const total=(clips=s.doc.clips)=>clips.reduce((sum,c)=>sum+gapBefore(c)+durationOf(c),0);
+ function positions(clips){
+   let end=0;
+   return clips.map(clip=>{
+     const start=end+gapBefore(clip);
+     end=start+durationOf(clip);
+     return {clip,start,end};
+   });
+ }
  function span(){
    const picture=total();if(picture)return picture;
    const detached=(s.doc.detached_audio||[]).reduce((end,row)=>Math.max(end,row.start_ms+row.out_ms-row.in_ms),0);
@@ -332,7 +342,7 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
    const m=s.doc.music;if(!m)return detached;
    return Math.max(detached,m.start_ms+(m.out_ms??songOf(m)?.duration_ms??0)-m.in_ms);
  }
- function startOf(id){let start=0;for(const c of s.doc.clips){if(c.id===id)break;start+=c.out_ms-c.in_ms;}return start;}
+ function startOf(id){return positions(s.doc.clips).find(row=>row.clip.id===id)?.start??total();}
  function displayStatus(message,detail){
    const file=message==='导出完成'?detail:'';
    if($('Path').textContent!==file){$('Path').textContent=file;$('Receipt').open=false;}
@@ -387,8 +397,7 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
  }
  const frameBoundary=ms=>Math.floor((ms*30+500)/1000);
  function shortClip(doc=s.doc){
-   let time=0;
-   return doc.clips.findIndex(c=>{const start=time;time+=c.out_ms-c.in_ms;return frameBoundary(time)<=frameBoundary(start);});
+   return positions(doc.clips).findIndex(({start,end})=>frameBoundary(end)<=frameBoundary(start));
  }
  let lastSplit=false;
  function canSplit(){
@@ -409,7 +418,7 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
    const split=canSplit();if(split!==lastSplit){lastSplit=split;notifyTools();}emitClock();
  }
  // Keep host frame reads bounded across thumbnails, playback and rapid seeks.
- const pictureJobs=[];let pictureReads=0,thumbnailReads=0;
+ const pictureJobs=[],pictureBatches=new Map();let pictureReads=0,thumbnailReads=0;
  function requestPicture(run,valid,thumbnail=false){
    return new Promise((resolve,reject)=>{pictureJobs.push({run,valid,thumbnail,resolve,reject});pumpPictures();});
  }
@@ -426,6 +435,25 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
      });
    }
  }
+ function readPictures(target,clip,start,thumbnail=false){
+   const owner=JSON.stringify(target),id=JSON.stringify([owner,clip.delivery_id,clip.sha256,start]);
+   const cached=pictureBatches.get(id);
+   if(cached){
+     pictureBatches.delete(id);pictureBatches.set(id,cached);
+     return cached;
+   }
+   const valid=()=>key===owner;
+   const job=requestPicture(()=>frames(target,clip,start),valid,thumbnail).then(batch=>{
+     if(!batch&&pictureBatches.get(id)===job)pictureBatches.delete(id);
+     return batch;
+   },error=>{
+     if(pictureBatches.get(id)===job)pictureBatches.delete(id);
+     throw error;
+   });
+   pictureBatches.set(id,job);
+   if(pictureBatches.size>24)pictureBatches.delete(pictureBatches.keys().next().value);
+   return job;
+ }
  async function thumbnail(img,target,clip,ms){
    if(!target)({target,clip}=JSON.parse(img.dataset.ref));
    const frame=Math.floor((ms??clip.in_ms)/125);
@@ -436,8 +464,7 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
      const base=frame-frame%4;
      entry={pending:new Set([img])};
      thumbs.set(id,entry);if(thumbs.size>80)thumbs.delete(thumbs.keys().next().value);
-     const valid=()=>key===JSON.stringify(target)&&[...entry.pending].some(node=>node.isConnected);
-     entry.result=requestPicture(()=>frames(target,clip,base),valid,true)
+     entry.result=readPictures(target,clip,base,true)
        .then(batch=>batch?.start===base?batch.frames?.[frame-base]:null).catch(()=>null)
        .then(jpeg=>{
          entry.pending.clear();
@@ -525,7 +552,7 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
      const change=event=>Math.min(max,Math.max(min,initial+Math.round((event.clientX-startX)*scale)));
      edge.onpointermove=event=>{proposed=change(event);display.textContent=fmt(side==='in'?clip.out_ms-proposed:proposed-clip.in_ms)+' s';};
      const finish=event=>{
-       event.stopPropagation();edge.onpointermove=null;edge.onpointerup=edge.onpointercancel=null;button.draggable=true;
+       event.stopPropagation();edge.onpointermove=null;edge.onpointerup=edge.onpointercancel=null;button.draggable=!native;
        if(s!==owner||!button.isConnected)return;
        if(event.type==='pointerup'&&change(event)!==initial){touch();clip[field]=change(event);selected=clip.id;cursor=startOf(selected);}
        paint();
@@ -618,6 +645,94 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
      bindScore(music,song,n,bar,wave,native);
      bar.title=song.title+' · '+fmt(music.start_ms)+'–'+fmt(end)+' s';}
  }
+ function moveTimelineClip(clips,clip,index){
+   if(clips.indexOf(clip)===index||s.busy)return;
+   touch();clips.splice(clips.indexOf(clip),1);clips.splice(index,0,clip);
+   selected=clip.id;cursor=startOf(selected);paint();
+ }
+ function placeVideoAt(clip,rows,start){
+   const end=start+durationOf(clip);
+   const ordered=[...rows,{clip,start,end}].sort((a,b)=>a.start-b.start);
+   let previous=0;
+   const next=ordered.map(row=>{
+     const gap=row.start-previous;
+     previous=row.end;
+     const item={...row.clip};
+     if(gap)item.gap_before_ms=gap;else delete item.gap_before_ms;
+     return item;
+   });
+   if(shortClip({clips:next})>=0||sameValue(next,s.doc.clips))return;
+   const resume=!!preview?.isPlaying(),position=cursor;
+   touch();s.doc.clips=next;selected=clip.id;cursor=position;paint();
+   seekTo(position);
+   if(resume)preview?.play();
+ }
+ function bindIMWClipMove(button,clip){
+   button.onpointerdown=event=>{
+     if(!event.metaKey||event.button!==0||!event.isPrimary||s.busy)return;
+     event.preventDefault();button.focus({preventScroll:true});
+     const owner=s,id=event.pointerId,start=event.clientX;
+     const listeners=new AbortController(),options={signal:listeners.signal};
+     const studio=document.querySelector('lus-studio'),playhead=studio.clipPlayhead();
+     const geometry=positions(s.doc.clips),original=geometry.find(row=>row.clip===clip);
+     const other=geometry.filter(row=>row.clip!==clip),group=button.parentElement;
+     let target=null,moved=false,snapped=null;
+     function clearTarget(){target?.parentElement.removeAttribute('data-drop');target=null;}
+     function showSnap(position){
+       snapped=position;
+       playhead.mark(position!==null);
+       group.toggleAttribute('data-snapped',position!==null);
+       group.style.transform=position===null?'':'translateX('+((position-original.start)*strip.clientWidth/displaySpan())+'px)';
+     }
+     function update(e){
+       if(e.pointerId!==id)return;
+       if(Math.abs(e.clientX-start)>=3)moved=true;
+       clearTarget();
+       if(!moved)return;
+       const box=strip.getBoundingClientRect();
+       if(e.clientY<box.top||e.clientY>=box.bottom){showSnap(null);return;}
+       const at=playhead.position();
+       const secondsPerPixel=displaySpan()/1000/Math.max(1,strip.clientWidth);
+       const delta=(e.clientX-start)*secondsPerPixel;
+       const exact=e.metaKey ? globalThis.OAStudio.clipEditing.playheadDelta(delta,
+         [original.start/1000,original.end/1000],at,secondsPerPixel,difference=>{
+           const left=Math.round(original.start+difference*1000),right=left+durationOf(clip);
+           return left>=0&&other.every(row=>right<=row.start||left>=row.end);
+         }) : null;
+       showSnap(exact===null?null:Math.round(original.start+exact*1000));
+       if(snapped!==null)return;
+       target=[...strip.querySelectorAll('button[data-clip]')].find(item=>{
+         const rect=item.getBoundingClientRect();
+         return e.clientX>=rect.left&&e.clientX<rect.right;
+       })||null;
+       if(target&&target!==button){
+         const side=owner.doc.clips.indexOf(clip)<owner.doc.clips.findIndex(c=>c.id===target.dataset.clip)
+           ? 'after':'before';
+         target.parentElement.setAttribute('data-drop',side);
+       }
+     }
+     function cancel(){
+       clearTarget();showSnap(null);listeners.abort();
+       if(button.hasPointerCapture(id))button.releasePointerCapture(id);
+     }
+     button.setPointerCapture(id);
+     button.addEventListener('pointermove',update,options);
+     button.addEventListener('pointerup',e=>{
+       if(e.pointerId!==id)return;
+       if(!moved)update(e);
+       const position=snapped;
+       const index=target?owner.doc.clips.findIndex(c=>c.id===target.dataset.clip):-1;
+       cancel();
+       if(s!==owner||!button.isConnected)return;
+       if(position!==null)placeVideoAt(clip,other,position);
+       else if(index>=0)moveTimelineClip(owner.doc.clips,clip,index);
+     },options);
+     button.addEventListener('lostpointercapture',cancel,options);
+     button.addEventListener('pointercancel',cancel,options);
+     window.addEventListener('blur',cancel,options);
+     document.addEventListener('keydown',e=>{if(e.key==='Escape')cancel();},options);
+   };
+ }
  function paint(){
    if(!s)return;
    const clips=s.doc.clips,c=cut(),index=clips.indexOf(c),music=s.doc.music,n=total();
@@ -636,8 +751,9 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
    for(const [i,clip] of clips.entries()){
      const row=sourceOf(clip),button=document.createElement('button'),title=document.createElement('strong'),duration=document.createElement('small');
      button.type='button';button.disabled=awaiting;button.dataset.clip=clip.id;
-     button.setAttribute('aria-pressed',String(clip===c));button.draggable=!awaiting;
-     const width=100*(clip.out_ms-clip.in_ms)/Math.max(n,1)+'%';
+     button.setAttribute('aria-pressed',String(clip===c));button.draggable=!awaiting&&!imwActive();
+     clipStart+=gapBefore(clip);
+     const width=100*durationOf(clip)/Math.max(n,1)+'%';
      title.textContent=(i+1)+' · '+(row?.title||tr('此素材已不可用'));duration.textContent=fmt(clip.out_ms-clip.in_ms)+' s';
      const poster=document.createElement('img');poster.className='dc-frame';poster.alt='';poster.hidden=true;
      poster.onload=()=>{poster.hidden=false;};poster.dataset.ref=JSON.stringify({target:scope,clip});
@@ -654,15 +770,19 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
          const band=document.createElement('span');band.className='dc-film';band.setAttribute('aria-hidden','true');
          poster.replaceWith(band);registerFilm(band,clip);
        }
-     }else{button.style.width=width;button.append(head,tail);strip.append(button);}
+     }else{button.style.width=width;button.style.marginInlineStart=100*gapBefore(clip)/Math.max(n,1)+'%';button.append(head,tail);strip.append(button);}
      clipStart+=clip.out_ms-clip.in_ms;
      button.title=title.textContent+' · '+duration.textContent;
-     button.ondragstart=event=>{dragID=clip.id;event.dataTransfer.setData('text/plain',dragID);event.dataTransfer.effectAllowed='move';};
+     if(imwActive())bindIMWClipMove(button,clip);
+     else{
+       button.ondragstart=event=>{dragID=clip.id;event.dataTransfer.setData('text/plain',dragID);event.dataTransfer.effectAllowed='move';};
      button.ondragover=event=>{if(dragID)event.preventDefault();};
      button.ondrop=event=>{event.preventDefault();if(!dragID||dragID===clip.id||s.busy)return;
        const moved=clips.find(c=>c.id===dragID);dragID='';if(!moved)return;
-       touch();clips.splice(clips.indexOf(moved),1);clips.splice(i,0,moved);selected=moved.id;cursor=startOf(selected);paint();};
-     button.ondragend=()=>{dragID='';};button.onclick=()=>previewToolClip(clip.id);
+       moveTimelineClip(clips,moved,i);};
+       button.ondragend=()=>{dragID='';};
+     }
+     button.onclick=()=>previewToolClip(clip.id);
      if(row?.audio_tracks>0&&!clip.audio_detached){
        const wave=document.createElement('span');wave.className='dc-source-wave';button.append(wave);
        waves.attach(wave,{...scope,clipSound:true,delivery_id:clip.delivery_id,sha256:clip.sha256,
@@ -784,7 +904,7 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
  function clear(){
    releaseScore?.();releaseScore=null;
    if(s)s.checking=null;
-   loopEnabled=false;loopIn=0;loopOut=null;transportStart=null;playTicket=null;waves.reset();displayStatus('','');cancelStatus();observer?.disconnect();resetFilms();thumbs.clear();dragID='';resetPreview();
+   loopEnabled=false;loopIn=0;loopOut=null;transportStart=null;playTicket=null;waves.reset();displayStatus('','');cancelStatus();observer?.disconnect();resetFilms();thumbs.clear();pictureBatches.clear();dragID='';resetPreview();
    if(s?.loaded&&!s.previewOnOpen)s.resumeView={version:s.version,selected,cursor};
    readSerial++;key='';scope=null;s=null;lastSignal='';root.hidden=settings.hidden=transport.hidden=true;menu(false);selected='';cursor=0;activeDelivery='';updateDetachButton();notifyTools();detachedChanged();
  }
@@ -806,9 +926,10 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
    if(!s.busy&&(changed||signature!==lastSignal)){lastSignal=signature;void reload();}
  }
  function clipIndexAt(ms){
-   let start=0;
-   for(const clip of s.doc.clips){const end=start+clip.out_ms-clip.in_ms;
-     if(ms<end)return {clip,startMs:start,sourceMs:clip.in_ms+ms-start};start=end;}
+   for(const {clip,start,end} of positions(s.doc.clips)){
+     if(ms<start)break;
+     if(ms<end)return {clip,startMs:start,sourceMs:clip.in_ms+ms-start};
+   }
    return null;
  }
  function restore(from,to){
@@ -864,7 +985,7 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
      scoreAudible:active?monitorState('score').audible:folded?.scoreAudible??true,
      busy:state.busy||state.conflict,canUndo:!!state.undo.length,canRedo:!!state.redo.length,
      saveError:state.conflict?'版本冲突':state.sync.error||'',
-     pictureMs:state.doc.clips.reduce((end,c)=>end+c.out_ms-c.in_ms,0),
+     pictureMs:total(state.doc.clips),
      offsetSeconds:active?(music?(music.start_ms-music.in_ms)/1000:0):folded?.offsetSeconds||0,
      sourceAudible:active?monitorState('source').audible:folded?.sourceAudible??true,
      sourceSolo:active?monitorState('source').solo:folded?.sourceSolo??false,
@@ -1124,7 +1245,7 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
  }
  function duplicateToolClip(expected=selected){
    const c=s&&cut();if(toolBusy()||!c||c.id!==expected||s.doc.clips.length>=256)return false;
-   touch();const next={...clone(c),id:uid()};s.doc.clips.splice(s.doc.clips.indexOf(c)+1,0,next);
+   touch();const next={...clone(c),id:uid()};delete next.gap_before_ms;s.doc.clips.splice(s.doc.clips.indexOf(c)+1,0,next);
    selected=next.id;paint();previewToolClip(selected);return true;
  }
  function numbers(){
@@ -1147,7 +1268,7 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
  };
  function split(){
    const c=cut(),at=cursor-startOf(c.id);if(at<=0||at>=c.out_ms-c.in_ms)return;
-   touch();const next={...clone(c),id:uid(),in_ms:c.in_ms+at};c.out_ms=next.in_ms;
+   touch();const next={...clone(c),id:uid(),in_ms:c.in_ms+at};delete next.gap_before_ms;c.out_ms=next.in_ms;
    s.doc.clips.splice(s.doc.clips.indexOf(c)+1,0,next);selected=next.id;paint();
  };
  function move(direction){
@@ -1297,11 +1418,9 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
        bus.gain.linearRampToValueAtTime(level,now+.004);
      }
    }
-   let pos=0;
-   for(const c of state.doc.clips){
+   for(const {clip:c,start,end} of positions(state.doc.clips)){
      if(!c.audio_detached&&c.volume&&sourceOf(c)?.audio_tracks>0)sounds.push({sha:c.sha256,load:offset=>chunk(target,c,offset),
-       start:pos,end:pos+c.out_ms-c.in_ms,source:c.in_ms,volume:c.volume});
-     pos+=c.out_ms-c.in_ms;
+       start,end,source:c.in_ms,volume:c.volume});
    }
    for(const row of state.doc.detached_audio||[]){
      if(row.volume>0&&sourceOf(row)?.audio_tracks>0)sounds.push({sha:row.sha256,load:offset=>chunk(target,row,offset),
@@ -1396,6 +1515,9 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
      const cold=!started&&state.doc.clips.length>0&&!showingCursor;
      if(!started&&(cold||audible))say(cold?'正在缓冲剪辑…':'正在读取音轨…');
      const ready=cold?prepareWindow(cursor,true):null;
+     if(ready)void ready.then(()=>{
+       if(!closed&&requested&&ticket===epoch&&!started)drawFrame();
+     });
      const studio=boundStudio(),version=studio?.version;
      const needed=audible?sounds.filter(row=>row.end>cursor&&!(studio&&row.score)):[];
      if(audible&&version?.mastered){
@@ -1404,15 +1526,18 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
        if(end>cursor)needed.push({sha:version.masterAudioSha,load:offset=>masterChunk(selection,offset),score:true,
          start:at,end,source:from,volume:(window?.volume??100)*(version.previewGain??1)});
      }
-     const decoded=[];
-     for(const row of needed){
-       decoded.push(await bufferFor(row,ctx));
-       if(closed||!requested||ticket!==epoch)return;
-     }
+     // Future clips load after the opening picture and the sounds at the current position.
+     const immediate=needed.filter(row=>row.start<=cursor);
+     const future=needed.filter(row=>row.start>cursor).sort((a,b)=>a.start-b.start);
+     const decoded=await Promise.all(immediate.map(row=>bufferFor(row,ctx)));
      if(ready)await ready;
      if(outputReady)await outputReady;
      if(closed||!requested||ticket!==epoch)return;
      if(version!==boundStudio()?.version){void activate();return;}
+     const first=frameInfo(cursor);
+     if(first&&frameCache.get(first.key)?.failed&&!started){
+       pause();say('无法预览此片段');playState(false);updateCursor();return;
+     }
      const position=time(),origin=ctx?.currentTime??0;
      if(!started){started=true;base=position;wallStart=performance.now();
        audioStart=ctx?.state==='running'?origin:null;
@@ -1421,8 +1546,17 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
      if(closed||!requested||ticket!==epoch)return;
      if(audible&&!scheduled&&ctx.state==='running'){
        scheduled=true;
-       needed.forEach((row,i)=>schedule(ctx,row,decoded[i],position,origin));
-       if(studio&&!version.mastered&&version===boundStudio()?.version)scheduleStudio(studio,ctx,position,origin);
+       immediate.forEach((row,i)=>schedule(ctx,row,decoded[i],position,origin));
+       if(studio&&!version?.mastered&&version===boundStudio()?.version)scheduleStudio(studio,ctx,position,origin);
+       void loadUpcomingSound();
+     }
+     async function loadUpcomingSound(){
+       for(const row of future){
+         if(closed||!requested||ticket!==epoch||row.start>=playbackEnd())return;
+         const buffer=await bufferFor(row,ctx);
+         if(closed||!requested||ticket!==epoch||ctx.state!=='running')return;
+         schedule(ctx,row,buffer,time(),ctx.currentTime);
+       }
      }
    }
    soundLease=sound?.register(grant=>{
@@ -1442,33 +1576,41 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
      let entry=frameCache.get(info.key);if(entry)return entry;
      entry={images:null,failed:false};frameCache.set(info.key,entry);
      const valid=()=>!closed&&frameCache.get(info.key)===entry;
-     entry.ready=requestPicture(async()=>{
-       const result=await frames(target,info.c,info.start);
+     entry.ready=readPictures(target,info.c,info.start).then(async result=>{
        if(!valid())return;
-       if(result.start!==info.start||!Array.isArray(result.frames)||!result.frames.length||result.frames.length>4)
+       if(result?.start!==info.start||!Array.isArray(result.frames)||!result.frames.length||result.frames.length>4)
          throw Error('VIDEO_PREVIEW_UNAVAILABLE');
        entry.images=await Promise.all(result.frames.map(async jpeg=>{
          if(typeof jpeg!=='string'||jpeg.length>128000||!/^\/9j\/[A-Za-z0-9+/=]+$/.test(jpeg))throw Error('VIDEO_PREVIEW_UNAVAILABLE');
          const img=new Image();img.alt='';img.src='data:image/jpeg;base64,'+jpeg;await img.decode();return img;
        }));
-     },valid).catch(()=>{entry.failed=true;});
+     }).catch(()=>{entry.failed=true;});
      return entry;
    }
    function prepareWindow(ms,cold=false){
-     const first=frameInfo(ms);if(!first)return null;
+     const nextCut=clipIndexAt(ms)?ms:positions(state.doc.clips).find(row=>row.start>=ms)?.start;
+     if(nextCut===undefined)return null;
+     const first=frameInfo(nextCut);if(!first)return null;
      const key=first.c.id+':'+first.key;
      if(!cold&&windowKey===key)return null;
      windowKey=key;
      const upcoming=[],keep=new Set();let firstReady=null;
-     // Three seconds ahead covers several short cuts. Limit work on very dense edits.
-     for(let at=Math.min(ms,length-1);at<Math.min(length,ms+3000)&&upcoming.length<(cold||requested?16:1);){
-       const info=frameInfo(at);if(!info||info.next<=at)break;
+     // Load the current half-second batch first. Keep a short window ahead, across gaps.
+     const through=Math.min(length,Math.max(ms+2500,nextCut+125));
+     for(let at=Math.min(nextCut,length-1);at<through&&upcoming.length<(cold?2:requested?5:1);){
+       const info=frameInfo(at);
+       if(!info){
+         const next=positions(state.doc.clips).find(row=>row.start>at)?.start;
+         if(next===undefined)break;
+         at=next;continue;
+       }
+       if(info.next<=at)break;
        if(!keep.has(info.key)){keep.add(info.key);upcoming.push({at,info});}
        at=info.next;
      }
      // Obsolete queued requests must vacate the scheduler when the user seeks.
      for(const [old,entry] of frameCache){
-       if(!keep.has(old)&&(!entry.images||frameCache.size>24))frameCache.delete(old);
+       if(!keep.has(old)&&frameCache.size>24)frameCache.delete(old);
      }
      for(const {at,info} of upcoming){
        const entry=loadBatch(info);
@@ -1478,7 +1620,11 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
    }
    function drawFrame(){
      if(closed||preciseMode||!state.doc.clips.length)return;
-     const info=frameInfo(cursor);if(!info)return;
+     const info=frameInfo(cursor);
+     if(!info){
+       if(paintedClip){compositor.clear();paintedClip='';paintedAt=null;}
+       prepareWindow(cursor);return;
+     }
      prepareWindow(cursor);
      const entry=frameCache.get(info.key);
      // A frame may be held inside its own cut only. A completed previous
@@ -1546,6 +1692,12 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
        }
      }
      if(cursor>=length){pause();cursor=length;updateCursor();drawFrame();playState(false);return;}
+     const next=frameInfo(cursor),entry=next&&frameCache.get(next.key);
+     if(next&&!entry?.images&&cursor-Math.max(paintedAt??next.clipStart,next.clipStart)>375){
+       // Freeze the shared clock only after a visible underrun. Resume from the same point.
+       started=false;audioStart=null;stopAudio();updateCursor();void activate();
+       return;
+     }
      if(lastPaint<0||Math.abs(cursor-lastPaint)>=30){lastPaint=cursor;updateCursor();}
      drawFrame();
      raf=requestAnimationFrame(tick);
@@ -1597,11 +1749,12 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
  $('Seek').oninput=()=>seekTransport(Number($('Seek').value));
  $('First').onclick=()=>seekTo(0);$('Last').onclick=()=>seekTo(span());
  function stepCut(direction){
-   let pos=0,previous=0;
-   for(const clip of s.doc.clips){
-     pos+=clip.out_ms-clip.in_ms;
-     if(direction>0&&pos>cursor){seekTransport(pos);return;}
-     if(pos<cursor)previous=pos;
+   let previous=0;
+   for(const {start,end} of positions(s.doc.clips)){
+     for(const time of [start,end]){
+       if(direction>0&&time>cursor){seekTransport(time);return;}
+       if(time<cursor)previous=time;
+     }
    }
    seekTransport(direction>0?span():previous);
  }
@@ -1702,6 +1855,11 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
    toggle(event){if(imwActive())return togglePlayback(event);},
    pause(){playTicket=null;preview?.pause();playState(false);},
    seek(seconds){if(imwActive()&&Number.isFinite(seconds))seekTo(seconds*1000);},
+   locate(seconds,id){
+     if(!imwActive()||!s?.loaded||!Number.isFinite(seconds))return;
+     if(id&&selected!==id&&s.doc.clips.some(c=>c.id===id)){selected=id;paint();}
+     seekTransport(seconds*1000);
+   },
    scrubFrame(seconds){
      if(!imwActive()||!Number.isFinite(seconds)||!s?.loaded)return;
      playTicket=null;if(preview?.isPlaying()){preview.pause();playState(false);}

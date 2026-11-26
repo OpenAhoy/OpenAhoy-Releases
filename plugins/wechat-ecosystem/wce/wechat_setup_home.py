@@ -91,12 +91,10 @@ STYLE=r'''
 #wechatSetupStatus{margin:0;font-size:13px;line-height:1.4;overflow-wrap:anywhere}
 #wechatSetupStatus:empty{display:none}
 #wechatSetupAdvanced{margin:8px 0 0;min-height:0;max-inline-size:100%}
-#wechatSetupAdvanced>summary{cursor:pointer;font-weight:650;color:var(--ink);padding:9px 3px}
+#wechatManualTitle{font-size:16px;font-weight:650;color:var(--ink);margin:8px 3px 10px}
 #wechatSetupAdvanced>.oa-tabs{margin-block:8px}
 .oa-native.oa-wechat-view #settingsPanel:has(#wechatSetupHome):not(:has(#wechatSettings[hidden]))>.oa-context-tabs{display:none}
-.oa-native.oa-wechat-view #settingsPanel #wechatSettings> #wechatSetupAdvanced:not([open]){flex:none}
-.oa-native.oa-wechat-view #settingsPanel #wechatSettings:has(#wechatSetupAdvanced[open]){overflow:auto}
-.oa-native.oa-wechat-view #settingsPanel #wechatSettings:has(#wechatSetupAdvanced[open]) #productionRules{min-height:440px;overflow:visible}
+.oa-native.oa-wechat-view #settingsPanel #wechatSettings:not([data-manual-task]){overflow:auto}
 @media(max-width:740px){.wx-setup-features{grid-template-columns:1fr}.wx-setup-feature{min-height:116px;grid-template-columns:74px minmax(0,1fr)}.wx-setup-summary{grid-template-columns:minmax(0,1fr) auto;gap:7px}.wx-setup-summary h3{grid-column:1}.wx-setup-summary p{grid-row:2;grid-column:1/-1}.wx-setup-summary>.actions{grid-column:2;grid-row:1;display:flex;gap:5px;margin:0}}
 @media(max-width:390px){.wx-setup-heading{gap:8px}.wx-setup-heading h2{font-size:21px}.oa-native .wx-setup-heading #wechatSetupCodex{padding-inline:10px}.wx-setup-feature{gap:10px;padding:10px}.wx-setup-feature h3{font-size:18px}}
 @media(prefers-color-scheme:dark){.wx-setup-feature,.wx-setup-summary{box-shadow:none}}

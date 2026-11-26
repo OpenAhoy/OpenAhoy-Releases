@@ -1,25 +1,18 @@
 """Focused account-positioning controls backed by the existing rules draft."""
 
 SCRIPT = r'''
-function OAWechatPositionEditor(ui, area, inherit, source, onEdit, returnToOverview, groups, showGroup){
+function OAWechatPositionEditor(ui, area, inherit, source, onEdit){
  const make=tag=>document.createElement(tag);
  const panel=make('section');panel.id='rulesPositionEditor';
  const main=make('div');main.className='wx-position-main';
- const advanced=make('details');advanced.className='wx-position-advanced';
- const advancedLabel=make('summary');ui.set(advancedLabel,'更多定位设置');
+ const advanced=make('section');advanced.className='wx-position-advanced';
+ const advancedLabel=make('h3');ui.set(advancedLabel,'更多定位设置');
  const scopeSlot=make('div');scopeSlot.className='wx-position-scope';
  const suggestions=make('details'),suggestionsLabel=make('summary'),suggestionSlot=make('div');
  ui.set(suggestionsLabel,'查看可选方案和词条');suggestions.append(suggestionsLabel,suggestionSlot);
  const original=make('details'),originalLabel=make('summary');
  ui.set(originalLabel,'查看或编辑规则原文');original.append(originalLabel);
  const scoped=make('p');scoped.className='wx-position-state';scoped.append(source);
- const controls=make('div');controls.className='wx-position-actions';
- const back=make('button');back.type='button';ui.set(back,'返回配置总览');
- back.onclick=returnToOverview;
- const group=make('select');ui.attr(group,'aria-label','切换规则分组');
- for(const [index,title] of groups.entries()){const option=make('option');ui.set(option,index===0?'切换设置':title);group.append(option);}
- group.onchange=()=>showGroup(group.selectedIndex);
- controls.append(group,back);
  const inheritance=make('label');inheritance.className='wx-position-inherit';
  inheritance.append(inherit,ui.label('使用默认内容'));
  const context=make('div');context.className='wx-position-context';context.append(scoped);
@@ -85,8 +78,8 @@ function OAWechatPositionEditor(ui, area, inherit, source, onEdit, returnToOverv
    }
    legacy.hidden=!rows.some(row=>row.line.trim()&&!row.key);
  }
- return {panel,controls,scopeSlot,suggestionSlot,original,render,reset(){
-   advanced.open=false;suggestions.open=false;original.open=false;group.selectedIndex=0;
+ return {panel,scopeSlot,suggestionSlot,original,render,reset(){
+   suggestions.open=false;original.open=false;
  }};
 }
 '''
@@ -98,22 +91,20 @@ STYLE = r'''
 #rulesPositionEditor :is(.wx-position-main,.wx-position-scope) textarea{
  box-sizing:border-box;width:100%;min-height:42px;margin:0;font-size:14px;font-weight:400;line-height:1.45;resize:vertical
 }
-.wx-position-controls,.wx-position-context,.wx-position-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.wx-position-context{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .wx-position-context{justify-content:space-between}
 .wx-position-state{margin:0;color:var(--muted);font-size:13px;line-height:1.5}
 #rulesPositionEditor .wx-position-inherit{display:flex;align-items:center;gap:6px;margin:0}
 .wx-position-inherit[hidden]{display:none!important}
 .wx-position-advanced{padding-block:9px;border-block-start:1px solid var(--line)}
-.wx-position-advanced>summary{cursor:pointer;font-weight:600}
-.wx-position-advanced[open]>:not(summary){margin-block-start:12px}
+.wx-position-advanced>h3{font-size:14px;font-weight:600;margin:0}
+.wx-position-advanced> :not(h3){margin-block-start:12px}
 .wx-position-scope>.rules-context{grid-column:1/-1}
 #rulesPositionEditor .rule-input{min-height:125px}
 #rulesPositionEditor .oa-choice-custom-value,#rulesPositionEditor .oa-choice-editor>details{display:none}
-.wx-position-actions select{max-width:150px}
 @media(max-width:540px){
  .wx-position-main,.wx-position-scope{grid-template-columns:1fr;gap:9px}
  #rulesPositionEditor{gap:10px}
- .wx-position-actions select{max-width:108px}
 }
 @media(max-width:400px){
  #rulesPositionEditor{gap:7px}

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "wechat-ecosystem",
-  "version": "0.7.108",
+  "version": "0.7.109",
   "description": "Jiusera is a creative workspace in Codex for making content and publishing to WeChat Official Accounts, X, and Xiaohongshu.",
   "extensions": {
     "com.openai": {

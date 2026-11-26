@@ -1,3 +1,6 @@
+/* Registered in the document so Studio's track geometry can inherit its animated value. */
+@property --lus-imw-fold { syntax:"<number>"; inherits:true; initial-value:0; }
+
 body[data-color-scheme=dark] #wbMusic {--lus-wave-peak-alpha:.84;--lus-wave-rms-alpha:.99}
 /* Keep both the workbench palette and the shared dock palette owned by the shell. */
 #wbMusic {
@@ -7,6 +10,7 @@ body[data-color-scheme=dark] #wbMusic {--lus-wave-peak-alpha:.84;--lus-wave-rms-
   --lus-raised:-3px -3px 7px var(--lus-highlight),3px 4px 8px var(--lus-shade);
   --lus-inset:inset 2px 3px 6px var(--lus-shade),inset -2px -2px 5px var(--lus-highlight);
   --lus-floating:-3px -3px 9px var(--lus-highlight),5px 7px 17px var(--lus-shade);
+  --lus-press-fill:color-mix(in srgb,var(--oa-selected-ink) 16%,var(--wb-surface));
 }
 #wbMusic .wb-music-links {gap:6px}
 #wbMusic .wb-music-links button {
@@ -15,4 +19,16 @@ body[data-color-scheme=dark] #wbMusic {--lus-wave-peak-alpha:.84;--lus-wave-rms-
 #wbMusic .wb-music-links button:hover:not(:disabled) {background:var(--oa-hover)}
 #wbMusic .wb-music-links button:active:not(:disabled) {
   color:var(--oa-selected-ink);background:var(--oa-selection);box-shadow:var(--lus-inset)
+}
+
+/* These director sections use light DOM while attached to the Studio slots. */
+#wbMusic lus-studio > :is(#directorMonitor[slot=imw-video],#dmCut[slot=imw-timeline])
+  :is(button,summary,a[download]):is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true],.clip,.trim-handle) {
+  background-color:var(--lus-press-fill);box-shadow:var(--lus-inset);
+}
+@media(prefers-reduced-motion:no-preference) {
+  #wbMusic lus-studio > :is(#directorMonitor[slot=imw-video],#dmCut[slot=imw-timeline])
+    :is(button,summary,a[download]):not(.clip,.trim-handle) {
+    transition:background-color 100ms ease-out,color 100ms ease-out;
+  }
 }

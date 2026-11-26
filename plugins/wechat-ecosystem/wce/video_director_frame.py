@@ -2,6 +2,7 @@
 from base64 import b64encode
 from bisect import bisect_right
 from fractions import Fraction
+from math import ceil
 from functools import lru_cache
 import json
 
@@ -52,3 +53,33 @@ def read(path, pin, sha256, time_us, seconds):
     jpeg = image_at(path, pin, pts, base, origin)
     require(file_state(path.lstat()) == pin, 'DIRECTOR_ASSET_CHANGED')
     return {'sha256': sha256, 'time_us': time_us, 'pts': pts, 'time_base': str(base), 'jpeg': jpeg}
+
+
+@lru_cache(maxsize=24)
+def preview_images(path, pin, start, count):
+    """Decode one small contiguous monitor batch with a single seek."""
+    fit = "scale=w='min(480,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
+    data = invoke('ffmpeg', ['-nostdin', *INPUT, '-ss', str(start / 8), '-i', str(path),
+                  '-map', '0:v:0', '-an', '-sn', '-dn',
+                  '-vf', f'fps=8,{fit},tpad=stop_mode=clone:stop_duration=0.5',
+                  '-frames:v', str(count), '-c:v', 'mjpeg', '-q:v', '5', '-f', 'image2pipe', 'pipe:1'], 12)
+    frames = []
+    offset = 0
+    while offset < len(data) and len(frames) < count:
+        end = data.find(b'\xff\xd9', offset + 3)
+        require(data.startswith(b'\xff\xd8\xff', offset) and end >= 0 and end + 2 - offset <= 96_000,
+                'DIRECTOR_PREVIEW_UNAVAILABLE')
+        frames.append(b64encode(data[offset:end + 2]).decode('ascii'))
+        offset = end + 2
+    require(offset == len(data) and len(frames) == count and file_state(path.lstat()) == pin,
+            'DIRECTOR_PREVIEW_UNAVAILABLE')
+    return tuple(frames)
+
+
+def preview(path, pin, start, seconds):
+    require(file_state(path.lstat()) == pin, 'DIRECTOR_ASSET_CHANGED')
+    count = min(4, ceil(seconds * 8) - start)
+    require(count > 0, 'VIDEO_ASSET_OFFSET_INVALID')
+    frames = preview_images(path, pin, start, count)
+    require(file_state(path.lstat()) == pin, 'DIRECTOR_ASSET_CHANGED')
+    return {'start': start, 'frames': list(frames)}

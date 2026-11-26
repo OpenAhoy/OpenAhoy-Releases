@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+from threading import Lock
 from tempfile import TemporaryDirectory
 import time
 
@@ -169,7 +170,17 @@ class StdioServer:
         return {"content":[{"type":"text","text":json.dumps(value,ensure_ascii=False,allow_nan=False)}],
                 "structuredContent":value,"isError":False}
 
+    def handle_frame(self, message, send):
+        return self.dispatch(message)
+
     def serve(self, source, destination):
+        write_lock = Lock()
+
+        def send(response):
+            with write_lock:
+                destination.write((json.dumps(response, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
+                destination.flush()
+
         def unique(pairs):
             value = {}
             for key, item in pairs:
@@ -197,10 +208,9 @@ class StdioServer:
                     from .own_configuration_export import content_frame as configuration_frame
                     if len(frame)>MAX_FRAME and not (_normal_html_frame(message) or configuration_frame(message, MAX_FRAME)):
                         response={"jsonrpc":"2.0","id":None,"error":{"code":-32600,"message":"Frame too large"}}
-                    else:response=self.dispatch(message)
+                    else:response=self.handle_frame(message, send)
             if response is not None:
-                destination.write((json.dumps(response, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
-                destination.flush()
+                send(response)
 
 
 def main():

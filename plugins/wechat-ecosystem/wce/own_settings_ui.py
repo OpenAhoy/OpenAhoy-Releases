@@ -1,6 +1,7 @@
 """Inline, scope-hashed UI. The MCP modal never contains credential inputs."""
 import base64
 from hashlib import sha256
+from .button_feedback import STYLE as PRESSURE_STYLE, SCRIPT as PRESSURE_SCRIPT
 from .own_presentation_ui import RENDER_JS, FILE_JS
 from .own_production_rules_ui import HTML as RULES_HTML, JS as RULES_JS
 from .own_article_status_ui import HTML as ARTICLES_HTML, JS as ARTICLES_JS
@@ -831,9 +832,11 @@ SCRIPT = RENDER_JS + FILE_JS + RULES_JS.replace('全局默认', '公众号默认
 })();
 """
 
+PAGE_STYLE = STYLE + PRESSURE_STYLE
+SCRIPT = PRESSURE_SCRIPT + SCRIPT
 PAGE = ('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<title>Jiusera · 公众号管理</title><style>' + STYLE + '</style>'
+        '<title>Jiusera · 公众号管理</title><style>' + PAGE_STYLE + '</style>'
         + page_body(LOGO, RULES_HTML, technical_html(), routes_html())
         + '<script>' + SCRIPT + '</script></body></html>')
 
@@ -842,10 +845,10 @@ def csp_hash(value):
     return "'sha256-" + base64.b64encode(sha256(value.encode()).digest()).decode() + "'"
 
 
-CSP = ("default-src 'none'; script-src " + csp_hash(SCRIPT) + "; style-src " + csp_hash(STYLE)
+CSP = ("default-src 'none'; script-src " + csp_hash(SCRIPT) + "; style-src " + csp_hash(PAGE_STYLE)
        + "; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
-MODAL_SCRIPT = RENDER_JS + RULES_JS + ARTICLES_JS + r"""
+MODAL_SCRIPT = PRESSURE_SCRIPT + RENDER_JS + RULES_JS + ARTICLES_JS + r"""
 (() => {
   'use strict';
   let next = 1, ready = false, refreshing = false, opening = false, openUnknown = false, disposed = false;
@@ -989,7 +992,7 @@ MODAL_SCRIPT = RENDER_JS + RULES_JS + ARTICLES_JS + r"""
 """
 MODAL = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<style>{STYLE}</style><body class="modal-page"><div class="brand">{brand_header()}</div>
+<style>{PAGE_STYLE}</style><body class="modal-page"><div class="brand">{brand_header()}</div>
 <nav class="actions" role="tablist" aria-label="公众号管理中心" style="margin-top:20px"><button id="tab-accounts" role="tab" aria-selected="true">公众号</button><button id="tab-articles" role="tab" aria-selected="false">文章</button><button id="tab-data" role="tab" aria-selected="false">数据</button><button id="tab-rules" role="tab" aria-selected="false">生产规则</button></nav>
 <section id="accountPanel"><div class="modal-heading"><h2>你的公众号</h2><button id="refresh" class="quiet" disabled>刷新</button></div>
 <div id="accounts"></div>

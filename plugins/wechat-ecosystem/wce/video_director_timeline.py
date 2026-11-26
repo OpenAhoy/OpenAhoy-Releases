@@ -224,17 +224,35 @@ def transcode_segment(path, clip, has_audio, frames, dimensions, out):
                max(90, int(seconds * 5)))
 
 
-def frame_counts(clips):
+def clip_span(clip):
+    return clip.get('gap_before_ms', 0) + clip['out_ms'] - clip['in_ms']
+
+
+def transcode_gap(frames, dimensions, output):
+    width, height = dimensions
+    invoke('ffmpeg', ['-v', 'error', '-nostdin',
+           '-f', 'lavfi', '-i', f'color=c=black:s={width}x{height}:r={FPS}',
+           '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
+           '-t', str(frames / FPS), '-c:v', 'libx264',
+           '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-c:a', 'pcm_s16le', str(output)],
+           max(90, frames // FPS * 5))
+
+
+def frame_ranges(clips):
     elapsed_ms = previous = 0
-    result = []
     for clip in clips:
         require(clip['out_ms'] > clip['in_ms'], 'DIRECTOR_TIME_RANGE_INVALID')
-        elapsed_ms += clip['out_ms'] - clip['in_ms']
+        start = elapsed_ms + clip.get('gap_before_ms', 0)
+        elapsed_ms += clip_span(clip)
+        first = (start * FPS + 500) // 1000
         boundary = (elapsed_ms * FPS + 500) // 1000
-        require(boundary > previous, 'DIRECTOR_CLIP_SHORTER_THAN_FRAME')
-        result.append(boundary - previous)
+        require(boundary > first, 'DIRECTOR_CLIP_SHORTER_THAN_FRAME')
+        yield first - previous, boundary - first
         previous = boundary
-    return result
+
+
+def frame_counts(clips):
+    return [frames for _, frames in frame_ranges(clips)]
 
 
 def render(jobs, root, project, work, folder, progress=None, studio_mix=None):
@@ -247,10 +265,14 @@ def render(jobs, root, project, work, folder, progress=None, studio_mix=None):
     paths = {key: stage(source, folder / f'source-{i}.mp4')
              for i, (key, source) in enumerate(sources.items())}
     dims = canvas_size(next(iter(paths.values())))
-    counts = frame_counts(clips)
-    elapsed = sum(c['out_ms'] - c['in_ms'] for c in clips)
+    ranges = list(frame_ranges(clips))
+    elapsed = sum(map(clip_span, clips))
     entries = []
-    for i, (clip, frames) in enumerate(zip(clips, counts)):
+    for i, (clip, (blank, frames)) in enumerate(zip(clips, ranges)):
+        if blank:
+            gap = folder / f'gap-{i}.mov'
+            transcode_gap(blank, dims, gap)
+            entries.extend([f"file '{gap.name}'", f'duration {blank / FPS:.9f}'])
         key = clip['delivery_id'], clip['sha256']
         segment = folder / f'clip-{i}.mov'
         audible_clip = clip if source_audio and not clip.get('audio_detached') else {**clip, 'volume': 0}
@@ -304,7 +326,7 @@ def render(jobs, root, project, work, folder, progress=None, studio_mix=None):
         filters.append(''.join(labels) + f'amix=inputs={len(labels)}:duration=first:normalize=0[a]')
         mapping = ['-filter_complex', ';'.join(filters), '-map', '0:v:0', '-map', '[a]']
     output = folder / 'sequence.mp4'
-    invoke('ffmpeg', args + mapping + ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', str(sum(counts)/FPS),
+    invoke('ffmpeg', args + mapping + ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', str(sum(gap + frames for gap, frames in ranges) / FPS),
            '-map_metadata', '-1', '-movflags', '+faststart', str(output)], max(90, elapsed // 200))
     os.chmod(output, 0o600)
     return output
@@ -330,7 +352,7 @@ def export(director, jobs, args, progress, record_scratch):
         with output.open('rb') as handle:
             checksum = file_digest(handle, 'sha256').hexdigest()
         facts = probe(str(output), error='DIRECTOR_RENDER_INVALID')
-        expected = sum(c['out_ms'] - c['in_ms'] for c in saved(work)['clips'])
+        expected = sum(map(clip_span, saved(work)['clips']))
         require(facts.get('playable') and facts.get('audio_tracks', 0) > 0
                 and abs(millis(facts['seconds']) - expected) <= 75, 'DIRECTOR_RENDER_INVALID')
         require(path_check(output) == state_pin, 'DIRECTOR_ASSET_CHANGED')

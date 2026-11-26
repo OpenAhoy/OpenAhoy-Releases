@@ -118,7 +118,8 @@ def local_video_source(root, file):
     return path, file_state(info)
 
 
-@lru_cache(maxsize=4)
+# A film edit commonly uses more than four registered sources in one viewing window.
+@lru_cache(maxsize=32)
 def verify_local_video(root, relative, pin, checksum):
     source = FileSource(root)
     length = 0
@@ -452,10 +453,15 @@ def playback(jobs, root, work, args):
             return chunk(root, work, args)
         start = args['start']
         require(start < asset['seconds'] * 8, 'VIDEO_ASSET_OFFSET_INVALID')
-        frames = probe('frames', str(root / file['path']), str(start), error='VIDEO_PREVIEW_UNAVAILABLE')
-        _, current = local_video_source(root, file)
-        require(current == pin, 'DIRECTOR_ASSET_CHANGED')
-        return {'start': start, **frames}
+        from .video_director_frame import preview
+        source = root / file['path']
+        try:
+            return preview(source, pin, start, asset['seconds'])
+        except WCEError:
+            frames = probe('frames', str(source), str(start), error='VIDEO_PREVIEW_UNAVAILABLE')
+            _, current = local_video_source(root, file)
+            require(current == pin, 'DIRECTOR_ASSET_CHANGED')
+            return {'start': start, **frames}
     spec = candidate_spec(work, identifier)
     verified_candidate(jobs, project, spec, args['sha256'])
     if 'time_us' in args:
@@ -467,6 +473,12 @@ def playback(jobs, root, work, args):
         part = jobs.playback(spec['attempt_id'], project, args['offset'])
         require(part['sha256'] == args['sha256'], 'DIRECTOR_ASSET_CHANGED')
         return part
-    frames = jobs.preview_frames(args['start'], spec['attempt_id'], project)
-    verified_candidate(jobs, project, spec, args['sha256'])
-    return frames
+    from .video_director_frame import preview
+    path, asset, pin = jobs._playable(spec['attempt_id'], project)
+    require(asset['sha256'] == args['sha256'], 'DIRECTOR_ASSET_CHANGED')
+    try:
+        return preview(path, pin, args['start'], asset['seconds'])
+    except WCEError:
+        frames = jobs.preview_frames(args['start'], spec['attempt_id'], project)
+        verified_candidate(jobs, project, spec, args['sha256'])
+        return frames

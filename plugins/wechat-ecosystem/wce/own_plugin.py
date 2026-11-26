@@ -7,6 +7,7 @@ import threading
 from copy import deepcopy
 
 from .contracts import WCEError
+from . import character_set_trial
 from .own_bootstrap import Bridge, OperatorStdioServer, preflight
 from .own_bootstrap_security import FLAGS, load_config
 from .own_contracts import list_tools, validate
@@ -214,14 +215,16 @@ class PersonalStdioServer(OperatorStdioServer):
         self._management_resources = {}
         support=SupportRouter(TemplateRouter(ProjectContextRouter(UpdateRouter(XHSRouter(XPlatformRouter(DisplayNameRouter(SettingsRouter(router, settings_manager))))), registry=router.registry), registry=router.registry), registry=router.registry, instrument=False)
         from .video_director_protocol import DirectorRouter
-        draft_router=DraftManagementRouter(DirectorRouter(VideoRouter(WritingRouter(support, router.registry), router.registry)),
-            registry=router.registry, launcher=router.launcher)
+        director = DirectorRouter(VideoRouter(WritingRouter(support, router.registry), router.registry))
+        self._character_trial = character_set_trial.CharacterSetTrial(director.characters, director.registry)
+        self._character_form = character_set_trial.NativeCharacterForm(self._character_trial)
+        draft_router=DraftManagementRouter(director, registry=router.registry, launcher=router.launcher)
         connected = AdoptionRouter(ContentRouter(draft_router), router.registry)
         connected = OpenAhoyMCPStatus(connected)
         connected = ComponentBindingRouter(connected, router.registry)
         managed = StudioRouter(RulesUpdateRouter(connected,router.registry), router.registry)
         self._tool_observer=support
-        rows=managed.list_tools()
+        rows=managed.list_tools() + character_set_trial.TOOLS
         # The personal router describes fixed tools. Entitlements are checked
         # when tools run, and must never depend on an old cache directory
         # surviving an upgrade while this process is still serving.
@@ -238,6 +241,10 @@ class PersonalStdioServer(OperatorStdioServer):
         return deepcopy(self._server_catalog)
 
     def tool_result(self,name,arguments):
+        if name == character_set_trial.APP_TOOL:
+            return self._character_trial.app(arguments)
+        if name == character_set_trial.MODEL_TOOL:
+            return self._character_trial.model(arguments)
         # One hook surrounds every formal tool and its MCP representation.
         from .support_protocol import refreshes_director_catalog
         from .video_director_protocol import MEDIA as DIRECTOR_MEDIA
@@ -277,10 +284,26 @@ class PersonalStdioServer(OperatorStdioServer):
         try:
             super().serve(source, destination)
         finally:
+            self._character_form.close()
             try:
                 self.router.live.close()
             finally:
                 self._close_services()
+
+    def handle_frame(self, message, send):
+        if self._character_form.receive(message):
+            return None
+        if self.ready and type(message) is dict and message.get('jsonrpc') == '2.0' and message.get('method') == 'tools/call':
+            params = message.get('params')
+            if (type(params) is dict and not set(params) - {'name', 'arguments', '_meta'}
+                    and type(params.get('_meta', {})) is dict and params.get('name') == character_set_trial.MODEL_TOOL
+                    and type(params.get('arguments')) is dict and params['arguments'].get('action') == 'confirm'
+                    and type(message.get('id')) in {str, int}):
+                result = self._character_form.request(message['id'], params['arguments'], send)
+                if result is not None:
+                    return {'jsonrpc': '2.0', 'id': message['id'], 'result': result}
+                return None
+        return super().handle_frame(message, send)
 
     def _close_services(self):
         try:
@@ -375,6 +398,7 @@ class PersonalStdioServer(OperatorStdioServer):
             result['content'] = [{'type': 'text', 'text': text}]
         if (type(message) is dict and message.get('method') == 'initialize'
                 and reply is not None and 'result' in reply):
+            self._character_form.capabilities(message['params'])
             from .own_branding import host_icons
             reply['result']['serverInfo'] = {**self._server_identity, 'icons': list(host_icons())}
             reply['result']['capabilities'].update({'resources': {}, 'extensions': {
