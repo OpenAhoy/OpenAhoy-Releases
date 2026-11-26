@@ -162,6 +162,8 @@ class WorkspaceBroker:
         except OSError:
             raise WCEError('WECHAT_COMPONENT_SERVICE_UNAVAILABLE') from None
 
+        if status in (401, 403):
+            return status, {}
         if len(data) > MAX_BODY:
             _bad()
         try:
@@ -268,6 +270,8 @@ class ComponentBinding:
     def _project_status(self, code, value, action):
         if code == 200:
             return None
+        if code == 401:
+            return {'status': 'WORKSPACE_AUTHENTICATION_REQUIRED', 'http_status': code}
         if code == 403:
             return {'status': 'WORKSPACE_NOT_REGISTERED', 'http_status': code}
         if code == 409:
@@ -299,6 +303,8 @@ class ComponentBinding:
             return {'status': state, 'http_status': code}
         if code == 404 and state == 'TARGET_UNVERIFIED':
             return {'status': state, 'http_status': code}
+        if code not in (200, 404):
+            return self._project_status(code, value, 'target')
         return {'status': 'REAUTH_TARGET_UNCONFIRMED', 'http_status': code}
 
     def _profile_status(self, proof, target):
@@ -378,8 +384,6 @@ class ComponentBinding:
     def _action(self, operation, proof, target=None, cid=None, first_direct=False):
         if target and self._removals().get(target, {}).get('state') == 'PENDING':
             return {'status': 'REAUTH_INTENT_CONFLICT'}
-        if operation == 'TARGET_STATUS':
-            return self._target_status(proof, target, cid, first_direct)
         if operation == 'PROFILE_STATUS':
             return self._profile_status(proof, target) if target else {'status':'PROFILE_UNAVAILABLE'}
         if operation == 'WORKSPACE_STATUS':
@@ -388,6 +392,10 @@ class ComponentBinding:
         active = saved is not None and (saved['state'] in ACTIVE or saved['state']=='START_RECOVERY_REQUIRED')
         if active and (saved.get('expected_authorizer_appid') != target or saved.get('connection_id') != cid):
             return {'status': 'REAUTH_INTENT_CONFLICT'}
+        if operation == 'TARGET_STATUS':
+            if active:
+                return {'status': 'ORIGINAL_AUTHORIZATION_PENDING', 'account_id': target, 'connection_id': cid}
+            return self._target_status(proof, target, cid, first_direct)
         if operation == 'STATUS':
             if active and saved['transaction'] is not None:
                 return self._flow_status(proof, saved, 'status')
