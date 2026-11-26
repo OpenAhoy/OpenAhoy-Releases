@@ -27,6 +27,9 @@ HTML = r'''
   <button id="wxPictureRead" type="button">查回原请求</button>
   <button id="wxPicturePublish" type="button" hidden>普通发表</button>
   <button id="wxPicturePoll" type="button" hidden>查询原发表</button>
+  <button id="wxPictureNotify" type="button" hidden>同时群发通知</button>
+  <button id="wxPictureFallback" type="button" hidden>改为普通发表</button>
+  <label id="wxPictureConfirmNotifyRow" hidden><input id="wxPictureConfirmNotify" type="checkbox"> 确认将本组图文群发给当前公众号的全部关注者</label>
   <button id="wxPictureNew" type="button">新建图片消息</button>
  </div>
  <p id="wxPictureStatus" aria-live="polite"></p>
@@ -54,11 +57,19 @@ const OAWechatPictures=host=>{
    for(const id of ['Save','Read','Load','Draft','Files','Title','Text','Publish','Poll','New'])
      el(id).disabled=!account||busy;
    for(const control of el('Group').querySelectorAll('button,input'))control.disabled=!account||busy;
-   el('Publish').hidden=!observed?.intent_handle||!!publication?.intent_handle;
-   el('Poll').hidden=!publication?.intent_handle;
+   const started=!!publication&&publication.state!=='NOT_ATTEMPTED';
+   const hasSource=!!observed?.intent_handle;
+   const notify=hasSource&&observed?.kind==='merge'&&!observed.contains_picture_messages&&!started;
+   el('Publish').hidden=!hasSource||started;
+   el('Poll').hidden=!hasSource&&!publication?.intent_handle;
+   el('Notify').hidden=el('ConfirmNotifyRow').hidden=!notify;
+   el('ConfirmNotify').disabled=busy||!account;
+   el('Notify').disabled=busy||!account||!el('ConfirmNotify').checked;
+   el('Fallback').hidden=!publication?.fallback_allowed;
+   el('Fallback').disabled=busy||!account;
  }
  function reset(){
-   files=[];draft=null;observed=null;observedHandle='';publication=null;
+   files=[];draft=null;observed=null;observedHandle='';publication=null;el('ConfirmNotify').checked=false;
    for(const id of ['Title','Text','Files'])el(id).value='';
    el('Draft').replaceChildren();el('Draft').hidden=true;el('Links').replaceChildren();
    el('Group').hidden=true;el('Group').open=false;el('GroupItems').replaceChildren();el('GroupConfirm').checked=false;
@@ -142,7 +153,7 @@ const OAWechatPictures=host=>{
            ADD_REJECTED:'微信拒绝合并，原稿保留',PRESERVATION_MISMATCH:'新组内容有差异，原稿保留'})[value.state];
    note(message?copy(message):contentStatus(value));
    if(value.state==='COMPLETED'){
-     observed=value;publication=null;el('Group').open=false;el('Group').hidden=true;
+     observed=value;publication=null;el('ConfirmNotify').checked=false;el('Group').open=false;el('Group').hidden=true;
      el('Draft').replaceChildren();el('Draft').hidden=true;draft=null;
    }
  }
@@ -197,7 +208,7 @@ const OAWechatPictures=host=>{
    const action=draft?'update_picture':'create_picture';
    const original=await call(target,tool,{action,request_key:key,article,
      ...(draft?{selection:draft.selection,index:draft.index}:{})});
-   observed=original;observedHandle=original.operation_handle;
+   observed=original;observedHandle=original.operation_handle;publication=null;el('ConfirmNotify').checked=false;
    localStorage.setItem(durable(target,'operation'),observedHandle);
    note(contentStatus(original));
  });
@@ -207,23 +218,39 @@ const OAWechatPictures=host=>{
    const handle=row?.operation_handle||observedHandle;
    if(!handle)throw Error('本号暂无原请求');
    observed=await call(target,tool,{action:'readback',operation_handle:handle});
-   observedHandle=handle;note(contentStatus(observed));
- });
- el('Publish').onclick=()=>run(async target=>{
-   const handle=observed?.intent_handle;
-   if(!handle)return;
-   const value=await call(target,'own.publications.current.dispatch',{intent_handle:handle});
-   publication=value;note(value.state);
- });
- el('Poll').onclick=()=>run(async target=>{
-   if(!publication?.intent_handle)return;
-   const value=await call(target,'own.publications.current.poll',{intent_handle:publication.intent_handle});
-   publication=value;note(value.state);
-   el('Links').replaceChildren();
-   for(const [index,url] of value.article_urls||[]){
-     const row=make('li'),link=make('a');link.href=url;link.rel='noreferrer noopener';link.target='_blank';
-     OAUI.set(link,'查看第 {0} 篇',index);row.append(link);el('Links').append(row);
+   observedHandle=handle;publication=null;el('ConfirmNotify').checked=false;note(contentStatus(observed));
+   if(observed?.intent_handle){
+     const status=await call(target,'own.publications.current.status',{intent_handle:observed.intent_handle});
+     if(status.state!=='NOT_ATTEMPTED')showPublication(status);
    }
+ });
+ function showPublication(value){
+   publication=value;note(OAWechatPublication.text(value));
+   OAWechatPublication.links(el('Links'),value,url=>void host.openLink(url).catch(()=>note(copy('当前宿主无法打开链接'))));
+ }
+ const publish=(mode,fallback=false)=>run(async target=>{
+   const handle=fallback?publication?.intent_handle:observed?.intent_handle;
+   if(!handle||mode==='notify'&&!el('ConfirmNotify').checked)return;
+   el('ConfirmNotify').checked=false;
+   try{
+     showPublication(await call(target,'own.publications.current.dispatch',{
+        intent_handle:handle,mode,...(fallback?{fallback_from_notify:true}:{})}));
+   }catch(error){
+     const original=await call(target,'own.publications.current.status',{intent_handle:handle});
+     if(original.state==='NOT_ATTEMPTED')throw error;
+     showPublication(original);
+   }
+ });
+ el('Publish').onclick=()=>publish('ordinary');
+ el('Notify').onclick=()=>publish('notify');
+ el('Fallback').onclick=()=>publish('ordinary',true);
+ el('ConfirmNotify').onchange=controls;
+ el('Poll').onclick=()=>run(async target=>{
+   const handle=publication?.intent_handle||observed?.intent_handle;
+   if(!handle)return;
+   const original=await call(target,'own.publications.current.status',{intent_handle:handle});
+   showPublication(original.state==='NOT_ATTEMPTED'||original.route==='MASS_SENDALL'&&!original.task_id?original:
+     await call(target,'own.publications.current.poll',{intent_handle:original.intent_handle}));
  });
  el('New').onclick=()=>{reset();controls();};
  return {refresh};

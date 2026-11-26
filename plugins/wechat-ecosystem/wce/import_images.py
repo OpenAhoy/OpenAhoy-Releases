@@ -29,7 +29,7 @@ def decode_import_png(raw):
     This returns every unpremultiplied RGBA byte without compositing a background.
     """
     if type(raw) is not bytes or not 0<len(raw)<=2097152 or not raw.startswith(b'\x89PNG\r\n\x1a\n'):fail()
-    pos=8;count=0;channels=None;seen=False;background=False;idat=False;parts=[raw[:8]]
+    pos=8;count=0;channels=None;indexed=False;palette_size=0;seen=False;background=False;idat=False;parts=[raw[:8]]
     ancillary=set();omitted=False
     while pos<len(raw):
         count+=1
@@ -39,13 +39,18 @@ def decode_import_png(raw):
         data=raw[pos+8:end-4]
         if zlib.crc32(data,zlib.crc32(kind))&0xffffffff!=int.from_bytes(raw[end-4:end],'big'):fail()
         if count==1:
-            if kind!=b'IHDR' or length!=13 or data[8]!=8 or data[9] not in (2,6):fail()
-            channels=3 if data[9]==2 else 4
+            if kind!=b'IHDR' or length!=13 or data[8]!=8 or data[9] not in (2,3,6):fail()
+            indexed=data[9]==3
+            channels=4 if data[9]==6 else 3
+        if indexed and kind==b'PLTE':palette_size=length//3
         if kind==b'sBIT':
             if seen or idat or channels is None or data!=b'\x08'*channels:fail()
             seen=True;omitted=True
         elif kind==b'bKGD':
-            if background or idat or channels is None or length!=6 or any(v>255 for v in struct.unpack('>HHH',data)):fail()
+            if background or idat or channels is None:fail()
+            if indexed:
+                if length!=1 or data[0]>=palette_size:fail()
+            elif length!=6 or any(v>255 for v in struct.unpack('>HHH',data)):fail()
             background=True;omitted=True
         elif kind in (b'pHYs',b'sRGB',b'gAMA'):
             if kind in ancillary or idat or channels is None:fail()
@@ -62,7 +67,7 @@ def decode_import_png(raw):
         if kind==b'IDAT':idat=True
         pos=end
     if b'gAMA' in ancillary and b'sRGB' not in ancillary:fail()
-    return decode_png(b''.join(parts) if omitted else raw)
+    return decode_png(b''.join(parts) if omitted else raw,local_indexed=indexed)
 
 
 # Exact empty IPTC dataset and its MD5 resource, with empty Pascal names. This

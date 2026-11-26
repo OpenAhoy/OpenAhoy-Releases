@@ -30,6 +30,16 @@ ARK_MODELS = {
     PRO_FAST: (('text', 'first'), 2, 12, ('480p', '720p', '1080p'), False),
 }
 SUPPORTED_MODELS = tuple(ARK_MODELS)
+BYTEPLUS_PROVIDER = 'ark_global'
+BYTEPLUS_STANDARD = 'dreamina-seedance-2-0-260128'
+BYTEPLUS_25 = 'dreamina-seedance-2-5-260628'
+BYTEPLUS_MODES = ('text', 'first', 'frames', 'reference')
+BYTEPLUS_MODELS = {
+    BYTEPLUS_25: (BYTEPLUS_MODES, 4, 30, ('480p', '720p', '1080p'), True),
+    BYTEPLUS_STANDARD: (BYTEPLUS_MODES, 4, 15, ('480p', '720p', '1080p'), True),
+}
+BYTEPLUS_RESULT_HOST = 'ark-content-generation-ap-southeast-1.tos-ap-southeast-1.volces.com'
+BYTEPLUS_TASKS = 'https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks'
 TASKS = 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks'
 RESULT_HOSTS = frozenset({'ark-content-generation-cn-beijing.tos-cn-beijing.volces.com',
                           'ark-acg-cn-beijing.tos-cn-beijing.volces.com'})
@@ -95,15 +105,17 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def validate_model(model):
-    if model not in SUPPORTED_MODELS:
+def validate_model(model, models=ARK_MODELS):
+    if model not in models:
         raise WCEError('VIDEO_MODEL_UNSUPPORTED')
 
 
 def request_body(prompt, frames, *, model=MODEL, mode='frames', duration=5, resolution='720p',
-                 audio=False, reference=None, direction=None, ratio='adaptive'):
-    validate_model(model)
-    modes, minimum, maximum, resolutions, supports_audio = ARK_MODELS[model]
+                 audio=False, reference=None, direction=None, ratio='adaptive', provider=None):
+    international = provider == BYTEPLUS_PROVIDER
+    models = BYTEPLUS_MODELS if international else ARK_MODELS
+    validate_model(model, models)
+    modes, minimum, maximum, resolutions, supports_audio = models[model]
     if mode not in modes:
         raise WCEError('VIDEO_MODE_UNSUPPORTED')
     if type(duration) is not int or not minimum <= duration <= maximum and not (
@@ -115,7 +127,7 @@ def request_body(prompt, frames, *, model=MODEL, mode='frames', duration=5, reso
         raise WCEError('VIDEO_OUTPUT_INVALID')
     if mode == 'edit' and duration != -1 or mode == 'extend' and direction not in ('before','after'):
         raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
-    minimum, maximum = {'first': (1, 1), 'frames': (2, 2), 'reference': (1, MAX_REFERENCE_IMAGES)}.get(mode, (0, 0))
+    minimum, maximum = {'first': (1, 1), 'frames': (2, 2), 'reference': (1, 9 if international else MAX_REFERENCE_IMAGES)}.get(mode, (0, 0))
     if not minimum <= len(frames) <= maximum or (mode in ('edit', 'extend')) != bool(reference):
         raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
     if mode == 'extend':
@@ -133,9 +145,10 @@ def request_body(prompt, frames, *, model=MODEL, mode='frames', duration=5, reso
              'ratio': ratio}
     if supports_audio:
         value['generate_audio'] = audio
-    if model in (MODEL, FLASH):
+    if model in (MODEL, FLASH, BYTEPLUS_25):
         value['output_format'] = 'mp4'
-    if mode in ('reference', 'edit', 'extend'):
+    if (not international and mode in ('reference', 'edit', 'extend')
+            or model == BYTEPLUS_25 and mode == 'reference'):
         value['omni_reference_task_type'] = mode
     raw = json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode()
     if len(raw) > MAX_REQUEST:
@@ -158,6 +171,9 @@ def result_url(url):
 
 
 class Ark:
+    tasks = TASKS
+    supported_models = ARK_MODELS
+
     def __init__(self, opener=None):
         self.opener = opener if opener is not None else build_opener(ProxyHandler({}), NoRedirect())
 
@@ -195,16 +211,16 @@ class Ark:
             raise WCEError('VIDEO_PROVIDER_UNAVAILABLE') from None
 
     def submit(self, key, body):
-        task = self._json(TASKS, key, body).get('id')
+        task = self._json(self.tasks, key, body).get('id')
         if type(task) is not str or not TASK_ID.fullmatch(task):
             raise WCEError('VIDEO_TASK_ID_UNKNOWN')
         return task
 
     def query(self, key, task, *, model=MODEL):
-        validate_model(model)
+        validate_model(model, self.supported_models)
         if type(task) is not str or not TASK_ID.fullmatch(task):
             raise WCEError('VIDEO_TASK_ID_UNKNOWN')
-        value = self._json(TASKS + '/' + task, key)
+        value = self._json(self.tasks + '/' + task, key)
         if value.get('id') != task or value.get('model') != model:
             raise WCEError('VIDEO_TASK_ID_MISMATCH')
         if value.get('status') == 'failed':
@@ -221,25 +237,50 @@ class Ark:
         self._download(url, output)
 
     def _download(self, url, output):
-        try:
-            with self.opener.open(Request(url, headers={'Accept': 'video/mp4'}), timeout=25) as response:
-                size = 0
-                deadline = time.monotonic() + 90
-                while chunk := response.read(65536):
-                    if time.monotonic() >= deadline:
-                        raise WCEError('VIDEO_DOWNLOAD_INCOMPLETE')
-                    size += len(chunk)
-                    if size > MAX_RESULT:
-                        raise WCEError('VIDEO_RESULT_TOO_LARGE')
-                    output.write(chunk)
-                length = response.headers.get('Content-Length')
-                if not size or (length is not None and str(size) != length):
+        download_mp4(self.opener, url, output)
+
+
+def download_mp4(opener, url, output):
+    try:
+        with opener.open(Request(url, headers={'Accept': 'video/mp4'}), timeout=25) as response:
+            size = 0
+            deadline = time.monotonic() + 90
+            while chunk := response.read(65536):
+                if time.monotonic() >= deadline:
                     raise WCEError('VIDEO_DOWNLOAD_INCOMPLETE')
-        except HTTPError as error:
-            code = error.code
-            error.close()
-            if code in (401, 403, 404, 410):
-                raise WCEError('VIDEO_RESULT_URL_UNAVAILABLE') from None
-            raise WCEError('VIDEO_DOWNLOAD_INCOMPLETE') from None
-        except (OSError, HTTPException, ValueError):
-            raise WCEError('VIDEO_DOWNLOAD_INCOMPLETE') from None
+                size += len(chunk)
+                if size > MAX_RESULT:
+                    raise WCEError('VIDEO_RESULT_TOO_LARGE')
+                output.write(chunk)
+            length = response.headers.get('Content-Length')
+            if not size or (length is not None and str(size) != length):
+                raise WCEError('VIDEO_DOWNLOAD_INCOMPLETE')
+    except HTTPError as error:
+        code = error.code
+        error.close()
+        if code in (401, 403, 404, 410):
+            raise WCEError('VIDEO_RESULT_URL_UNAVAILABLE') from None
+        raise WCEError('VIDEO_DOWNLOAD_INCOMPLETE') from None
+    except (OSError, HTTPException, ValueError):
+        raise WCEError('VIDEO_DOWNLOAD_INCOMPLETE') from None
+
+
+class BytePlusArk(Ark):
+    tasks = BYTEPLUS_TASKS
+    supported_models = BYTEPLUS_MODELS
+
+    def __init__(self, opener=None):
+        from .video_relay import PublicHTTPSHandler
+
+        super().__init__(opener if opener is not None else build_opener(
+            ProxyHandler({}), NoRedirect(), PublicHTTPSHandler()))
+
+    def download(self, url, output):
+        from .video_relay import https_url
+
+        # Only a result returned by the pinned task API reaches here. The opener pins a public
+        # address, disallows redirects, and the download carries no provider credential.
+        parts = https_url(url, 'VIDEO_RESULT_SOURCE_INVALID')
+        if parts.netloc != BYTEPLUS_RESULT_HOST or not parts.path.startswith('/'):
+            raise WCEError('VIDEO_RESULT_SOURCE_INVALID')
+        self._download(url, output)

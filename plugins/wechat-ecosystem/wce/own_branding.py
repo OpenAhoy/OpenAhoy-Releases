@@ -36,10 +36,14 @@ def host_icons():
 
 
 @cache
-def jiusera_header():
+def jiusera_header(color_only=False):
     images = []
-    for variant in ('color', 'white'):
+    for variant in ('color',) if color_only else ('color', 'white'):
         raw = (_PACKAGE / f'assets/jiusera/Jiusera-horizontal-{variant}.svg').read_bytes()
+        if color_only:
+            # Trim the official wordmark's asymmetric horizontal transparent margins in the notch.
+            raw = raw.replace(b'width="1420" height="485" viewBox="0 0 1420 485"',
+                              b'width="1196" height="485" viewBox="96 0 1196 485"', 1)
         src = 'data:image/svg+xml;base64,' + base64.b64encode(raw).decode('ascii')
         images.append(f'<img src="{src}" alt="">')
     return '<span class="oa-brand-logo oa-jiusera-logo" role="img" aria-label="Jiusera">' + ''.join(images) + '</span>'
@@ -61,3 +65,10 @@ def openahoy_symbol():
         src = 'data:image/svg+xml;base64,' + base64.b64encode(raw).decode('ascii')
         images.append(f'<img src="{src}" alt="">')
     return '<span class="wb-openahoy-mark" aria-hidden="true">' + ''.join(images) + '</span>'
+
+
+@cache
+def l_unify_symbol():
+    raw = (_PACKAGE / 'assets/l-unify/l-unify-studio-mark.svg').read_bytes()
+    src = 'data:image/svg+xml;base64,' + base64.b64encode(raw).decode('ascii')
+    return f'<span class="wb-unify-mark" aria-hidden="true" style="--wb-unify-mask:url({src})"></span>'

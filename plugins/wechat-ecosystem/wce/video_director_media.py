@@ -13,6 +13,8 @@ import tempfile
 from .bounded_file import FileSource, file_state, identity
 from .contracts import WCEError
 from . import video_autodl_catalog as autodl
+from . import video_sand as sand
+from . import video_vidmuse as vidmuse
 from .own_bootstrap_security import path_check
 from .own_connection_policy import locked
 from .own_connection_registry import mkdir
@@ -25,7 +27,7 @@ from .video_engine_catalog import CHANNELS, REFERENCE, mode_profiles, validate_c
 from .video_relay import RELAY_MODEL, workflow_body
 from .video_relay_keychain import RelayKeychain
 from .video_provider_ui import directory as provider_directory
-from .video_seedance import ARK_MODELS, request_body
+from .video_seedance import ARK_MODELS, BYTEPLUS_PROVIDER, request_body
 from .video_tokenhex import TokenHexKeychain
 
 IMAGE_ROLES = ('composition', 'first', 'last', 'subject', 'environment', 'reference')
@@ -324,9 +326,9 @@ def models(tokenhex=None):
     observed = tokenhex or {'state': 'NOT_CHECKED', 'models': []}
     available = set(observed['models'])
     verified = observed['state'] in ('MODELS_VISIBLE', 'NO_SUPPORTED_MODELS', 'EMPTY_CATALOG')
-    candidates = {'ark': catalog['ark'], 'cn': catalog['minimax'], 'global': catalog['minimax'],
+    candidates = {'ark': catalog['ark'], BYTEPLUS_PROVIDER: catalog[BYTEPLUS_PROVIDER], 'cn': catalog['minimax'], 'global': catalog['minimax'],
                   'relay': [{'id': RELAY_MODEL, 'name': 'MiniMax H3', 'version': 'workflow'}],
-                  'tokenhex': catalog['ark']}
+                  'tokenhex': catalog['ark'], sand.PROVIDER: catalog[sand.PROVIDER]}
     rows = {}
     for channel, entries in candidates.items():
         results = []
@@ -339,8 +341,8 @@ def models(tokenhex=None):
             results.append(dict(row, modes=list(profiles), profiles=profiles, visibility=visibility))
         rows[channel] = results
     return {'models': rows, 'channels': CHANNELS,
-            'connections': {provider: status(provider=provider)['state'] for provider in ('ark', *SITES)}
-            | {'relay': configured_connection(RelayKeychain), 'tokenhex': configured_connection(TokenHexKeychain)},
+            'connections': {provider: status(provider=provider)['state'] for provider in ('ark', BYTEPLUS_PROVIDER, sand.PROVIDER, *SITES)}
+            | {'relay': configured_connection(RelayKeychain), 'tokenhex': configured_connection(TokenHexKeychain), 'vidmuse':'NOT_CHECKED'},
             'tokenhex_catalog': {'state': observed['state'], 'models': [r['id'] for r in rows['tokenhex']
                                                                        if r['visibility'] == 'VISIBLE']}
                                 | {k: observed[k] for k in ('selected_model', 'native_verified') if k in observed}}
@@ -381,6 +383,10 @@ def compute_request(jobs, context, root, scratch):
     if is_minimax:
         encoder = v1_body if model in V1_MODELS else h3_body
         encoder(prompt, frames, model=model, **params)
+    elif provider == sand.PROVIDER:
+        sand.validate_inputs(prompt, frames, audio=config.get('audio', False), **params)
+    elif provider == vidmuse.PROVIDER:
+        require(all(mime in ('image/png','image/jpeg') for mime,_ in frames), 'VIDEO_FRAME_INVALID')
     else:
         reference = None
         if source := config.get('source'):
@@ -391,6 +397,6 @@ def compute_request(jobs, context, root, scratch):
             facts = preview_result(jobs, pid, source)
             require((4 if mode == 'edit' else 2) <= facts['seconds'] <= 30, 'VIDEO_REFERENCE_DURATION_INVALID')
             reference = source.get('reference_asset') or 'asset://openahoy-preflight'
-        request_body(prompt, frames, model=model, reference=reference,
+        request_body(prompt, frames, model=model, reference=reference, provider=provider,
                      audio=config.get('audio', False), direction=config.get('direction'), **params)
     return receipt | {'inputs': inputs}

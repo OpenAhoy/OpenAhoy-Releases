@@ -9,6 +9,8 @@ import stat
 from .bounded_file import FileSource, file_state
 from .contracts import WCEError
 from . import video_autodl_catalog as autodl
+from . import video_sand as sand
+from . import video_vidmuse as vidmuse
 from .own_connection_policy import read_optional
 from .service import digest
 from .video_director import display_name, lookup, require
@@ -16,7 +18,7 @@ from .video_jobs import PLAYBACK_CHUNK, RECEIPT_MAX, probe
 from .video_engine_catalog import REFERENCE, validate_config
 from .video_minimax import subject_body
 from .video_relay import RELAY_MODEL, workflow_body
-from .video_seedance import ARK_MODELS
+from .video_seedance import ARK_MODELS, BYTEPLUS_MODELS, BYTEPLUS_PROVIDER
 
 ACTIVE = {'SUBMITTED', 'QUEUED', 'RUNNING', 'SAVE_PENDING'}
 OBSERVED = ACTIVE | {'ASSET_READY', 'SUBMIT_UNKNOWN', 'SUBMIT_REJECTED', 'FAILED',
@@ -26,6 +28,12 @@ OBSERVED = ACTIVE | {'ASSET_READY', 'SUBMIT_UNKNOWN', 'SUBMIT_REJECTED', 'FAILED
 def channel(request):
     if request['model'] == RELAY_MODEL:
         return 'relay'
+    if request.get('provider') == BYTEPLUS_PROVIDER and request['model'] in BYTEPLUS_MODELS:
+        return BYTEPLUS_PROVIDER
+    if request.get('provider') == sand.PROVIDER and request['model'] == sand.MODEL:
+        return sand.PROVIDER
+    if request.get('provider') == vidmuse.PROVIDER and request['model'] == vidmuse.MODEL:
+        return vidmuse.PROVIDER
     if request.get('provider') == 'tokenhex':
         return 'tokenhex'
     if request.get('provider_site') in ('cn', 'global'):
@@ -69,7 +77,7 @@ def receipt_witness(revision, project):
     params = {k: config[k] for k in ('duration', 'resolution', 'ratio', 'direction') if k in config}
     if config['provider'] == 'tokenhex':
         params.pop('ratio', None)
-    if config['provider'] in ('ark', 'tokenhex'):
+    if config['provider'] in ('ark', 'tokenhex', BYTEPLUS_PROVIDER, sand.PROVIDER, vidmuse.PROVIDER):
         params['audio'] = config.get('audio', False)
     if source := config.get('source'):
         params.update(source_attempt_id=source['attempt_id'], source_sha256=source['sha256'])
@@ -128,7 +136,8 @@ def verify_local_video(root, relative, pin, checksum):
             isfinite(seconds) and seconds > 0 and file_state(path.lstat()) == pin,
             'DIRECTOR_WORK_VIDEO_INVALID')
     return {'sha256': checksum, 'bytes': length, 'seconds': seconds,
-            'audio_tracks': facts.get('audio_tracks', 0)}
+            'audio_tracks': facts.get('audio_tracks', 0),
+            **{k: facts[k] for k in ('width', 'height') if k in facts}}
 
 
 def shot_video_node(work, shot_id):
@@ -283,8 +292,11 @@ def inbox_cards(rows, jobs, project):
 def inbox_playback(rows, jobs, args):
     row = lookup(rows, args['delivery_id'], 'DIRECTOR_RESULT_UNAVAILABLE')
     attempt, project = row['generation_attempt_id'], args['project_id']
-    _, asset, _ = jobs._playable(attempt, project)
+    path, asset, pin = jobs._playable(attempt, project)
     require(asset['sha256'] == args['sha256'], 'DIRECTOR_ASSET_CHANGED')
+    if 'time_us' in args:
+        from .video_director_frame import read
+        return read(path, pin, asset['sha256'], args['time_us'], asset['seconds'])
     if 'offset' in args:
         result = jobs.playback(attempt, project, args['offset'])
         require(result['sha256'] == args['sha256'], 'DIRECTOR_ASSET_CHANGED')
@@ -308,6 +320,33 @@ def register_work_video(root, work, args):
         films[delivery_id] = {'file': file, 'asset': asset, 'title': display_name(args['title'])}
         chat_path = str(path)
     return {'work_id': work['id'], 'delivery_id': delivery_id, 'asset': asset, 'chat_path': chat_path}
+
+
+def sand_status_hint(row):
+    error = row.get('submit_diagnostic') or {}
+    if row['state'] == 'SUBMIT_UNKNOWN':
+        return 'Sand AI 原请求结果待确认，未自动重发。'
+    if row.get('query_error') == 'VIDEO_QUERY_AUTH_REQUIRED' or (
+            row['state'] == 'SUBMIT_REJECTED' and error.get('http_status') in (401, 403)):
+        return 'Sand AI 密钥或模型权限待核验。'
+    if row.get('query_error') == 'VIDEO_QUERY_RATE_LIMITED' or (
+            row['state'] == 'SUBMIT_REJECTED' and error.get('http_status') == 429):
+        return 'Sand AI 请求受限，请稍后查原任务。'
+    if row.get('query_error') == 'VIDEO_PROVIDER_UNAVAILABLE':
+        return 'Sand AI 网络暂不可用，稍后继续查原任务。'
+    if row.get('query_error') == 'VIDEO_TASK_NOT_FOUND':
+        return 'Sand AI 未找到原任务，请核对该组织的连接。'
+    if row.get('download_error'):
+        return '暂未取到 Sand AI 成片，稍后检查原任务。'
+    if row['state'] == 'SUBMIT_REJECTED':
+        if error.get('provider_code') == 'insufficient_credits':
+            return 'Sand AI 账户额度不足。'
+        if error.get('phase') == 'upload':
+            return 'Sand AI 参考图上传未完成，未发起生成。'
+        return 'Sand AI 拒绝这次生成，请核对原请求。'
+    if row['state'] == 'FAILED':
+        return 'Sand AI 原任务生成失败。'
+    return ''
 
 
 def collect(jobs, root, project, work, *, poll_attempt=None):
@@ -335,6 +374,16 @@ def collect(jobs, root, project, work, *, poll_attempt=None):
                 request = row['request']
                 card.update(state=row['state'] if row['state'] in OBSERVED else 'UNKNOWN',
                             engine={'provider': channel(request), 'model': request['model']})
+                if request.get('provider') == sand.PROVIDER:
+                    if hint := sand_status_hint(row):
+                        card['status_hint'] = hint
+                if request.get('provider') == vidmuse.PROVIDER:
+                    if row['state'] == 'SUBMIT_UNKNOWN':
+                        card['status_hint'] = 'VidMuse 原请求结果待确认，未自动重发。'
+                    elif row.get('query_error') in ('VIDEO_QUERY_AUTH_REQUIRED','VIDMUSE_ACCOUNT_CHANGED'):
+                        card['status_hint'] = '请连接提交该任务的 VidMuse 账号。'
+                    elif row.get('download_error'):
+                        card['status_hint'] = '暂未取到 VidMuse 成片，稍后检查原任务。'
                 binding = row.get('director_binding') or {}
                 if (binding.get('kind') == 'shot' and binding.get('work_id') == work['id']
                         and binding.get('project_id') == project
@@ -354,7 +403,8 @@ def collect(jobs, root, project, work, *, poll_attempt=None):
                             'DIRECTOR_ASSET_CHANGED')
                     card['asset'] = {'family': 'video', 'project_id': project, 'attempt_id': attempt,
                                      **{k: asset[k] for k in ('sha256', 'bytes', 'seconds')},
-                                     'audio_tracks': asset.get('audio_tracks', 0)}
+                                     'audio_tracks': asset.get('audio_tracks', 0),
+                                     **{k: asset[k] for k in ('width', 'height') if k in asset}}
                     card['adopted'] = adopted == {'candidate_id': identifier, 'sha256': asset['sha256']}
         except (OSError, WCEError, KeyError, TypeError):
             card['state'] = 'UNAVAILABLE'
@@ -395,6 +445,9 @@ def playback(jobs, root, work, args):
     if identifier in work.get('films', {}):
         file, pin, asset = work_video(root, work, args)
         require(asset['sha256'] == args['sha256'], 'DIRECTOR_ASSET_CHANGED')
+        if 'time_us' in args:
+            from .video_director_frame import read
+            return read(root / file['path'], pin, asset['sha256'], args['time_us'], asset['seconds'])
         if 'offset' in args:
             return chunk(root, work, args)
         start = args['start']
@@ -405,6 +458,11 @@ def playback(jobs, root, work, args):
         return {'start': start, **frames}
     spec = candidate_spec(work, identifier)
     verified_candidate(jobs, project, spec, args['sha256'])
+    if 'time_us' in args:
+        from .video_director_frame import read
+        path, asset, pin = jobs._playable(spec['attempt_id'], project)
+        require(asset['sha256'] == args['sha256'], 'DIRECTOR_ASSET_CHANGED')
+        return read(path, pin, asset['sha256'], args['time_us'], asset['seconds'])
     if 'offset' in args:
         part = jobs.playback(spec['attempt_id'], project, args['offset'])
         require(part['sha256'] == args['sha256'], 'DIRECTOR_ASSET_CHANGED')

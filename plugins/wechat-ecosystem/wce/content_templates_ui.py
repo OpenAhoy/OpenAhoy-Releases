@@ -130,8 +130,23 @@ window.OACreativeTemplates={mount(rules,host){
   }catch(e){if(captured===epoch)say('模板暂不可用：{0}；现有生产规则及发文通路不受影响。',e.message);}
   finally{busy=false;buttons();if(reloadPending&&ready){reloadPending=false;void load();}}
  }
+ async function featured(){
+   const list=await read({view:'catalog'}),row=list.templates?.[0];
+   if(!row)return null;
+   const data=await read({view:'manifest',template_id:row.id,version:row.version});
+   if(data.manifest_sha256!==row.manifest_sha256||data.manifest_file.sha256!==row.manifest_sha256)
+     throw Error('TEMPLATE_CHANGED');
+   const material=JSON.parse(decode.decode(await bytes(data,'manifest.json',data.manifest_file)));
+   if(material.id!==row.id||material.version!==row.version)throw Error('TEMPLATE_CHANGED');
+   return {...material,manifest_sha256:row.manifest_sha256};
+ }
  async function refreshTarget(){const cid=target()?.connection_id||'';if(cid!==lastTarget){lastTarget=cid;epoch++;if(busy)reloadPending=true;else if(!$('creativeTemplates').hidden)await load();}}
- $('templateReload').addEventListener('click',()=>load());$('templateClose').addEventListener('click',release);
- return {setReady(value){ready=value;if(!value){epoch++;release();}buttons();},show(){return load();},targetChanged(){void refreshTarget();},dispose(){ready=false;epoch++;release();}};
+ $('templateReload').addEventListener('click',()=>load());
+ $('templateClose').addEventListener('click',()=>{release();if(!$('templateCards').childElementCount)void load();});
+ return {setReady(value){ready=value;if(!value){epoch++;release();}buttons();},show(){return load();},featured,previewFeatured(){return run(async()=>{
+   const material=await featured();
+   if(!material)throw Error('TEMPLATE_UNAVAILABLE');
+   return preview(material);
+ });},targetChanged(){void refreshTarget();},dispose(){ready=false;epoch++;release();}};
 }};
 '''

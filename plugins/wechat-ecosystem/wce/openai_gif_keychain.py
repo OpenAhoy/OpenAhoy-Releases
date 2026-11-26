@@ -3,7 +3,7 @@ from hashlib import sha256
 
 from .contracts import Secret, WCEError
 from .own_keychain import valid_secret
-from .video_keychain import VideoKeychain
+from .video_keychain import VideoKeychain, display_status
 from .x_keychain import XKeychain
 
 PROVIDER = 'openai_gif'
@@ -22,9 +22,12 @@ class GifKeychain(VideoKeychain):
         XKeychain.__init__(self)
 
 
-def status(backend=None):
+def status(backend=None, *, show_mask=False):
     try:
-        present = (backend if backend is not None else GifKeychain()).configured()
+        keychain = backend if backend is not None else GifKeychain()
+        if show_mask:
+            return display_status(keychain, SCOPE) | {'gif_access': 'UNVERIFIED'}
+        present = keychain.configured()
     except Exception:
         return {'state': 'ACTION_REQUIRED', 'gif_access': 'UNVERIFIED'}
     return {'state': 'CONFIGURED' if present else 'NOT_CONFIGURED', 'gif_access': 'UNVERIFIED'}
@@ -41,7 +44,12 @@ def save(value, backend=None):
     if not valid_secret(value):
         raise WCEError('GIF_KEY_INVALID')
     try:
-        (backend if backend is not None else GifKeychain()).put(SCOPE, Secret(value))
+        keychain = backend if backend is not None else GifKeychain()
+        keychain.put(SCOPE, Secret(value))
     except Exception:
         raise WCEError('GIF_KEYCHAIN_SAVE_FAILED') from None
-    return {'state': 'CONFIGURED', 'gif_access': 'UNVERIFIED'}
+    # Verify the same metadata-only query used by a different MCP session.
+    result = status(keychain)
+    if result['state'] != 'CONFIGURED':
+        raise WCEError('GIF_KEYCHAIN_SAVE_UNCONFIRMED')
+    return result

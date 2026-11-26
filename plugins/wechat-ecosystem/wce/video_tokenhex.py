@@ -23,8 +23,8 @@ class TokenHexKeychain(XKeychain):
     scope = sha256(service.encode()).hexdigest()
 
 
-def tokenhex_status(backend=None):
-    value = relay_status(backend, keychain=TokenHexKeychain)
+def tokenhex_status(backend=None, *, show_mask=False):
+    value = relay_status(backend, keychain=TokenHexKeychain, show_mask=show_mask)
     if value.get('base_url', TOKENHEX_ORIGIN) != TOKENHEX_ORIGIN:
         return {'state': 'ACTION_REQUIRED'}
     return value

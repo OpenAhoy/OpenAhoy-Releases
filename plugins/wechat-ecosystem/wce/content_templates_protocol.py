@@ -58,8 +58,12 @@ class TemplateRouter:
         args = dict(args)
         view = args.pop('view')
         if view == 'selected':
-            need(any(r['connection_id'] == args['connection_id'] for r in
-                     self.inner.call('own.connections.list', {})['connections']), 'TEMPLATE_ACCOUNT_MISMATCH')
+            from .wechat_component_binding import configuration_account
+            connection_id=args['connection_id']
+            need(any(r['connection_id'] == connection_id for r in
+                     self.inner.call('own.connections.list', {})['connections']) or
+                 configuration_account(self.template_rules.registry,connection_id) is not None,
+                 'TEMPLATE_ACCOUNT_MISMATCH')
             return self.templates.selected(self.template_rules, **args)
         if view == 'image':
             import base64

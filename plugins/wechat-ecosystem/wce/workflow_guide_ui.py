@@ -73,8 +73,8 @@ function OAWorkflowGuide(navigation){
  const platform=$('guidePlatform'),read=$('guideRead'),locate=$('guideLocate'),bind=$('guideBind');
  const key='openahoy.workflow-guide.v1';
  const steps=[
-   ['在 Codex 开始创作','打开导演台，在原按钮发起创作。用当前聊天的真实项目，等待作品读回后再关联。','定位创作按钮','jiusera-monitor'],
-   ['导演台','选择作品并查看监看、镜头和任务。回执在原任务里查看。','打开监看','jiusera-monitor'],
+   ['在 Codex 开始创作','在 L-unify IMW 打开视频，从当前 Codex 聊天发起创作。用当前聊天的真实项目，等待作品读回后再关联。','定位创作按钮','jiusera-monitor'],
+   ['L-unify IMW','选择作品并查看监看、镜头和任务。回执在原任务里查看。','打开监看','jiusera-monitor'],
    ['工作画布','打开当前作品的画布，检查场次、镜头和修订。需要调整时使用原编辑按钮。','打开工作画布','jiusera-canvas'],
    ['资产库','查看已登记的形象与媒体。在镜头中选图并保存修订后，核对该修订锁定的版本。','打开资产库','characters'],
    ['发布与读回','选择平台并核对当前账号、内容和草稿。确认后在原流程操作，并按原回执读回结果。','查看平台与账号','']

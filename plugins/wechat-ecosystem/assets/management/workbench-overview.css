@@ -1,0 +1,150 @@
+/* Home overview only. The content edge is shared with the asset gallery. */
+.oa-management.oa-native #wbPublished{
+ overflow:auto;overscroll-behavior:contain;scrollbar-width:none
+}
+#wbPublished .jho{
+ width:100%;height:auto;min-height:100%;box-sizing:border-box;display:grid;
+ align-content:start;grid-template-rows:auto auto;gap:clamp(14px,1.65vw,28px);
+ padding:var(--wb-top) var(--wb-tool-gutter) max(var(--wb-dock),calc(64px + env(safe-area-inset-bottom)));
+ --jho-text:var(--wb-ink);--jho-surface:var(--wb-surface);
+ --jho-tint:light-dark(#ebe8e4,#292724);--jho-quiet:light-dark(#5d5652,#c0b7af);
+ --jho-accent:light-dark(#913e33,#f3a390);--jho-line:light-dark(#ded8d2,#ffffff22);
+ --jho-raised:light-dark(3px 5px 12px #39291f17,-2px 3px 11px #0004);
+}
+.jho-first,.jho-second{min-width:0;display:grid;grid-template-columns:minmax(0,1fr);gap:inherit}
+.jho-first{grid-template-columns:minmax(0,2.7fr) minmax(229px,1fr)}
+.jho-second{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);align-items:start}
+.jho .jho-panel{min-width:0;padding:clamp(12px,1.65vw,24px);border-radius:16px;
+ background:var(--jho-surface);border:1px solid var(--jho-line);box-shadow:var(--jho-raised)
+}
+.jho h2{font-size:clamp(15px,1.55vw,21px);font-weight:675;line-height:1.2;overflow-wrap:anywhere}
+.jho .jho-note{font-size:12px;line-height:1.5;color:var(--jho-quiet)}
+.jho button:focus-visible,.jho summary:focus-visible,.jho select:focus-visible{
+ outline:2px solid var(--wb-dock-focus);outline-offset:3px
+}
+.jho .jho-panel button,.jho #wbPublishedAccount{
+ min-height:34px;padding:4px 10px;color:var(--jho-text);background:var(--jho-surface);
+ border:1px solid var(--jho-line);box-shadow:none;font-size:12px;line-height:1.35
+}
+.jho .jho-panel button:disabled{opacity:.56}
+.jho-hero{
+ display:grid;align-items:center;position:relative;isolation:isolate;container-type:inline-size;
+ min-width:0;min-height:clamp(200px,18.8vw,330px);overflow:hidden;border-radius:17px;
+ background:linear-gradient(110deg,#1f1d21 5%,#30262c 55%,#50322d);
+ color:#fff7f1;box-shadow:var(--jho-raised)
+}
+.jho-hero[data-feature=assets]{background:linear-gradient(110deg,#211c1a 5%,#362824 58%,#634438)}
+.jho-hero[data-feature=studio]{background:linear-gradient(110deg,#1f1d25 5%,#302438 58%,#523752)}
+.jho-hero-copy{z-index:1;min-width:0;padding:clamp(18px,3vw,48px);max-width:68%}
+.jho-hero-copy[hidden]{display:none}
+.jho .jho-hero-copy h2{font-size:clamp(26px,4.15cqw,61px);font-weight:720;line-height:1.02;letter-spacing:-.035em}
+.jho .jho-hero-copy p{margin-block:10px 17px;color:#f1dfd6;font-size:clamp(12px,1.6cqw,16px);line-height:1.45}
+#wbPublished .jho-hero-copy button{
+ display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:12px;min-height:40px;
+ padding:8px 12px;border:1px solid #ffe6d8;background:#f5dfd2;color:#382319;box-shadow:none;
+ border-radius:8px;white-space:normal;text-align:start
+}
+#wbPublished .jho-hero-copy button:hover{background:#fff1e5}
+.jho-hero-switch{position:absolute;z-index:2;inset:auto clamp(10px,1.4vw,20px) clamp(10px,1.4vw,20px) auto;display:flex;gap:5px}
+#wbPublished .jho-hero-switch button{
+ width:34px;height:34px;min-height:34px;padding:0;background:#271c258c;color:#fff2ea;
+ border:1px solid #fff6;box-shadow:none;border-radius:8px;font-size:21px;line-height:1
+}
+#wbPublished .jho-hero-switch button:hover{background:#5d474c}
+.jho-hero-art{position:absolute;z-index:-1;inset:0;overflow:hidden;pointer-events:none}
+.jho-hero-art::before{
+ content:'';position:absolute;inset:0 0 0 43%;opacity:.35;
+ background:radial-gradient(ellipse at 70% 20%,#cd866a 0,transparent 60%),
+ repeating-linear-gradient(0deg,transparent 0 29px,#ffd5bc29 30px 31px),
+ repeating-linear-gradient(90deg,transparent 0 29px,#ffd5bc29 30px 31px);
+ mask-image:linear-gradient(90deg,transparent,#000)
+}
+.jho-hero-art i{
+ position:absolute;right:9%;top:17%;width:22%;height:62%;border-radius:12px;
+ border:1px solid #ffe0c86c;background:linear-gradient(145deg,#e89874aa,#824a4954 60%,#452f4abb);
+ transform:rotate(-15deg) skewY(-7deg);box-shadow:0 16px 26px #19131b3d
+}
+.jho-hero-art i::after{
+ content:'';position:absolute;inset:18% 16%;border-top:1px solid #ffe5c58c;border-left:1px solid #ffe5c540;
+ background:repeating-linear-gradient(0deg,#ffe2d228 0 1px,transparent 1px 15px)
+}
+.jho-hero-art i:nth-child(2){right:17%;top:25%;transform:rotate(-13deg) skewY(-7deg)}
+.jho-hero-art i:nth-child(3){right:25%;top:33%;transform:rotate(-11deg) skewY(-7deg)}
+.jho-hero-art i:nth-child(4){display:none}
+.jho-hero[data-feature=assets] .jho-hero-art i{width:17%;height:48%;transform:rotate(-9deg);top:24%;right:12%}
+.jho-hero[data-feature=assets] .jho-hero-art i:nth-child(2){top:14%;right:22%;transform:rotate(9deg)}
+.jho-hero[data-feature=assets] .jho-hero-art i:nth-child(3){top:34%;right:26%;transform:rotate(-3deg)}
+.jho-hero[data-feature=studio] .jho-hero-art i{
+ width:38%;height:10%;right:9%;top:24%;transform:rotate(-10deg) skewY(-5deg);
+ background:repeating-linear-gradient(90deg,#956fa9 0 10px,#c392aa 11px,#7e507e 14px 21px),#876c97
+}
+.jho-hero[data-feature=studio] .jho-hero-art i:nth-child(2){right:13%;top:39%}
+.jho-hero[data-feature=studio] .jho-hero-art i:nth-child(3){right:17%;top:54%}
+.jho-hero[data-feature=studio] .jho-hero-art i:nth-child(4){display:block;right:21%;top:69%}
+.jho-user{
+ display:grid;align-content:center;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start
+}
+.jho-user-mark{position:relative;display:block;width:clamp(34px,3.4vw,50px);aspect-ratio:1;border-radius:50%;
+ color:var(--jho-accent);background:var(--jho-tint)
+}
+.jho-user-mark::before,.jho-user-mark::after{content:'';position:absolute;left:50%;transform:translateX(-50%);background:currentColor}
+.jho-user-mark::before{top:25%;width:24%;aspect-ratio:1;border-radius:50%}
+.jho-user-mark::after{bottom:24%;width:47%;height:24%;border-radius:20px 20px 5px 5px}
+.jho-user-copy{min-width:0;display:grid;gap:5px;font-size:13px;color:var(--jho-text)}
+.jho .jho-rank{color:var(--jho-accent);font-size:12px;font-weight:650}
+.jho .jho-user>button{justify-self:start;grid-column:2}
+.jho-section-head{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.jho-section-head .jho-note{margin-block-start:3px}
+.jho .jho-activity .jho-note{margin-block-start:7px}
+.jho-activity-list{margin:8px 0 0;padding:0;list-style:none}
+.jho-activity-list:empty{margin:0}
+.jho-activity-list li+li{border-top:1px solid var(--jho-line)}
+.jho .jho-activity-list button{
+ display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:8px;
+ width:100%;padding:7px 2px;border:0;border-radius:7px;text-align:start;white-space:normal;min-height:42px
+}
+.jho .jho-activity-list button:hover{background:var(--jho-tint)}
+.jho-activity-mark{width:8px;height:8px;background:var(--jho-accent);border-radius:50%}
+.jho-activity-copy{min-width:0;display:grid;gap:2px;overflow-wrap:anywhere;font-size:13px}
+.jho-activity-copy small,.jho-activity-list time{color:var(--jho-quiet);font-size:11px}
+.jho-activity-list time{white-space:nowrap}
+.jho-stats{display:grid;gap:9px}
+.jho #wbOverview,.jho #wbOverview .jh-scope{min-width:0;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.jho #wbOverview .jh-scope{flex:1}
+.jho #wbPlatformCoverage{max-width:100%;flex-wrap:wrap}
+.jho #wbPublishedAccount{width:auto;max-width:min(100%,200px);min-width:0;margin:0;border-radius:8px}
+.jho #wbPublishedAccount[hidden]{display:none}
+.jho .jho-metric{min-width:0;display:grid;gap:3px;padding:10px 12px;background:var(--jho-tint);border-radius:10px}
+.jho .jho-metric p:first-child{font-size:12px;color:var(--jho-quiet)}
+.jho .jho-metric strong{font-size:clamp(22px,2.75vw,36px);line-height:1.12;color:var(--jho-text);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.jho .jho-more{border-top:1px solid var(--jho-line);min-width:0}
+.jho .jho-more>summary{
+ cursor:pointer;display:list-item;padding:4px 1px 0;min-height:34px;line-height:27px;
+ color:var(--jho-text);font-size:13px;font-weight:650
+}
+.jho #wbComparisonTrend{padding:7px;border-radius:10px;height:auto}
+.jho #wbComparisonTrend .jtrend-graph{height:clamp(125px,16vw,202px)}
+.jho #wbComparisonTrend .jtrend-graph:has(.jtrend-empty){height:46px}
+.jho .jh-works{min-height:0;grid-template-rows:auto auto;min-width:0}
+.jho .jh-works h3{font-size:12px}
+.jho .jh-platform-board{min-height:76px}
+.jho .jh-platform-work{grid-template-rows:auto auto}
+.jho .jh-work-copy{overflow:visible}
+.jho .jh-works .jh-empty{height:auto;min-height:42px}
+@media(max-width:800px){
+ .jho-first,.jho-second{grid-template-columns:minmax(0,1fr)}
+ .jho .jho-user{grid-template-columns:auto minmax(0,1fr) auto}
+ .jho .jho-user>button{grid-column:3;align-self:center}
+}
+@media(max-width:500px){
+ .jho .jho-hero{min-height:215px}
+ .jho-hero-art{opacity:.6}
+ .jho .jho-hero-copy{max-width:92%;padding-block-end:45px}
+ #wbPublished .jho-hero-switch button{width:44px;height:44px}
+ .jho .jho-user{grid-template-columns:auto minmax(0,1fr);gap:9px}
+ .jho .jho-user>button{grid-column:2}
+ .jho .jho-activity-list button{grid-template-columns:auto minmax(0,1fr) auto}
+ .jho-activity-list time{grid-column:2;grid-row:2}
+ .jho-activity-list button>span:last-child{grid-column:3;grid-row:1/span 2}
+ .jho .jho-panel button,.jho #wbPublishedAccount,.jho .jho-more>summary{min-height:39px}
+}

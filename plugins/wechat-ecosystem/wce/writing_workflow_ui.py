@@ -1,4 +1,4 @@
-"""Offline import and explicit rollback in About & Settings."""
+"""Offline import and explicit rollback in article tools."""
 
 HTML = '''
 <section class="wb-about-card" aria-labelledby="writingRulesTitle">

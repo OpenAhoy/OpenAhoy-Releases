@@ -78,7 +78,7 @@ def _paeth(a, b, c):
     return a if pa <= pb and pa <= pc else (b if pb <= pc else c)
 
 
-def decode_png(data, guard=lambda: None):
+def decode_png(data, guard=lambda: None, *, local_indexed=False):
     """Finite input/output budgets plus cooperative guards; no native worker.
 
     Filtered/RGBA buffers, the transient immutable RGBA copy, compressed input
@@ -93,6 +93,7 @@ def decode_png(data, guard=lambda: None):
         fail()
     pos, chunks, ihdr, ended, idat_state = 8, 0, None, False, 0
     compressed = bytearray()
+    palette = alpha = None
     while pos < len(data):
         guard()
         chunks += 1
@@ -115,12 +116,21 @@ def decode_png(data, guard=lambda: None):
                 fail()
             width, height, depth, color, compression, filtering, interlace = struct.unpack('>IIBBBBB', payload)
             if (not 0 < width <= MAX_SIDE or not 0 < height <= MAX_SIDE
-                    or width * height > MAX_PIXELS or depth != 8 or color not in (2, 6)
+                    or width * height > MAX_PIXELS or depth != 8 or
+                    (color not in (2,6) and not (local_indexed and color==3))
                     or (compression, filtering, interlace) != (0, 0, 0)):
                 fail()
-            ihdr = width, height, 3 if color == 2 else 4
+            ihdr = width, height, {2:3,3:1,6:4}[color]
+        elif kind==b'PLTE' and local_indexed and ihdr and ihdr[2]==1:
+            if palette is not None or idat_state or not 3<=length<=768 or length%3:
+                fail()
+            palette=[payload[at:at+3] for at in range(0,length,3)]
+        elif kind==b'tRNS' and local_indexed and ihdr and ihdr[2]==1:
+            if alpha is not None or palette is None or idat_state or not 1<=length<=len(palette):
+                fail()
+            alpha=payload
         elif kind == b'IDAT':
-            if ihdr is None or idat_state == 2:
+            if ihdr is None or idat_state == 2 or (ihdr[2]==1 and palette is None):
                 fail()
             idat_state = 1
             compressed.extend(payload)
@@ -172,6 +182,12 @@ def decode_png(data, guard=lambda: None):
         base = y * width * 4
         if channels == 4:
             rgba[base:base + stride] = row
+        elif channels==1:
+            for x,index in enumerate(row):
+                if index>=len(palette):fail()
+                target=base+x*4
+                rgba[target:target+3]=palette[index]
+                rgba[target+3]=alpha[index] if alpha is not None and index<len(alpha) else 255
         else:
             for x in range(width):
                 target, source = base + x * 4, x * 3

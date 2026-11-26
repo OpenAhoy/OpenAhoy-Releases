@@ -8,7 +8,7 @@ HTML = '''
  </header>
  <nav id="scTabs" aria-label="演播室案例">
   <button data-case-tab="assets" type="button">资产</button>
-  <button data-case-tab="monitor" type="button">导演台</button>
+  <button data-case-tab="monitor" type="button">作品监看</button>
   <button data-case-tab="canvas" type="button">画布</button>
   <button data-case-tab="trial" type="button">资产锁版试用</button>
  </nav>
@@ -72,7 +72,7 @@ STYLE = '''
 #studioShowcase .sc-node{min-height:54px;display:grid;place-content:center;text-align:center;overflow-wrap:anywhere;padding:5px}
 .sc-node small{font-size:10px;color:var(--muted)}
 @media(max-width:690px){
- #studioShowcase:not([hidden]){padding-top:52px;gap:7px}
+ #studioShowcase:not([hidden]){padding-top:var(--wb-top);gap:7px}
  .sc-gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
  .sc-card figure{aspect-ratio:2.2}
  .sc-card-copy{padding:6px 7px}
@@ -252,7 +252,7 @@ function OAStudioShowcase(call, exit, openShot){
  function setupVideo(section,stamp){const stage=el('div','','sc-stage');section.append(clipVersions(),stage);film(stage,stamp);}
  function assets(stamp){
    if(!kind){gallery(stamp);return;}
-   const cross=[link('短片导演台','monitor','','film'),link('图文画布','canvas','','article')];
+   const cross=[link('短片监看','monitor','','film'),link('图文画布','canvas','','article')];
    const description={
      characters:'片头镜头采用暖光主参考。冷调近景作为对照候选。',
      images:'封面与麦克风细节图用于两版图文。点击图片可查看包内原件。',
@@ -263,7 +263,7 @@ function OAStudioShowcase(call, exit, openShot){
    }[kind];
    if(kind==='video'&&clip===2)cross.unshift(link('查看所用配乐','assets','audio'));
    if(kind==='audio')cross.unshift(button('查看采用片段 v2',()=>{clip=2;go('assets','video','film',true);}));
-   if(kind==='articles')cross.unshift(link('图文导演台','monitor','','article'));
+   if(kind==='articles')cross.unshift(link('图文预览','monitor','','article'));
    const side=group('作品关系',description,cross);
    const section=layout(galleryNames[kind],side);
    const back=link('返回资产目录','assets','');
@@ -310,7 +310,7 @@ function OAStudioShowcase(call, exit, openShot){
      [['shot','正文','两版制作手记'],['reference','封面','演播室原图'],['output','正文配图','麦克风细节']];
    const currentNode=names.find(([id])=>id===node)||names[0];
    const side=group('当前选择',currentNode[1]+' · '+currentNode[2],[
-     link('去导演台','monitor','',work),link(work==='film'?'角色档案':'图片档案','assets',work==='film'?'characters':'images'),
+     link('去监看','monitor','',work),link(work==='film'?'角色档案':'图片档案','assets',work==='film'?'characters':'images'),
    ]);
    const section=layout(workNames[work],side);section.append(workSwitch());
    const graph=el('div','','sc-canvas'),row=el('div','','sc-canvas-row');

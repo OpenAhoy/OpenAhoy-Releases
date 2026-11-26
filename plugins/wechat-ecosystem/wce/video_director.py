@@ -146,7 +146,7 @@ def engine_view(config):
 
 
 def work_view(work):
-    result = {key: value for key, value in work.items() if key not in ('scenes', 'focus', 'generations', 'films')}
+    result = {key: value for key, value in work.items() if key not in ('scenes', 'focus', 'generations', 'films', 'timeline', 'timeline_exports')}
     result['selection'] = current_selection(work)
     result['canvas'] = canvas_state(work)
     result['scenes'] = [
@@ -303,7 +303,7 @@ class Director:
             self.edit(args, verify_revision)
         return self.request(operation_id)
 
-    def edit(self, args, verify_revision, verify_canvas_node=None, jobs=None):
+    def edit(self, args, verify_revision, verify_canvas_node=None, jobs=None, publish_timeline=None):
         project_id = args['project_id']
         root, pin = self.project(project_id)
         for_chat = args['action'] == 'start_work'
@@ -319,7 +319,7 @@ class Director:
             if previous is not None:
                 require(previous['fingerprint'] == fingerprint, 'DIRECTOR_OPERATION_CONFLICT')
                 return previous['receipt']
-            receipt = self.apply(state, args, root, location, verify_revision, verify_canvas_node, jobs)
+            receipt = self.apply(state, args, root, location, verify_revision, verify_canvas_node, jobs, publish_timeline)
             state['version'] += 1
             receipt.update(state='SAVED', project_id=project_id, version=state['version'])
             state['operations'][operation] = {'fingerprint': fingerprint, 'receipt': receipt}
@@ -339,7 +339,7 @@ class Director:
                 values[key] = project_text(values[key])
         return values
 
-    def apply(self, state, args, root, scratch, verify_revision, verify_canvas_node=None, jobs=None):
+    def apply(self, state, args, root, scratch, verify_revision, verify_canvas_node=None, jobs=None, publish_timeline=None):
         action = args['action']
         if action == 'register_article':
             pointer = args['article']
@@ -368,6 +368,17 @@ class Director:
             require(action == 'select_work', 'ARTICLE_WORK_USE_ARTICLE_TOOLS')
         if action in ('canvas_add', 'canvas_view', 'canvas_move', 'canvas_remove', 'canvas_note_edit'):
             return canvas_edit(work, args, lambda node: verify_canvas_node(node, root, state['project_id']))
+        if action == 'create_clip_variant':
+            require(callable(publish_timeline), 'DIRECTOR_VARIANT_RENDER_REQUIRED')
+            return publish_timeline(root, work)
+        if action in ('timeline_save', 'timeline_export'):
+            from . import video_director_timeline as timeline
+            current = timeline.saved(work)
+            require(current['timeline_version'] == args['expected_timeline_version'], 'DIRECTOR_TIMELINE_CHANGED')
+            if action == 'timeline_export':
+                require(callable(publish_timeline), 'DIRECTOR_RENDER_REQUIRED')
+                return publish_timeline(root, work)
+            return timeline.save(jobs, root, state['project_id'], work, args)
         if action == 'track_generation':
             from .video_director_delivery import track
             return track(jobs, state, work, args)

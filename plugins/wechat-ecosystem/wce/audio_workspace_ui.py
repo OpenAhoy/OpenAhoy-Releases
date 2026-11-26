@@ -8,9 +8,7 @@ BRAND = b64encode((Path(__file__).resolve().parents[1] / 'assets/management/suno
 
 HTML = """
 <section id="audioWorkspace" aria-labelledby="audioPageTitle" hidden>
-<header class="oa-audio-heading">
- <div><h1 id="audioPageTitle" tabindex="-1">音频工作台</h1><p>创作歌曲、给视频配乐和管理音频。</p></div>
-</header>
+<h2 id="audioPageTitle" class="oa-audio-sr">音乐供应商与曲库</h2>
 <p id="audioActionNotice" class="oa-audio-note" role="status" aria-live="polite"></p>
 <textarea id="audioCopy" aria-label="复制 Codex 指令" readonly hidden></textarea>
 
@@ -26,11 +24,13 @@ HTML = """
  </div>
  <p class="oa-audio-note">应用于本机所有项目和窗口中未指定供应商的新歌曲与新配乐。</p>
  <p id="musicProviderStatus" class="oa-audio-note" role="status"></p>
+</form>
+<div id="musicActions">
  <div class="oa-audio-actions">
   <button id="musicCreateDefault" type="button">创作歌曲</button><button id="musicScoreDefault" type="button">视频配乐</button>
  </div>
  <p id="musicProviderRequest" class="oa-audio-note" role="status"></p>
-</form>
+</div>
 <nav class="oa-audio-provider-nav" aria-label="音频供应商">
  <button id="audioProviderSuno" type="button" aria-controls="audioSunoCard" aria-pressed="true">Suno</button>
  <button id="audioProviderAce" type="button" aria-controls="audioAceCard" aria-pressed="false">ACE Music</button>
@@ -98,6 +98,9 @@ HTML = """
 
 STYLE = """
 #audioWorkspace[hidden],#audioWorkspace [hidden]{display:none!important}
+#audioWorkspace .oa-audio-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+#audioWorkspace[data-mode=models] :is(#musicActions,#audioCreate,#aceCreate,#sunoLibrary,#aceLibrary,.oa-audio-monitor,.oa-audio-workspace,.oa-audio-provider-nav){display:none}
+#audioWorkspace[data-mode=production] :is(#musicProviderForm,#sunoHelp,#aceConnect,#aceCancel,#aceChatConnection){display:none}
 #audioWorkspace{--audio-card:var(--surface,#fff);--audio-ink:var(--ink,CanvasText);--audio-muted:var(--muted,#536964);--audio-line:var(--line,#dbe5e1);--audio-fill:var(--oa-fill,#eef5f1);display:flex;flex:1;flex-direction:column;gap:12px;min-width:0;min-height:0;overflow:auto;padding:1px 3px 8px;color:var(--audio-ink);font-family:Inter,"PingFang SC",system-ui,sans-serif;font-size:13px}
 #openAudioWorkspace[aria-current=page]{background:var(--management-selected,var(--line));font-weight:650}
 #audioWorkspace h1,#audioWorkspace h2,#audioWorkspace p{margin:0}
@@ -122,8 +125,8 @@ STYLE = """
 .oa-audio-provider-nav{display:none;gap:5px}
 .oa-audio-provider-nav button{flex:1}
 .oa-audio-provider-nav button[aria-pressed=true]{background:var(--audio-fill);border-color:var(--accent,var(--audio-line))}
-@media(max-width:600px){#audioWorkspace:not(#monitorSuno #audioWorkspace) .oa-audio-provider-nav{display:flex}
- #audioWorkspace:not(#monitorSuno #audioWorkspace) :is([data-provider-view=suno] #audioAceCard,[data-provider-view=ace] #audioSunoCard){display:none}}
+@media(max-width:600px){#audioWorkspace[data-mode=production] .oa-audio-provider-nav{display:flex}
+ #audioWorkspace[data-mode=production] :is([data-provider-view=suno] #audioAceCard,[data-provider-view=ace] #audioSunoCard){display:none}}
 .oa-audio-workspace{grid-template-columns:minmax(160px,1fr) minmax(0,1.6fr)}
 .oa-audio-card{min-width:0;min-height:0;display:flex;flex-direction:column;gap:9px;padding:12px;border:1px solid var(--audio-line);border-radius:12px;background:var(--audio-card)}
 .oa-suno-card{background:linear-gradient(150deg,var(--audio-fill),var(--audio-card) 62%)}
@@ -474,9 +477,13 @@ const OAAudioWorkspace=(call,send,openLink,canSend)=>{
    }catch(_){if(id===selection)OAUI.set(download,'未确认下载');}
    finally{if(id===selection)download.disabled=false;}
  };
- return {open(intent,{providerOnly=false}={}){
+ return {open(intent,{mode='production',provider=''}={}){
    videoIntent=intent&&typeof intent==='object'&&intent.project&&intent.attempt?intent:null;
-   active=true;if(!providerOnly)void refresh();sunoButtons(false);showSunoTracks(null);ace.open();
+   $('audioWorkspace').dataset.mode=mode;
+   const models=mode==='models';
+   active=true;if(!models)void refresh();sunoButtons(false);showSunoTracks(null);
+   if(provider!=='suno')ace.open({manage:models});
+   $('sunoHelp').hidden=!models;
    showMusic(null);void syncMusic();
    OAUI.set($('sunoState'),'点击「刷新 Suno」读取已有连接。');
  },close(){

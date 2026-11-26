@@ -11,5 +11,7 @@
 - The included macOS-arm64 OpenAhoy video inspector targets macOS 13+ and uses Apple system AVFoundation and ImageIO. No separate media codec or framework binary is distributed.
 
 - MiniMax H3 provider mark: unmodified MiniMax official brand asset, documented in plugins/wechat-ecosystem/assets/models/README.md. The mark is used to identify the integration.
+- Output Master and its native renderer are bundled for in-process audio rendering within Jiusera. The AudioUnitSDK license and the renderer sources and build hashes are included under native/output-master/. No separate system Audio Unit installation is needed. Local multimedia export or measurement may require the user's FFmpeg and ffprobe.
+- Platform and model logos in the account and model selectors identify the corresponding services. Their rights remain with their respective owners.
 
 OpenAhoy-owned Python/JavaScript/HTML/CSS and runtime helper are distributed for use with this plugin under LICENSE.md. Public availability is not an open-source license grant.

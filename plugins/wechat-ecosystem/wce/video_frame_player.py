@@ -20,7 +20,30 @@ STYLE = '''
 SCRIPT = r'''
 function OAStudioPreviewSound(control){
  const storageKey='openahoy.jiusera.preview-sound',clients=new Set();
- let enabled=false,selected=null,context=null;
+ const nativeMedia=new Map();
+ let enabled=false,selected=null,context=null,master=null,meter=null,samples=null,level=null;
+ function output(ctx){
+   if(!master){
+     master=ctx.createGain();master.gain.value=level??1;master.connect(ctx.destination);
+   }
+   return master;
+ }
+ function setLevel(value){
+   if(value!==null&&!Number.isFinite(value))return;
+   const target=value===null?null:Math.max(0,Math.min(1,value));
+   if(target===level)return;
+   if(level===null)for(const media of nativeMedia.keys())nativeMedia.set(media,media.volume);
+   level=target;
+   if(master)master.gain.setTargetAtTime(level??1,context.currentTime,.012);
+   for(const [media,original] of nativeMedia)media.volume=level??original;
+ }
+ function peakDb(){
+   if(!master||level===null||context.state!=='running')return -60;
+   if(!meter){meter=context.createAnalyser();meter.fftSize=256;samples=new Float32Array(meter.fftSize);master.connect(meter);}
+   meter.getFloatTimeDomainData(samples);
+   let peak=0;for(const sample of samples)peak=Math.max(peak,Math.abs(sample));
+   return Math.max(-60,Math.min(0,20*Math.log10(peak)));
+ }
  try{enabled=localStorage.getItem(storageKey)==='on';}catch(_){}
  function paint(){
    control.setAttribute('aria-pressed',String(enabled));
@@ -44,6 +67,8 @@ function OAStudioPreviewSound(control){
    };
  }
  function bindMedia(video,change=()=>{}){
+   nativeMedia.set(video,video.volume);
+   if(level!==null)video.volume=level;
    let allowed=false,preference=false,seeking=false;
    function refresh(){
      const audible=allowed&&!seeking;
@@ -58,20 +83,21 @@ function OAStudioPreviewSound(control){
    for(const [name,action] of Object.entries(events))video.addEventListener(name,action);
    return ()=>{
      for(const [name,action] of Object.entries(events))video.removeEventListener(name,action);
-     video.muted=true;lease.close();
+     video.muted=true;if(level!==null)video.volume=nativeMedia.get(video)??1;nativeMedia.delete(video);lease.close();
    };
  }
- control.onclick=event=>{
+ function toggle(event){
    if(!event.isTrusted)return;
    enabled=!enabled;
    try{localStorage.setItem(storageKey,enabled?'on':'off');}catch(_){}
    unlock(event);paint();
- };
+ }
+ control.onclick=toggle;
  const visibility=()=>paint();document.addEventListener('visibilitychange',visibility);
  paint();
- return {register,bindMedia,unlock,context:()=>context,close(){
+ return {register,bindMedia,unlock,toggle,output,setLevel,peakDb,context:()=>context,close(){
    document.removeEventListener('visibilitychange',visibility);
-   selected=null;paint();clients.clear();
+   selected=null;paint();clients.clear();setLevel(null);nativeMedia.clear();meter?.disconnect();master?.disconnect();
    if(context&&context.state!=='closed')void context.close().catch(()=>{});
  }};
 }
@@ -113,7 +139,7 @@ function OAStudioFrameSound(sound,original,tracks,announce){
    if(!source||Math.abs(now-anchor-last.seconds)>.19){
      stop();
      const next=context.createBufferSource();next.buffer=decoded;
-     next.connect(context.destination);source=next;anchor=now-last.seconds;
+     next.connect(sound.output?.(context)??context.destination);source=next;anchor=now-last.seconds;
      next.onended=()=>{if(source===next){source=null;announce('paused');}next.disconnect();};
      next.start(0,last.seconds);
    }
@@ -204,13 +230,17 @@ function OAFramePlayer(root, call, seconds, {poster='', showControls=true, loop=
  return {play,pause,jump,isPlaying:()=>running,first(){void show(0,revision);},close(){pause();disposed=true;root.replaceChildren();}};
 }
 
-function OAVideoPreview(root,asset,{chunk,frames,run=false,lazy=false,poster='',onVideo=()=>{},sound=null}){
+function OAVideoPreview(root,asset,{chunk,frames,run=false,lazy=false,poster='',onVideo=()=>{},sound=null,statusTarget=null}){
  const surface=document.createElement('div'),status=document.createElement('p'),load=document.createElement('button');
  delete root.dataset.previewMode;delete root.dataset.previewFailure;delete root.dataset.soundState;
  root.classList.add('oa-inline-video-player');surface.className='oa-frame-player';status.setAttribute('role','status');
- load.type='button';OAUI.set(load,'播放');root.replaceChildren(surface,load,status);
+ load.type='button';OAUI.set(load,'播放');
+ if(statusTarget){
+   surface.tabIndex=0;surface.setAttribute('role','button');OAUI.attr(surface,'aria-label','播放');
+   root.replaceChildren(surface);statusTarget.replaceChildren(status);
+ }else root.replaceChildren(surface,load,status);
  let closed=false,native=null,url='',visual=null,started=false,firstBatch,observer;
- let original=null,releaseNative=null,frameSound=null;
+ let original=null,releaseNative=null,frameSound=null,engaged=false,wantsPlay=false;
  function audioState(state,message=''){
    if(root.dataset.soundState!==state){root.dataset.soundState=state;OAUI.set(status,message);}
  }
@@ -229,16 +259,16 @@ function OAVideoPreview(root,asset,{chunk,frames,run=false,lazy=false,poster='',
      state=>audioState(state,labels[state]));
    else OAUI.set(status,asset.audio_tracks?'预览静音，原文件有声':'画面预览');
    visual=OAFramePlayer(surface,start=>start===0&&firstBatch?firstBatch:frames(start),asset.seconds,{
-     poster,transport:frameSound&&{...frameSound,gesture:sound.unlock},failed:()=>{
-       OAUI.set(status,reason==='read'?'无法读取原文件。':'当前环境无法播放原文件。');
+     poster,showControls:!statusTarget,ended:()=>sourceState(false),transport:frameSound&&{...frameSound,gesture:sound.unlock},failed:()=>{
+       sourceState(false);OAUI.set(status,reason==='read'?'无法读取原文件。':'当前环境无法播放原文件。');
      },
    });
    if(seconds>0)visual.jump(Math.floor(seconds*8));
-   if(play)visual.play();else if(!seconds)visual.first();
+   if(play){visual.play();sourceState(true);}else if(!seconds)visual.first();
  }
  async function open(play){
    if(closed||started)return;
-   started=true;load.hidden=true;OAUI.set(status,'正在读取原文件…');
+   started=true;wantsPlay=play;load.hidden=true;OAUI.set(status,'正在读取原文件…');
    try{
      let offset=0;
      const parts=[];
@@ -252,7 +282,7 @@ function OAVideoPreview(root,asset,{chunk,frames,run=false,lazy=false,poster='',
      }
      if(closed)return;
      const video=document.createElement('video');native=video;
-     video.controls=true;video.controlsList='nodownload';video.preload='metadata';video.playsInline=true;
+     video.controls=!statusTarget;video.controlsList='nodownload';video.preload='metadata';video.playsInline=true;
      if(sound)releaseNative=sound.bindMedia(video,(allowed,enabled)=>{
        if(root.dataset.previewMode!=='native')return;
        const state=asset.audio_tracks?(allowed?'playing':enabled?'paused':'muted'):'silent';
@@ -260,22 +290,44 @@ function OAVideoPreview(root,asset,{chunk,frames,run=false,lazy=false,poster='',
      });
      if(poster)video.poster=poster;
      let running=play;
-     video.addEventListener('playing',()=>{running=true;});
-     video.addEventListener('pause',()=>{running=false;});
+     video.addEventListener('playing',()=>{if(native===video){running=true;sourceState(true);}});
+     video.addEventListener('pause',()=>{if(native===video){running=false;sourceState(false);}});
      video.addEventListener('error',()=>{
        if(native!==video)return;
        const reason=video.error?.code===3?'decode':'media-source';
-       fallback(reason,running,video.currentTime);
+       fallback(reason,statusTarget?wantsPlay:running,video.currentTime);
      },{once:true});
      video.addEventListener('loadedmetadata',()=>{
        if(native!==video||closed)return;
        root.dataset.previewMode='native';OAUI.set(status,'');
        if(sound&&!asset.audio_tracks)audioState('silent','原片无音轨');
-       if(play)void video.play().catch(()=>{});
+       if(wantsPlay)void video.play().catch(()=>{});
      },{once:true});
      original=new Blob(parts,{type:'video/mp4'});url=URL.createObjectURL(original);
      surface.replaceChildren(video);video.src=url;onVideo(video);
-   }catch(_){fallback('read',play);}
+   }catch(_){fallback('read',wantsPlay);}
+ }
+ function sourceState(playing){
+   if(!statusTarget)return;
+   OAUI.attr(surface,'aria-label',playing?'暂停':'播放');
+   surface.setAttribute('aria-pressed',String(playing));
+ }
+ function toggleSource(event){
+   sound?.unlock(event);
+   engaged=true;
+   if(started&&!visual&&(!native||native.readyState===0)){
+     wantsPlay=!wantsPlay;sourceState(wantsPlay);return;
+   }
+   if(native){wantsPlay=native.paused;if(wantsPlay)void native.play().catch(()=>{});else native.pause();}
+   else if(visual){if(visual.isPlaying())visual.pause();else visual.play();sourceState(visual.isPlaying());}
+   else {sourceState(true);void open(true);}
+ }
+ if(statusTarget){
+   surface.onclick=toggleSource;
+   surface.onkeydown=event=>{
+     if(event.key!=='Enter'&&event.key!==' ')return;
+     event.preventDefault();if(!event.repeat)toggleSource(event);
+   };
  }
  load.onclick=event=>{sound?.unlock(event);void open(true);};
  if(lazy){
@@ -301,8 +353,8 @@ function OAVideoPreview(root,asset,{chunk,frames,run=false,lazy=false,poster='',
      }else loadPoster();
    }
  }else void open(run);
- return {close(){
-   closed=true;observer?.disconnect();visual?.close();frameSound?.close();disposeNative();original=null;root.replaceChildren();
+ return {toggle:toggleSource,engaged:()=>engaged,close(){
+   closed=true;status.remove();observer?.disconnect();visual?.close();frameSound?.close();disposeNative();original=null;root.replaceChildren();
  }};
 }
 '''

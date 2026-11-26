@@ -16,6 +16,15 @@ SPECS = deepcopy(LEGACY | DOCUMENT_SPECS)
 from .normal_html_entry import ARGUMENTS as HTML_ARGUMENTS, ORIGINAL_ARGUMENTS as ORIGINAL_HTML_ARGUMENTS
 SPECS['own.documents.prepare']={'oneOf':[SPECS['own.documents.prepare'],HTML_ARGUMENTS]}
 from .own_editor_preferences import VALUES as EDITOR_VALUES, MAX_REVISION
+from .current_draft_management_protocol import SELECTION
+
+PUBLICATION_OPTIONS = {'mode': {'type': 'string', 'enum': ['ordinary', 'notify']},
+                       'fallback_from_notify': {'type': 'boolean'}}
+
+
+def _publication_input(options=None):
+    return {'oneOf': [schema({'connection_id': ID, key: spec}, options)
+                      for key, spec in [('intent_handle', ID), ('selection', SELECTION)]]}
 
 # Closed original inventory input, retained for historical contract verification.
 INVENTORY_PREPARE_SCHEMA=schema({'connection_id': ID,'inventory_handle': {'type': 'string', 'pattern': '^inventory-[a-f0-9]{48}$'}})
@@ -24,9 +33,9 @@ SPECS.update({
     'own.publications.current.prepare': {'oneOf': [
         deepcopy(INVENTORY_PREPARE_SCHEMA),
         schema({'connection_id': ID,'completed_slot_handle': {'type': 'string', 'pattern': '^completed-slot-[a-f0-9]{48}$'}})]},
-    'own.publications.current.dispatch': schema({'connection_id': ID, 'intent_handle': ID}),
-    'own.publications.current.status': schema({'connection_id': ID, 'intent_handle': ID}),
-    'own.publications.current.poll': schema({'connection_id': ID, 'intent_handle': ID}),
+    'own.publications.current.dispatch': _publication_input(PUBLICATION_OPTIONS),
+    'own.publications.current.status': _publication_input(),
+    'own.publications.current.poll': _publication_input(),
     'own.publications.slots.discover': schema({'connection_id': ID}, {'cursor': {'type':'string','minLength':1,'maxLength':1024}}),
     'own.drafts.inventory': schema({'connection_id': ID}, {'cursor': {
         'type': 'string', 'maxLength': 96,
@@ -113,8 +122,13 @@ class ConnectionRouter:
     def list_tools(self):
         # The management migration verifies its exact historical input catalog.
         # Public MCP discovery adds the two optional HTML revision selectors.
+        # The old inline resource verifies a pinned catalog. The product
+        # router decorates these three public descriptors after that check.
+        publication_names = ('own.publications.current.' + action
+                             for action in ('dispatch', 'status', 'poll'))
         catalog = SPECS | {'own.documents.prepare': {'oneOf': [
-            DOCUMENT_SPECS['own.documents.prepare'], ORIGINAL_HTML_ARGUMENTS]}}
+            DOCUMENT_SPECS['own.documents.prepare'], ORIGINAL_HTML_ARGUMENTS]}} | {
+                name: schema({'connection_id': ID, 'intent_handle': ID}) for name in publication_names}
         return [{'name': name, 'inputSchema': deepcopy(spec), 'description':
             ('Publish an explicitly requested draft using its original successful save attempt_id; '
              'dispatch submits once without follower push; status is local; poll queries the original task. '
@@ -161,7 +175,7 @@ class ConnectionRouter:
             from .current_publication_service import local_status
             from .own_connection_policy import registry_path
             return local_status(resolve(cid, self.registry, active=False),
-                self.registry or registry_path(), arguments['intent_handle'])
+                self.registry or registry_path(), arguments.get('intent_handle'), arguments.get('selection'))
         policy = resolve(cid, self.registry)
         if name == 'own.documents.prepare' and 'html_sources' in arguments:
             from .normal_html_entry import prepare

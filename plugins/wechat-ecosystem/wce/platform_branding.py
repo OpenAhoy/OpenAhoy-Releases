@@ -10,14 +10,20 @@ _PLATFORMS = {
     'wechat_official_account': ('公众号', 'official-account.svg', 'official-account.svg'),
     'x': ('X', 'x-black.png', 'x-white.svg'),
     'xiaohongshu': ('小红书', 'xiaohongshu.ico', 'xiaohongshu.ico'),
+    'douyin': ('抖音', 'douyin.ico', 'douyin.ico'),
+    'tiktok': ('TikTok', 'tiktok.png', 'tiktok.png'),
+    'bilibili': ('哔哩哔哩', 'bilibili.ico', 'bilibili.ico'),
+    'instagram': ('Instagram', 'instagram.png', 'instagram.png'),
 }
 
 
+def _source(name):
+    mime = 'image/svg+xml' if name.endswith('.svg') else ('image/x-icon' if name.endswith('.ico') else 'image/png')
+    return 'data:' + mime + ';base64,' + base64.b64encode((_ASSETS / name).read_bytes()).decode('ascii')
+
+
 def catalog():
-    def source(name):
-        mime = 'image/svg+xml' if name.endswith('.svg') else ('image/x-icon' if name.endswith('.ico') else 'image/png')
-        return 'data:' + mime + ';base64,' + base64.b64encode((_ASSETS / name).read_bytes()).decode('ascii')
-    return {key: {'name': name, 'light': source(light), 'dark': source(dark)}
+    return {key: {'name': name, 'light': _source(light), 'dark': _source(dark)}
             for key, (name, light, dark) in _PLATFORMS.items()}
 
 
@@ -34,9 +40,21 @@ def label(platform_id, fallback):
 
 
 def script():
-    return 'const OAPlatformBranding=(()=>{const marks=' + json.dumps(catalog(), separators=(',', ':')) + r''';
- function decorate(button,id,fallback,ui){
-  const value=Object.hasOwn(marks,id)?marks[id]:null;button.replaceChildren();
+    marks = catalog()
+    board_files = {
+        'tiktok': ('tiktok-wordmark-black.png', 'tiktok-wordmark-white.png'),
+        'xiaohongshu': ('xiaohongshu-app-icon.png', 'xiaohongshu-app-icon.png'),
+        'bilibili': ('bilibili-tv.svg', 'bilibili-tv.svg'),
+    }
+    for platform_id, (light_file, dark_file) in board_files.items():
+        mark = marks[platform_id]
+        light = _source(light_file)
+        mark['board'] = {'name': mark['name'], 'light': light,
+                         'dark': light if light_file == dark_file else _source(dark_file)}
+    return 'const OAPlatformBranding=(()=>{const marks=' + json.dumps(marks, separators=(',', ':')) + r''';
+ function decorate(button,id,fallback,ui,presentation){
+  const mark=Object.hasOwn(marks,id)?marks[id]:null;
+  const value=presentation==='board'?(mark?.board??mark):mark;button.replaceChildren();
   if(value){const box=document.createElement('span');box.className='oa-platform-mark';box.dataset.brand=id;box.setAttribute('aria-hidden','true');
    const image=(src,variant='')=>{const img=document.createElement('img');img.className='oa-platform-logo'+(variant?' oa-platform-logo--'+variant:'');img.src=src;img.alt='';return img;};
    if(value.dark!==value.light)box.append(image(value.light,'light'),image(value.dark,'dark'));else box.append(image(value.light));

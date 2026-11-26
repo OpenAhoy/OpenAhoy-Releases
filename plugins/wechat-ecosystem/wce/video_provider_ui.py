@@ -2,7 +2,8 @@
 import json
 
 from .video_minimax import H3_MODELS, SUBJECT_MODEL, V1_MODELS
-from .video_seedance import ARK_MODELS
+from .video_seedance import ARK_MODELS, BYTEPLUS_MODELS
+from . import video_sand as sand
 
 ARK_DOC = 'https://console.volcengine.com/ark/region:cn-beijing/docs/video-generation-tutorial'
 
@@ -20,7 +21,14 @@ def directory():
                         resolutions=list(dict.fromkeys(size for sizes in modes.values() for size in sizes)))
                    for model, modes in V1_MODELS.items())
     minimax.append(dict(ack, id=SUBJECT_MODEL, version='v1', client='SUPPORTED', modes=['subject']))
-    return {'documentation_checked': '2026-11-17', 'ark': ark, 'minimax': minimax}
+    byteplus = [dict(ack, id=model, version='v3', client='SUPPORTED',
+                     modes=modes, duration=[start, end], resolutions=res, audio=audio)
+                for model, (modes, start, end, res, audio) in BYTEPLUS_MODELS.items()]
+    magi = [dict(ack, id=sand.MODEL, name='MAGI-2', version='v2', client='SUPPORTED',
+                 modes=['text', 'reference'], duration=[sand.DURATIONS.start, sand.DURATIONS.stop - 1],
+                 resolutions=[sand.RESOLUTION], audio=True)]
+    return {'documentation_checked': '2026-11-25', 'ark': ark, 'ark_global': byteplus, 'minimax': minimax,
+            sand.PROVIDER: magi}
 
 
 STYLE = '''
@@ -47,6 +55,11 @@ const OAVideoProviders=(send,openLink,canSend)=>{
        console:'https://console.volcengine.com/ark/region:cn-beijing/overview',
        model:'https://console.volcengine.com/ark/region:cn-beijing/docs/video-generation-tutorial',
        billing:'https://console.volcengine.com/finance/bill/detail'},
+  ark_global:{name:'BytePlus ModelArk',region:'Singapore / ap-southeast-1',
+       console:'https://ai.byteplus.com/ark/region:ap-southeast-1/apikey',
+       model:'https://docs.byteplus.com/en/docs/modelark/video-generation-tutorial?redirect=1'},
+  sand:{name:'Sand AI',region:'Native API',
+        console:'https://platform.sand.ai/app/keys/',model:'https://platform.sand.ai/docs/create-generation/'},
   cn:{name:'MiniMax',region:'中国站',console:'https://platform.minimax.cn/',
       model:'https://platform.minimax.cn/docs/api-reference/video-generation-v2-create',
       billing:'https://platform.minimax.cn/user-center/payment/balance'},
@@ -54,10 +67,10 @@ const OAVideoProviders=(send,openLink,canSend)=>{
       model:'https://platform.minimax.io/docs/api-reference/video-generation-v2-create',
       billing:'https://platform.minimax.io/user-center/payment/balance'}
  };
- for(const channel of ['ark','cn','global']){
+ for(const channel of ['ark','ark_global','sand','cn','global']){
    const parent=document.querySelector('[data-catalog='+channel+']'),label=document.createElement('label'),sel=document.createElement('select'),details=document.createElement('dl');
    label.append(OAUI.label('官方模型'),sel);details.className='oa-provider-meta';
-   const items=channel==='ark'?catalog.ark:catalog.minimax;
+   const items=catalog[channel]||catalog.minimax;
    for(const item of items)sel.add(new Option(item.id,item.id));
    parent.append(label,details);
    function describe(){

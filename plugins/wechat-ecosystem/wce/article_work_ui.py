@@ -262,7 +262,9 @@ function OAArticleLibrary(root,read,media,openURL,goToArticle){
      button.onclick=()=>pick(row);
      list.append(button);scopes.set(button.dataset.key,row);
    }
-   const row=scopes.get(selected)||rows[0];
+   const source=event.detail.asset;
+   const key=source?.project_id&&source.work_id?source.project_id+':'+source.work_id:'';
+   const row=scopes.get(key)||scopes.get(selected)||rows[0];
    if(row)pick(row);
    else{OAUI.set(list,'暂无已登记文章');stage.hide();back.hidden=true;}
    list.scrollTop=scroll;

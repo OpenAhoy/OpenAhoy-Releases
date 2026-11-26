@@ -24,7 +24,7 @@ HTML = """
  </details>
  <audio id="acePlayer" controls controlslist="nodownload" preload="none" hidden></audio>
  <p id="aceNotice" class="oa-audio-note" role="status"></p>
- <details>
+ <details id="aceChatConnection">
   <summary>Codex 聊天连接</summary>
   <div class="oa-audio-actions">
    <button id="aceAdd" type="button">在 Codex 中添加 ACE Music</button>
@@ -181,16 +181,17 @@ function OAAcePanel(invoke,request,openLink,stopOther){
  $('aceGuide').onclick=()=>void go('https://acemusic.ai/help/articles/connect-ace-music-to-your-ai-assistant/');
  $('aceAdd').onclick=event=>{
    if(!event.isTrusted)return;
-   void request('请先用官方 Codex MCP 配置核对是否已有独立的 ace-music。仅在该条目不存在时添加固定的 Streamable HTTP 地址 https://acemusic.ai/mcp，保留既有连接；同名若指向其他端点，请先告诉我。使用 Codex 官方支持的会话重载方式，回读当前聊天是否有该服务器工具。有 OAuth 时复用；需要授权时让我在 Jiusera 音频面板本人完成。只检查目录和配置；不生成、上传或下载。',notice);
+   void request('请先用官方 Codex MCP 配置核对是否已有独立的 ace-music。仅在该条目不存在时添加固定的 Streamable HTTP 地址 https://acemusic.ai/mcp，保留既有连接；同名若指向其他端点，请先告诉我。使用 Codex 官方支持的会话重载方式，回读当前聊天是否有该服务器工具。有 OAuth 时复用；需要授权时让我本人在 Jiusera「设置 → 模型管理 → L-unify · 音乐」完成。只检查目录和配置；不生成、上传或下载。',notice);
  };
  $('aceCreate').onclick=event=>{
    if(!event.isTrusted)return;
    void request('用当前聊天独立的 ACE Music（ace-music）官方 MCP 策划一首歌。先用 get_skill 的 name=lyrics 读取官方创作要求，调用 get_account 核对方案、剩余 Credits、模型和当前费用。根据当前 brief 准备标题、歌词和制作提示，先给我看方案与官方报价。在我明确授权这次费用后，仅提交一次 create_song，保留返回的全部原歌曲 ID，并用 get_song 的 ids 参数查询这些 ID。失败或结果未知时先核对原任务，不重复生成或新扣费。',notice);
  };
  player.onerror=()=>{if(active&&!player.hidden)set('aceNotice','无法在此面板播放。');};
- return {open(){
-   active=true;busy=waiting=false;stateButtons();set('aceState','未确认连接');
-   void auth('ace_oauth_status',++epoch);
+ return {open({manage}){
+   active=true;busy=waiting=false;stateButtons();
+   set('aceState',manage?'未确认连接':'点击「刷新 ACE Music」读取已有连接。');
+   if(manage)void auth('ace_oauth_status',++epoch);
  },close(){
    active=false;++epoch;clearTimeout(poll);busy=waiting=false;clear();
  },stop};

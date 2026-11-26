@@ -720,7 +720,9 @@ class Broker:
             owner = nullcontext() if lifetime_fd is not None else locked(self.policy.root / 'connection.lock', nonblocking=True)
         with owned_lifetime(owner, deadline=startup_deadline, stop=self.stop):
             with self._listener_initialized(startup_deadline=startup_deadline) as listener:
-                self._accept_loop(listener)
+                from .wechat_comment_auto import supervisor
+                with supervisor(self.service,self.stop):
+                    self._accept_loop(listener)
 
     @contextmanager
     def _listener_initialized(self, *, startup_deadline=None):
@@ -777,7 +779,8 @@ class Broker:
                 if acquired:
                     self.guard()
                     with self.workers_lock: active = bool(self.workers)
-                    idle = not active and time.monotonic() - self.last_call >= IDLE_SECONDS
+                    idle = (not active and time.monotonic() - self.last_call >= IDLE_SECONDS
+                            and not getattr(self.service,'comment_auto_enabled',lambda:False)())
             # Accepting/registering a socket does not inspect regular files.
             # A busy worker emits only a negative pre-request handshake below.
             if acquired and idle: break

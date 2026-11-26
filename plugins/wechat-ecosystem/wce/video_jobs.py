@@ -23,8 +23,13 @@ from .video_minimax import (H3, H3_MODELS, MINIMAX_MODELS, SUBJECT_MODEL, V1_MOD
                             MiniMax, MiniMaxRejected, h3_body, h3_usage, subject_body, v1_body)
 from .video_relay import RELAY_MODEL, RESULT_RETRYABLE, Relay, RelayDownloadError, RelaySubmitError, workflow_body
 from .video_relay_keychain import load_relay
+from . import video_sand as sand
+from . import video_vidmuse as vidmuse
 from .video_tokenhex import TOKENHEX_ORIGIN, TOKENHEX_PROVIDER, TokenHex, load_tokenhex
-from .video_seedance import Ark, ArkSubmitRejected, MINI, MODEL, PRO, STANDARD, MAX_REQUEST, MAX_RESULT, ark_error_code, request_body, result_url, validate_model
+from .video_seedance import (
+    Ark, ArkSubmitRejected, BYTEPLUS_MODELS, BYTEPLUS_PROVIDER, BytePlusArk, MAX_REQUEST, MAX_RESULT,
+    MINI, MODEL, PRO, STANDARD, ark_error_code, request_body, result_url, validate_model,
+)
 
 ATTEMPT = re.compile(r'[A-Za-z0-9_-]{1,96}\Z')
 FRAME_LIMIT = 30_000_000
@@ -103,11 +108,17 @@ def media_facts(path):
 class Jobs:
     def __init__(self, registry=None, *, api=None, credential=load, inspect=media_facts,
                  minimax=MiniMax, minimax_credential=load, relay=Relay, relay_credential=load_relay,
-                 tokenhex=None, tokenhex_credential=load_tokenhex):
+                 tokenhex=None, tokenhex_credential=load_tokenhex, byteplus=None, byteplus_credential=load,
+                 sand_api=None, sand_credential=load, vidmuse_api=None):
         self.projects = ProjectStore(registry)
         self.root = self.projects.root / 'video-ark'
         self.api = api if api is not None else Ark()
         self.credential = credential
+        self.byteplus = byteplus if byteplus is not None else BytePlusArk()
+        self.byteplus_credential = byteplus_credential
+        self.sand = sand_api if sand_api is not None else sand.Sand()
+        self.sand_credential = sand_credential
+        self.vidmuse = vidmuse_api if vidmuse_api is not None else vidmuse.VidMuse(self.projects.root)
         self.minimax = minimax
         self.minimax_credential = minimax_credential
         self.relay = relay
@@ -352,8 +363,8 @@ class Jobs:
         request = row['request']
         value = {key: row[key] for key in ('generation_attempt_id', 'state', 'created_at')}
         value['model'] = request['model']
-        if request.get('provider') == TOKENHEX_PROVIDER:
-            value['provider'] = TOKENHEX_PROVIDER
+        if request.get('provider') in (TOKENHEX_PROVIDER, BYTEPLUS_PROVIDER, sand.PROVIDER, vidmuse.PROVIDER):
+            value['provider'] = request['provider']
         value['mode'] = request.get('mode', 'frames')
         if request['model'] not in (RELAY_MODEL, SUBJECT_MODEL):
             value['duration'] = request.get('duration', 5)
@@ -507,6 +518,18 @@ class Jobs:
             raise WCEError('VIDEO_KEY_NOT_CONFIGURED')
         return key
 
+    def _byteplus_connection(self):
+        key = self.byteplus_credential(provider=BYTEPLUS_PROVIDER)
+        if key is None:
+            raise WCEError('VIDEO_KEY_NOT_CONFIGURED')
+        return self.byteplus, key
+
+    def _sand_connection(self):
+        key = self.sand_credential(provider=sand.PROVIDER)
+        if key is None:
+            raise WCEError('VIDEO_KEY_NOT_CONFIGURED')
+        return self.sand, key
+
     def _tokenhex_connection(self):
         configured = self.tokenhex_credential()
         if configured is None:
@@ -558,9 +581,16 @@ class Jobs:
                          dict(selection, verified_attempt=row['generation_attempt_id']))
 
     def submit(self, attempt, project_id, first, last, prompt, *, model=MODEL, duration=5,
-               reference_images=None, workspace=None, tokenhex=False, director_bind=None):
+               reference_images=None, workspace=None, tokenhex=False, ark_global=False, sand_native=False, director_bind=None):
         is_minimax = model in MINIMAX_MODELS
-        if not is_minimax:
+        if sand_native:
+            if tokenhex or ark_global or workspace is None or model != sand.MODEL:
+                raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
+        elif ark_global:
+            if tokenhex or workspace is None:
+                raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
+            validate_model(model, BYTEPLUS_MODELS)
+        elif not is_minimax:
             validate_model(model)
         elif workspace is None or workspace.get('provider_site') not in SITES:
             raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
@@ -568,7 +598,8 @@ class Jobs:
             raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
         if tokenhex and (is_minimax or workspace is None or workspace['mode'] not in ('text', 'frames', 'reference')):
             raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
-        provider = TOKENHEX_PROVIDER if tokenhex else None
+        provider = (sand.PROVIDER if sand_native else BYTEPLUS_PROVIDER if ark_global else
+                    TOKENHEX_PROVIDER if tokenhex else None)
         receipt, _ = self._paths(attempt)
         if not prompt.strip():
             raise WCEError('VIDEO_FRAMES_OR_PROMPT_INVALID')
@@ -590,7 +621,7 @@ class Jobs:
             frame_specs = self.resolve_frames(project_id, workspace['paths'], h3=is_minimax)
         identity = {'project_id': project_id, 'model': model, 'frames': [frame['sha256'] for frame in frame_specs],
                     'prompt_sha256': sha256(prompt.encode()).hexdigest()}
-        if tokenhex:
+        if provider:
             identity['provider'] = provider
         params = {}
         if workspace is None:
@@ -644,6 +675,10 @@ class Jobs:
                     raise WCEError('VIDEO_TOKENHEX_MODEL_NOT_VISIBLE')
                 if self._tokenhex_connection()[0] != connection:
                     raise WCEError('VIDEO_TOKENHEX_CONNECTION_CHANGED')
+            elif ark_global:
+                api, key = self._byteplus_connection()
+            elif sand_native:
+                api, key = self._sand_connection()
             else:
                 key = self._key(site)
                 api = self.api if site is None else self.minimax(site)
@@ -652,7 +687,7 @@ class Jobs:
                 source_receipt, original = self._paths(identity['source_attempt_id'])
                 source = read_optional(source_receipt, RECEIPT_MAX)
                 if (source is None or source['state'] != 'ASSET_READY'
-                        or source['request']['model'] in (*MINIMAX_MODELS, RELAY_MODEL) or source['request'].get('provider') == TOKENHEX_PROVIDER
+                        or source['request']['model'] in (*MINIMAX_MODELS, RELAY_MODEL) or source['request'].get('provider') in (TOKENHEX_PROVIDER, BYTEPLUS_PROVIDER, sand.PROVIDER, vidmuse.PROVIDER)
                         or source['request']['project_id'] != project_id
                         or source['asset']['sha256'] != workspace['source_sha256']):
                     raise WCEError('VIDEO_REFERENCE_SOURCE_UNAVAILABLE')
@@ -676,10 +711,15 @@ class Jobs:
                 encoder = v1_body if model in V1_MODELS else h3_body
                 body = encoder(prompt, frames, model=model,
                                **{k: params[k] for k in ('mode', 'duration', 'resolution', 'ratio')})
+            elif sand_native:
+                sand.validate_inputs(prompt, frames, **params)
+                body = None if frames else sand.request_body(prompt, (), **params)
             else:
-                body = request_body(prompt, frames, model=model, reference=reference, **params)
+                body = request_body(prompt, frames, model=model, reference=reference, provider=provider, **params)
             row = {'generation_attempt_id': attempt, 'request': identity, 'state': 'SUBMIT_UNKNOWN',
-                   'request_sha256': sha256(body).hexdigest(), 'created_at': int(time.time())}
+                   'created_at': int(time.time())}
+            if body is not None:
+                row['request_sha256'] = sha256(body).hexdigest()
             info = root.stat(follow_symlinks=False)
             row['project_video_root'] = [info.st_dev, info.st_ino]
             if tokenhex:
@@ -690,9 +730,31 @@ class Jobs:
                 row['recipe'] = {'mode': params.get('mode', 'frames'), 'duration': duration, 'resolution': '720p',
                                  'audio': False, 'prompt': prompt,
                                  'paths': [str(Path(frame['path']).relative_to(root)) for frame in frame_specs]}
-            return self._dispatch(receipt, row, api, key, body, director_bind)
+            return self._dispatch(receipt, row, api, key, body, director_bind,
+                                  sand_frames=frames if sand_native and frames else ())
 
-    def _dispatch(self, receipt, row, api, key, body, director_bind=None):
+    def submit_vidmuse(self, attempt, project, request, plan, bind, verify_previous):
+        receipt, _ = self._paths(attempt)
+        self._directory()
+        if request['provider'] != vidmuse.PROVIDER or request['model'] != vidmuse.MODEL:
+            raise WCEError('VIDMUSE_MODEL_CHANGED')
+        with locked(self.root / 'generation.lock'):
+            if previous := read_optional(receipt, RECEIPT_MAX):
+                if previous['request'] != request or previous.get('vidmuse_account') != plan.account:
+                    raise WCEError('VIDEO_ATTEMPT_CONFLICT')
+                return previous
+            verify_previous()
+            directory = next((item for item in self.projects.view()['projects'] if item['id']==project),None)
+            if directory is None:
+                raise WCEError('VIDEO_PROJECT_NOT_REGISTERED')
+            pin = Path(directory['root']).lstat()
+            row = {'generation_attempt_id': attempt, 'request': request, 'state':'SUBMIT_UNKNOWN',
+                   'created_at': time.time(), 'project_video_root':[pin.st_dev,pin.st_ino],
+                   'request_sha256':plan.body_sha256,'vidmuse_model':plan.route.name,
+                   'vidmuse_estimated_credits':str(plan.cost),'vidmuse_account':plan.account}
+            return self._dispatch(receipt,row,self.vidmuse,plan.account,plan.body,bind)
+
+    def _dispatch(self, receipt, row, api, key, body, director_bind=None, *, sand_frames=()):
         project = row['request']['project_id']
         directory = next((item for item in self.projects.view()['projects'] if item['id'] == project), None)
         if directory is None:
@@ -702,12 +764,40 @@ class Jobs:
         if not stat.S_ISDIR(info.st_mode) or row['project_video_root'] != [info.st_dev, info.st_ino]:
             raise WCEError('VIDEO_PROJECT_ROOT_CHANGED')
         row['director_binding'] = director_bind(row) if director_bind else {'kind': 'project_inbox', 'project_id': project}
+        if sand_frames:
+            # Nothing billable has been sent. Preserve that fact if the process dies during uploads.
+            row.update(state='SUBMIT_REJECTED',
+                       submit_diagnostic={'provider': sand.PROVIDER, 'phase': 'upload',
+                                          'code': 'VIDEO_SAND_CREATE_NOT_SENT'})
         atomic_write(receipt, row, maximum=RECEIPT_MAX)
+        if sand_frames:
+            ids = row['sand_asset_ids'] = []
+            try:
+                for frame in sand_frames:
+                    ids.append(api.upload(key, frame))
+                    atomic_write(receipt, row, maximum=RECEIPT_MAX)
+            except sand.SandRequestError as error:
+                row['submit_diagnostic'] = error.diagnostic
+                atomic_write(receipt, row, maximum=RECEIPT_MAX)
+                return row
+            params = {k: row['request'][k] for k in ('mode', 'duration', 'resolution', 'ratio', 'audio')}
+            body = sand.request_body(row['recipe']['prompt'], ids, **params)
+            row.update(state='SUBMIT_UNKNOWN', request_sha256=sha256(body).hexdigest())
+            row.pop('submit_diagnostic', None)
+            atomic_write(receipt, row, maximum=RECEIPT_MAX)
         try:
             if workflow_id := row['request'].get('workflow_id'):
                 task = api.submit(key, body, workflow_id=workflow_id)
             else:
                 task = api.submit(key, body)
+        except sand.SandRequestError as error:
+            row['submit_diagnostic'] = error.diagnostic
+            if error.task:
+                row.update(provider_task_id=error.task, state='SUBMITTED')
+            elif error.rejected:
+                row['state'] = 'SUBMIT_REJECTED'
+            atomic_write(receipt, row, maximum=RECEIPT_MAX)
+            return row
         except RelaySubmitError as error:
             if error.rejected:
                 row['state'] = 'SUBMIT_REJECTED'
@@ -715,6 +805,9 @@ class Jobs:
             atomic_write(receipt, row, maximum=RECEIPT_MAX)
             return row
         except WCEError as error:
+            if row['request'].get('provider') == vidmuse.PROVIDER:
+                row['submit_diagnostic'] = {'provider':vidmuse.PROVIDER,'code':error.code}
+                atomic_write(receipt,row,maximum=RECEIPT_MAX)
             if error.code == 'VIDEO_SUBMIT_REJECTED':
                 row['state'] = 'SUBMIT_REJECTED'
                 if isinstance(error, (ArkSubmitRejected, MiniMaxRejected)):
@@ -795,6 +888,12 @@ class Jobs:
             if connection != row.get('tokenhex_connection'):
                 raise WCEError('VIDEO_TOKENHEX_CONNECTION_CHANGED')
             api = self.tokenhex
+        elif request.get('provider') == BYTEPLUS_PROVIDER:
+            api, key = self._byteplus_connection()
+        elif request.get('provider') == sand.PROVIDER:
+            api, key = self._sand_connection()
+        elif request.get('provider') == vidmuse.PROVIDER:
+            api, key = self.vidmuse, row.get('vidmuse_account')
         else:
             api = self.api if site is None else self.minimax(site)
             key = self._key(site)
@@ -913,10 +1012,26 @@ class Jobs:
                 raise WCEError('VIDEO_MODE_PARAMETERS_INVALID')
             is_relay = request['model'] == RELAY_MODEL
             is_tokenhex = request.get('provider') == TOKENHEX_PROVIDER
+            is_sand = request.get('provider') == sand.PROVIDER
+            is_vidmuse = request.get('provider') == vidmuse.PROVIDER
+            throttle = self.sand if is_sand else self.vidmuse if is_vidmuse else None
+            if throttle:
+                now = throttle.clock()
+                if row.get('sand_poll_after', 0) > now:
+                    return row
+                row['sand_poll_after'] = now + sand.POLL_INTERVAL
+                atomic_write(receipt, row, maximum=RECEIPT_MAX)
             try:
                 api, value = self._query_task(row, site)
             except WCEError as error:
-                return self._remember_diagnostic(receipt, row, 'query_error', error.code)
+                backoff = throttle is not None and error.code in ('VIDEO_QUERY_RATE_LIMITED', 'VIDEO_PROVIDER_UNAVAILABLE',
+                                                                   'VIDMUSE_CLI_UNAVAILABLE')
+                if backoff:
+                    delay = min(60, 2 * row.get('sand_poll_delay', sand.POLL_INTERVAL))
+                    row.update(sand_poll_delay=delay, sand_poll_after=throttle.clock() + delay)
+                return self._remember_diagnostic(receipt, row, 'query_error', error.code, changed=backoff)
+            if throttle:
+                row.pop('sand_poll_delay', None)
             remote = value.get('status')
             if recover_failure and remote != 'failed':
                 return self._remember_diagnostic(receipt, row, 'query_error', 'VIDEO_TASK_STATUS_UNKNOWN')
@@ -937,6 +1052,8 @@ class Jobs:
                     row['failure'] = {'provider': TOKENHEX_PROVIDER}
                     if code := ark_error_code(value):
                         row['failure']['ark_error_code'] = code
+                elif is_sand:
+                    row['failure'] = {'provider': sand.PROVIDER, 'provider_code': value['failure_code']}
                 elif code := ark_error_code(value):
                     row['failure'] = {'ark_error_code': code}
             parse_usage = h3_usage if is_minimax else provider_usage
@@ -1040,6 +1157,9 @@ class Jobs:
         if path_check(path) != pin:
             raise WCEError('VIDEO_ASSET_CHANGED')
         prefix = ('tokenhex-' if request.get('provider') == TOKENHEX_PROVIDER else
+                  'byteplus-' if request.get('provider') == BYTEPLUS_PROVIDER else
+                  'sand-' if request.get('provider') == sand.PROVIDER else
+                  'vidmuse-' if request.get('provider') == vidmuse.PROVIDER else
                   'minimax-' if model in MINIMAX_MODELS else 'relay-' if model == RELAY_MODEL else 'ark-')
         return dict(facts, asset_id=prefix + digest, sha256=digest, bytes=size, path=str(path))
 

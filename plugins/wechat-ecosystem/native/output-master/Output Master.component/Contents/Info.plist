@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key><string>local.outputmaster.au</string>
+    <key>CFBundleExecutable</key><string>OutputMaster</string>
+    <key>CFBundleName</key><string>Output Master</string>
+    <key>CFBundlePackageType</key><string>BNDL</string>
+    <key>CFBundleShortVersionString</key><string>0.2.1</string>
+    <key>CFBundleVersion</key><string>3</string>
+    <key>AudioComponents</key>
+    <array>
+        <dict>
+            <key>name</key><string>Output Audio: Output Master</string>
+            <key>description</key><string>Adaptive stereo mastering for the mix bus</string>
+            <key>type</key><string>aufx</string>
+            <key>subtype</key><string>ObMs</string>
+            <key>manufacturer</key><string>OtAu</string>
+            <key>factoryFunction</key><string>OutputMasterFactory</string>
+            <key>version</key><integer>513</integer>
+            <key>sandboxSafe</key><true/>
+            <key>tags</key><array><string>Effect</string><string>Dynamics</string></array>
+        </dict>
+    </array>
+</dict>
+</plist>

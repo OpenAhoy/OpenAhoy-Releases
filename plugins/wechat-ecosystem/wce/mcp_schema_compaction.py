@@ -12,6 +12,11 @@ import json
 BRANCH_TOOLS = frozenset({
     'audio.project.presets',
     'own.documents.prepare',
+    'own.music.production',
+    'own.publications.current.dispatch',
+    'own.publications.current.poll',
+    'own.publications.current.status',
+    'own.wechat.authorized_drafts',
     'own.projects.read',
     'own.schedules.update',
     'own.sources.library',
@@ -58,6 +63,24 @@ def _merge_shapes(rules):
 
 
 def model_input_schema(name, schema):
+    if name == 'own.production.rules.update':
+        # Move the shared text limit out of each repeated field description.
+        # Exact text limits and account revisions remain enforced by the router.
+        changes = schema['properties']['changes']
+        outlined = dict(changes, properties={
+            name: {key: value for key, value in rule.items() if key != 'description'}
+            for name, rule in changes['properties'].items()
+        })
+        return dict(schema, properties=dict(schema['properties'], changes=outlined))
+    if name == 'own.music.production':
+        # Reuse each unique field shape once. Keep the nested settings, clips,
+        # stems and song window that a model needs to build the exact request.
+        outline = _action_shape(schema['oneOf'])
+        for field in ('suno_settings', 'clips', 'stems', 'window'):
+            rule = next(branch['properties'][field] for branch in schema['oneOf']
+                        if field in branch['properties'])
+            outline['properties'][field] = rule
+        return outline
     if name == 'x.connections.list':
         # Retain the read-only operation allowlist and each accepted argument
         # name. The router keeps the exact operation-to-arguments relationship.
@@ -74,7 +97,13 @@ def model_input_schema(name, schema):
         return dict(schema, properties=dict(schema['properties'], **{field: outline}))
     if name not in BRANCH_TOOLS:
         return schema
-    return _action_shape(schema['oneOf'])
+    outline = _action_shape(schema['oneOf'])
+    if name == 'video.relay.generation.submit':
+        # The actual director model list is authoritative for workflow-specific
+        # parameters. Keep the names and types here, and validate on dispatch.
+        for field in ('workflow_id', 'resolution', 'style_preset'):
+            outline['properties'][field] = {'type': 'string'}
+    return outline
 
 
 def _action_shape(alternatives):
@@ -89,48 +118,72 @@ def _action_shape(alternatives):
 
 
 MODEL_DESCRIPTIONS = {
-    'audio.music.provider.read': 'Read the saved music provider. An explicit provider wins; otherwise use the saved default.',
-    'audio.project.cover_video': 'Create a local video from the selected project song and cover image.',
-    'audio.project.import': 'Import one authorized local audio asset into the registered project; retain the original.',
-    'audio.project.mix': 'Mix existing project audio into a new local video. Times and fades are ms; gain is percent.',
-    'audio.project.presets': 'Read or edit local .jmusic recipes and pin candidates to exact shots. No generation.',
-    'audio.project.video.inspect': 'Read video facts and optional frame/audio samples from the current project.',
-    'image.openai.gif.submit': 'Submit one authorized billable GIF task from a project image. Query the original attempt on uncertainty.',
-    'media.library.prepare': 'Prepare existing project media for the selected account. Does not publish.',
-    'own.drafts.current.delete': 'Delete only explicitly authorized current WeChat drafts by exact selection.',
-    'own.drafts.current.merge': 'Merge selected current WeChat drafts in inventory order, up to eight articles. Recover UNKNOWN by original handle.',
-    'own.drafts.current.read': 'Read complete existing WeChat drafts by inventory selection or media ID.',
-    'own.drafts.current.resume': 'Read the original current-draft operation receipt. Never reissue an unknown write.',
-    'own.production.rules.read': 'Read non-secret production rules, manifests, and pinned chunks. Rules confer no API authority.',
-    'own.projects.initialize': 'Initialize an authorized project with current AGENTS and bridge Skill hashes. Preserve existing text.',
-    'own.projects.read': 'Read scoped project/AGENTS/Skill pins and effective settings or resume the exact operation.',
-    'own.projects.sync': 'Index authorized project and selected Skills. Does not edit source or accounts.',
-    'own.schedules.read': 'Read existing Codex publishing schedule references for one connection.',
-    'own.schedules.update': 'Record the actual Codex automation_update receipt for the exact original task and account. Retain UNKNOWN.',
-    'own.sources.library': 'Manage scoped public sources and preserve exact references used in each topic or draft.',
-    'own.templates.read': 'Read the scoped template manifest, materials and pinned chunks before use.',
-    'own.wechat.content': 'Official WeChat materials, drafts, publication and preview. Broadcasts require separate authorization.',
-    'own.writing.polish': 'Read polish rules, save a revision, or reopen the exact original. Preserve citations and protected facts.',
-    'video.ark.generation.status': 'Read or recover the exact original Ark or relay task; never submit another generation.',
-    'video.ark.generation.submit': 'Submit one authorized billable Seedance task by exact attempt. Use supported project images and model options.',
-    'video.director.edit': 'Edit an exact project, work, shot or article revision. Use action and original IDs; honor current revision guards.',
-    'video.director.generation.submit': 'Submit one authorized billable generation from the exact saved shot revision. Recover the original attempt.',
-    'video.director.read': 'Read project, story, shot, article, model options or exact receipt. Preflight does not generate.',
-    'video.minimax.generation.submit': 'Submit one authorized billable MiniMax task. Respect provider site and exact source mode. Query the original attempt.',
-    'video.relay.generation.submit': 'Submit one authorized billable AutoDL attempt. Read video.director.read action=models for exact workflow and input roles.',
-    'video.tokenhex.generation.submit': 'Submit one authorized billable Token Hex Seedance task. Recover the original attempt.',
-    'wce.ui.show_management': 'Read management status for the current binding.',
-    'x.articles.draft.create': 'Create one authorized X Article draft with ordered blocks and same-account upload receipts.',
-    'x.articles.publish': 'Publish one authorized X Article draft using its exact original attempt.',
-    'x.articles.status': 'Read the original X Article receipt. Optional readback verifies the known post.',
-    'x.attempt.status': 'Read an original X upload, post or reply receipt. poll_media queries known media only.',
-    'x.connections.list': 'List bound X accounts. Optional recovery permits only the listed original read operations.',
-    'x.media.upload': 'Upload one authorized same-account image, GIF or video from image_path. Resume the original attempt on uncertainty.',
-    'x.posts.context': 'Read the exact X post and requested context for this account.',
-    'x.posts.create': 'Publish authorized X text with optional ready same-account media. Never repeat an unknown attempt.',
-    'x.posts.readback': 'Independently GET the original X post and compare text and ordered media.',
-    'x.posts.reply': 'Send one authorized reply to the exact X parent. Follow platform mention, quote and automation restrictions.',
-    'x.posts.search': 'Search X posts under the selected account and its actual read permissions.',
-    'xhs.notes.publish': 'Publish one authorized image-text note through Creator Studio. Retain ordered images and original ID; never repeat UNKNOWN.',
-    'xhs.notes.readback': 'Verify the original known Xiaohongshu note independently. Never submits.',
+    'audio.music.provider.read': 'Read the default music provider.',
+    'audio.project.cover_video': 'Make a local video from a song and cover.',
+    'audio.project.history': 'List project songs and soundtrack assets.',
+    'audio.project.import': 'Import authorized project audio. Keep originals.',
+    'audio.project.mix': 'Mix project audio into video. Use ms and %.',
+    'audio.project.presets': 'Edit local .jmusic recipes and shot pins.',
+    'audio.project.video.inspect': 'Inspect project video and media samples.',
+    'image.openai.gif.configuration.status': 'Read local GIF key status only.',
+    'image.openai.gif.status': 'Read original GIF receipt and project file.',
+    'image.openai.gif.submit': 'Authorized billable GIF. Query original on UNKNOWN.',
+    'media.library.prepare': 'Prepare local media for the selected account.',
+    'openahoy.feedback.preview': 'Preview redacted feedback locally. Sends nothing.',
+    'openahoy.feedback.status': 'Check the original feedback submission.',
+    'openahoy.feedback.submit': 'Explicitly authorized public feedback only. Reuse preview; query UNKNOWN.',
+    'own.drafts.current.delete': 'Delete authorized drafts by exact selection.',
+    'own.drafts.current.merge': 'Merge up to 8 selected drafts. Recover original handle.',
+    'own.drafts.current.read': 'Read drafts by original selection or media ID.',
+    'own.drafts.current.resume': 'Read original draft receipt. Never resend UNKNOWN.',
+    'own.drafts.current.status': 'Read local original draft receipt.',
+    'own.drafts.inventory': 'List current drafts using draft-read access.',
+    'own.music.production': 'Manage song takes and archive clips. Suno download is free-only. Recover original key.',
+    'own.production.rules.read': 'Read account rules, chunk manifests and text.',
+    'own.production.rules.update': 'Edit requested fields with both summary revisions. Limit 8192 characters/32768 UTF-8 bytes. Retry identical args after UNKNOWN.',
+    'own.projects.initialize': 'Initialize authorized project AGENTS and Skill pins.',
+    'own.projects.read': 'Read scoped project and exact AGENTS/Skill pins.',
+    'own.projects.sync': 'Index authorized project and selected Skills.',
+    'own.schedules.read': 'Read account schedule references.',
+    'own.schedules.update': 'Record the real automation_update receipt for the original task and account.',
+    'own.sources.library': 'Manage scoped public sources and draft references.',
+    'own.templates.read': 'Read template manifest and pinned materials.',
+    'own.wechat.authorized_drafts': 'Read drafts or published works for the authorized account.',
+    'own.wechat.content': 'Manage WeChat content. Notifications need separate authorization.',
+    'own.writing.polish': 'Read or revise writing by original ID. Preserve cited facts.',
+    'video.ark.connection.status': 'Read local Ark credential status only.',
+    'video.ark.generation.status': 'Query the original Ark or relay task only.',
+    'video.ark.generation.submit': 'Authorized billable Seedance task. Recover original attempt.',
+    'video.director.edit': 'Edit exact project/work/shot/article with revision guards.',
+    'video.director.generation.submit': 'Authorized billable shot task. Recover original attempt.',
+    'video.director.read': 'Read project, shots, models or exact receipts.',
+    'video.minimax.generation.submit': 'Authorized billable MiniMax task. Query original attempt.',
+    'video.relay.generation.submit': 'Authorized billable AutoDL task. Read director models first; query original on UNKNOWN.',
+    'video.tokenhex.connection.check': 'List model IDs visible to local Token Hex credential.',
+    'video.tokenhex.generation.submit': 'Authorized billable Token Hex task. Recover original attempt.',
+    'wce.ui.show_management': 'Read management status.',
+    'x.articles.draft.create': 'Create authorized X Article draft with ordered same-account media.',
+    'x.articles.publish': 'Publish authorized X Article by original attempt.',
+    'x.articles.status': 'Read original Article receipt or verify known post.',
+    'x.attempt.status': 'Read original X receipt. Poll only known media.',
+    'x.connections.list': 'List X accounts or recover original allowed reads.',
+    'x.media.upload': 'Upload authorized same-account media. Query UNKNOWN.',
+    'x.posts.context': 'Read exact X post context for the account.',
+    'x.posts.create': 'Publish authorized X post with ready media. Never resend UNKNOWN.',
+    'x.posts.list': 'Page account posts. Preserve PARTIAL, continue with new token.',
+    'x.posts.read': 'Read exact X post. Preserve verified partial data.',
+    'x.posts.readback': 'GET original post; verify text and ordered media.',
+    'x.posts.reply': 'Send authorized reply to exact X parent.',
+    'x.posts.search': 'Search with the selected X account.',
+    'x.profile.read': 'Read bound X account profile.',
+    'x.replies.readback': 'Verify original reply or reconcile from its timeline. Never resend.',
+    'x.setup.draft.submit': 'Stage public X OAuth client ID and app name only. No secrets or binding changes.',
+    'x.users.lookup': 'Look up exact X username and return account ID.',
+    'xhs.attempt.status': 'Read original Xiaohongshu attempt only.',
+    'xhs.connections.list': 'List local Xiaohongshu bindings.',
+    'xhs.notes.list': 'List visible own notes with completeness.',
+    'xhs.notes.publish': 'Publish authorized note with ordered images. Never resend UNKNOWN.',
+    'xhs.notes.read': 'Read exact own note and canonical URL.',
+    'xhs.notes.readback': 'Independently verify the known note.',
+    'xhs.profile.read': 'Read bound profile. Official QR remains human.',
 }

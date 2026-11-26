@@ -447,9 +447,12 @@ def execute(service, arguments, deadline, cancel_guard=None, *, current_authorit
 
 
 def public_result(handle, connection_id, page, targets):
+    from .wechat_article_safety import image_url
     groups = [{'index': page['page'] * 20 + i,
         'article_count': len(target['projection']['response']['news_item']),
         'titles': [row['title'] for row in target['projection']['response']['news_item']],
+        'covers': [image_url(row.get('thumb_url')) for row in target['projection']['response']['news_item']],
+        'update_time': target['listed_update_time'],
         'projection_sha256': target['projection_sha256']}
         for i, target in enumerate(targets)]
     for group, target in zip(groups, targets):

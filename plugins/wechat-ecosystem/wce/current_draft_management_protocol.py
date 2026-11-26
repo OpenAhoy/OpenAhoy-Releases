@@ -67,11 +67,13 @@ class DraftManagementRouter:
         self.inner._inline_probe_meta = value
 
     def list_tools(self):
+        from .own_connection_tools import SPECS as connection_specs
+        from .current_publication_service import METHODS
         rows = deepcopy(self.inner.list_tools())
         for row in rows:
-            if row['name'] in {'own.publications.current.dispatch', 'own.publications.current.status',
-                              'own.publications.current.poll'}:
-                row['description'] += ' Also accepts the genuine managed-draft intent_handle returned by a completed current-draft merge; never invent an old save attempt.'
+            if row['name'] in METHODS:
+                row['inputSchema'] = deepcopy(connection_specs[row['name']])
+                row['description'] += ' Use the original saved or merged handle, or the exact account inventory selection.'
         return rows + descriptors()
 
     def call(self, name, args):

@@ -37,6 +37,15 @@ PICTURE = schema({
     'cover_info': schema({'crop_percent_list': {'type': 'array', 'minItems': 1, 'maxItems': 3, 'items': CROP}}),
     'product_key': {'type': 'string', 'minLength': 1, 'maxLength': 1024},
 })
+NEWS_CHANGES = schema({}, {
+    'title': {'type': 'string', 'minLength': 1, 'maxLength': 64},
+    'author': {'type': 'string', 'maxLength': 16},
+    'digest': {'type': 'string', 'maxLength': 120},
+    'content': {'type': 'string', 'minLength': 1, 'maxLength': 19999},
+    'cover_handle': HANDLE,
+})
+NEWS_CREATE = schema({key:NEWS_CHANGES['properties'][key] for key in ('title','content','cover_handle')},
+    {key:NEWS_CHANGES['properties'][key] for key in ('author','digest')})
 
 
 def action_schema(action, required, optional=None):
@@ -57,6 +66,9 @@ def specs():
         'create_picture': action_schema('create_picture', {'request_key': ID, 'article': PICTURE}),
         'update_picture': action_schema('update_picture', {'request_key': ID, 'selection': SELECTION,
             'index': {'type': 'integer', 'minimum': 0, 'maximum': 7}, 'article': PICTURE}),
+        'update_news': action_schema('update_news', {'request_key': ID, 'selection': SELECTION,
+            'index': {'type': 'integer', 'minimum': 0, 'maximum': 7}, 'changes': NEWS_CHANGES}),
+        'create_news': action_schema('create_news', {'request_key': ID, 'article': NEWS_CREATE}),
         'status': action_schema('status', {'operation_handle': HANDLE}),
         'status_by_key': action_schema('status_by_key', {'request_key': ID}),
         'readback': action_schema('readback', {'operation_handle': HANDLE}),
@@ -373,9 +385,101 @@ def _draft(db, client, action, args):
                    new_reference=reference, result={'media_id': reference, 'index': index})
 
 
+def _update_news(db,client,args):
+    from .documents import safe_url
+    from .draft_revision_wire import WRITE_FIELDS, PRESERVATION_FIELDS
+    target=managed.selected(client.policy,args['selection'],client.guard)
+    index=args['index'];rows=target['projection']['response']['news_item']
+    if index>=len(rows) or not args['changes']:
+        fail('WECHAT_DRAFT_EDIT_INVALID')
+    original=rows[index]
+    if (original.get('article_type','news')!='news' or not PRESERVATION_FIELDS<=set(original)
+            or set(original)-WRITE_FIELDS-{'url','thumb_url'}):
+        fail('WECHAT_DRAFT_EDIT_OPEN_OFFICIAL')
+    changes=deepcopy(args['changes'])
+    cover=changes.pop('cover_handle',None)
+    if cover:
+        changes['thumb_media_id']=_news_cover(db,client,cover)
+    article={key:deepcopy(value) for key,value in original.items() if key in WRITE_FIELDS}
+    article.update(changes)
+    if not reference_valid(article['thumb_media_id']):
+        fail('WECHAT_DRAFT_COVER_NOT_AVAILABLE')
+    if article['content_source_url']:
+        safe_url(article['content_source_url'])
+    if not isinstance(article['content'],str) or not article['content'] or len(article['content'].encode())>=1_000_000:
+        fail('WECHAT_DRAFT_EDIT_INVALID')
+    if 'content' in changes:
+        from .wechat_article_safety import validate_manual_body
+        validate_manual_body(original['content'],changes['content'])
+    row=_reserve(db,client.policy,args['request_key'],'update_news',{
+        'article':article,'index':index,'reference':target['reference'],'before':target['projection_sha256'],
+        'baseline':[{'title':item['title'],'digest':_row_digest(item)} for item in rows]})
+    if row['state']!='PREPARED':
+        return public(row)
+    reference=target['reference']
+    previous=db.execute("SELECT handle FROM operations WHERE handle!=? AND "
+        "json_extract(row_json,'$.kind') IN ('update_news','update_picture') AND "
+        "json_extract(row_json,'$.state')='UNKNOWN' AND json_extract(row_json,'$.intent.reference')=?",
+        (row['operation_handle'],reference)).fetchone()
+    if previous is not None:
+        fail('WECHAT_CONTENT_ORIGINAL_UPDATE_REQUIRED')
+    before=client.snapshot(reference)
+    if wire.digest(wire.baseline_projection(before))!=target['projection_sha256']:
+        return _finish(db,client,row,'SOURCE_CHANGED')
+    if all(original.get(key)==value for key,value in changes.items()):
+        return _finish(db,client,row,'UNCHANGED',new_reference=reference)
+    raw=client.send(_request('/cgi-bin/draft/update',{'media_id':reference,'index':index,'articles':article},client.secret),
+                    before_http=lambda:_at_send(db,row),capability='draft_save')
+    try:
+        result=response_value(raw,client.secret)
+    except WCEError:
+        return public(row)
+    if type(result.get('errcode')) is not int:
+        return public(row)
+    if result['errcode']!=0:
+        return _finish(db,client,row,'REJECTED',error_code=result['errcode'])
+    _finish(db,client,row,'SAVED',new_reference=reference,article_count=len(rows))
+    return _readback(db,client,{'operation_handle':row['operation_handle']})
+
+
+def _news_cover(db,client,handle):
+    uploaded=_operation(db,client.policy,handle=handle)
+    result=uploaded.get('result',{})
+    if (uploaded['kind']!='upload_image' or uploaded['state']!='UPLOADED'
+            or not reference_valid(result.get('media_id')) or result.get('purpose')=='body_image'):
+        fail('WECHAT_DRAFT_COVER_NOT_AVAILABLE')
+    return result['media_id']
+
+
+def _create_news(db,client,args):
+    from .wechat_article_safety import validate_manual_body
+    article=deepcopy(args['article'])
+    article.update(article_type='news',thumb_media_id=_news_cover(db,client,article.pop('cover_handle')),
+                   content_source_url='',need_open_comment=0,only_fans_can_comment=0)
+    article.setdefault('author','');article.setdefault('digest','')
+    validate_manual_body('',article['content'])
+    row=_reserve(db,client.policy,args['request_key'],'create_news',{
+        'article':article,'index':0,'reference':None,'baseline':[{'title':article['title'],'digest':_row_digest(article)}]})
+    if row['state']!='PREPARED':
+        return public(row)
+    raw=client.send(_request('/cgi-bin/draft/add',{'articles':[article]},client.secret),
+                    before_http=lambda:_at_send(db,row),capability='draft_save')
+    try:
+        result=response_value(raw,client.secret)
+    except WCEError:
+        return public(row)
+    if result.get('errcode',0):
+        return _finish(db,client,row,'REJECTED',error_code=result['errcode'])
+    reference=result.get('media_id')
+    if not reference_valid(reference):
+        return public(row)
+    _finish(db,client,row,'SAVED',new_reference=reference,article_count=1)
+    return _readback(db,client,{'operation_handle':row['operation_handle']})
+
+
 def _readback(db, client, args):
     row = _operation(db, client.policy, handle=args['operation_handle'])
-    if row.get('kind') not in {'create_picture', 'update_picture'} or row['state'] not in {
+    if row.get('kind') not in {'create_picture', 'update_picture','update_news','create_news'} or row['state'] not in {
             'SAVED', 'VERIFIED', 'UNCHANGED', 'UNKNOWN', 'READBACK_MISMATCH'}:
         return public(row)
     intent = row['intent']
@@ -388,7 +492,12 @@ def _readback(db, client, args):
         _row_digest(actual) == previous['digest']
         for i, (actual, previous) in enumerate(zip(got, intent['baseline'])) if i != index)
     match = False
-    if stable_neighbors and got[index].get('article_type') == 'newspic':
+    if stable_neighbors and row['kind'] in {'update_news','create_news'}:
+        observed=got[index]
+        match=all(article[key]==observed.get(key) for key in article)
+        if match:return _finish(db,client,row,'VERIFIED',new_reference=reference,
+            article_count=len(got),titles=[item['title'] for item in got],readback={'state':'MATCHED'})
+    elif stable_neighbors and got[index].get('article_type') == 'newspic':
         observed = picture_fields(got[index])
         match = all(article[key] == observed.get(key) for key in article)
     if not match:
@@ -413,7 +522,7 @@ def execute(service, args, deadline, cancel_guard=None):
     if action.startswith('status'):
         return local_status(client.policy, args)
     from . import wechat_content_ops as extra
-    if action not in extra.READS | {'readback'} and upload_wire.contains_secret(args, client.secret, max_nodes=16384):
+    if action not in extra.READS | {'readback','comment_auto_disable','comment_take_over'} and upload_wire.contains_secret(args, client.secret, max_nodes=16384):
         fail('REQUEST_SECRET_REFLECTION')
     if action in extra.READS:
         if action in {'temporary_details', 'high_quality_voice', 'broadcast_status'}:
@@ -423,7 +532,7 @@ def execute(service, args, deadline, cancel_guard=None):
     from .publication_lock import draft_writer
     draft_message = action in {'preview_message','send_broadcast'} and 'draft_selection' in args['message'].get('media',{})
     writer = (draft_writer(client.policy.root, client.policy.data['appid'])
-              if draft_message or action in {'create_picture', 'update_picture', 'readback'} else nullcontext())
+              if draft_message or action in {'create_picture', 'update_picture', 'create_news', 'update_news', 'readback'} else nullcontext())
     with writer, managed.journal(client.policy, create=action != 'readback', writable=True) as db:
         if action == 'upload_image':
             return _upload(db, client, args)
@@ -431,4 +540,8 @@ def execute(service, args, deadline, cancel_guard=None):
             return _readback(db, client, args)
         if action in {'create_picture','update_picture'}:
             return _draft(db, client, action, args)
+        if action=='update_news':
+            return _update_news(db,client,args)
+        if action=='create_news':
+            return _create_news(db,client,args)
         return extra.execute(db, client, args, action)

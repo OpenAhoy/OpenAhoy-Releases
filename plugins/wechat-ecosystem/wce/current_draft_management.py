@@ -172,6 +172,9 @@ def public(row):
     result['publication_ready'] = row['kind'] == 'merge' and row['state'] == 'COMPLETED'
     if result['publication_ready']:
         result['intent_handle'] = row['operation_handle']
+        if any(article.get('article_type') == 'newspic'
+               for target in row['targets'] for article in target['projection']['response']['news_item']):
+            result['contains_picture_messages'] = True
     result['publication_submitted'] = False
     result['platform_atomic'] = False
     result['phase'] = ('VERIFY_NEW_GROUP' if row['state']=='PRESERVATION_MISMATCH' else

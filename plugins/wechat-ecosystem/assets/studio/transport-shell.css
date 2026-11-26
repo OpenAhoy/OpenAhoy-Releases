@@ -1,0 +1,18 @@
+body[data-color-scheme=dark] #wbMusic {--lus-wave-peak-alpha:.84;--lus-wave-rms-alpha:.99}
+/* Keep both the workbench palette and the shared dock palette owned by the shell. */
+#wbMusic {
+  --lus-highlight:light-dark(white,color-mix(in srgb,var(--wb-surface) 88%,white));
+  --lus-shade:light-dark(color-mix(in srgb,var(--wb-surface) 79%,black),
+                         color-mix(in srgb,var(--wb-surface) 43%,black));
+  --lus-raised:-3px -3px 7px var(--lus-highlight),3px 4px 8px var(--lus-shade);
+  --lus-inset:inset 2px 3px 6px var(--lus-shade),inset -2px -2px 5px var(--lus-highlight);
+  --lus-floating:-3px -3px 9px var(--lus-highlight),5px 7px 17px var(--lus-shade);
+}
+#wbMusic .wb-music-links {gap:6px}
+#wbMusic .wb-music-links button {
+  color:var(--ink);background:var(--oa-fill);border-color:transparent;box-shadow:var(--lus-raised)
+}
+#wbMusic .wb-music-links button:hover:not(:disabled) {background:var(--oa-hover)}
+#wbMusic .wb-music-links button:active:not(:disabled) {
+  color:var(--oa-selected-ink);background:var(--oa-selection);box-shadow:var(--lus-inset)
+}

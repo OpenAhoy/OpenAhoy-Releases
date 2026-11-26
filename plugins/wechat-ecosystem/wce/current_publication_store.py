@@ -1341,7 +1341,7 @@ def public_target(row):
     reason = row.get('reason')
     if reason not in {'DUPLICATE_TASK_ID', 'TASK_UNIQUENESS_UNVERIFIED', 'SUBMIT_RESULT_UNDETERMINED'}:
         reason = None
-    return {'intent_handle': row['intent_handle'], 'state': row['state'],
+    target = {'intent_handle': row['intent_handle'], 'state': row['state'],
         'article_count': row['article_count'], 'titles': row['titles'],
         'submit_count': row['submit_count'], 'queries': row.get('queries', 0),
         'platform_status': reply.get('platform_status'),
@@ -1353,3 +1353,16 @@ def public_target(row):
         'reason': reason,
         'quality_source': row.get('quality_source', 'HUMAN_ACCEPTED_CURRENT_DRAFTS'),
         'route': 'FREEPUBLISH', 'audience': 'NO_PUSH'}
+    if row.get('mode') == 'notify':
+        target.update(route='MASS_SENDALL', audience='ALL_FOLLOWERS',
+            task_id=(row.get('task') or {}).get('digits'), msg_data_id=row.get('msg_data_id'),
+            permission_set=7, permission_state=row.get('permission_state', 'UNKNOWN'),
+            authorizer_permission_state=row.get('authorizer_permission_state', 'UNKNOWN'),
+            quota_state=row.get('quota_state', 'UNKNOWN'),
+            approval_state='AWAITING_ADMIN' if row['state']=='AWAITING_ADMIN' else 'UNKNOWN',
+            fallback_allowed=row['state']=='NOT_SENT' and row.get('task') is None)
+    elif row.get('notify_attempt') is not None:
+        prior = row['notify_attempt']
+        target['prior_notify'] = {'state': prior['state'], 'quota_state': prior['quota_state'],
+                                 'error_code': (prior['reply'] or {}).get('error_code')}
+    return target

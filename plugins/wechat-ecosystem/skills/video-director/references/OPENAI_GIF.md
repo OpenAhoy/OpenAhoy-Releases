@@ -1,6 +1,6 @@
 # OpenAI 动图
 
-用户明确要求制作动图时，先通过 `image.openai.gif.configuration.status` 检查本机 OpenAI 动图 Key 是否已保存。配置状态不会验证 OpenAI 项目的 GIF 预览权限。未配置时请用户本人在右侧「视频生成 → 模型设置 → OpenAI · 动图」保存 Key，避免让 Key 进入聊天。已有 GIF 的上传或发表仍使用对应平台的正常入口。
+用户明确要求制作动图时，先通过 `image.openai.gif.configuration.status` 检查本机 OpenAI 动图 Key 是否已保存。配置状态不会验证 OpenAI 项目的 GIF 预览权限。未配置时请用户本人在「设置 → 模型管理 → 动图」的 OpenAI 卡保存 Key，避免让 Key 进入聊天。已有 GIF 的上传或发表仍使用对应平台的正常入口。
 
 Codex 负责生成或选定静态原图。提交前确认一张已登记项目中的 PNG、JPEG 或 WebP，核对实际项目相对路径、原图 SHA-256 和用户想要的动作。将动作和循环描述、项目 ID、选定参图及唯一 `generation_attempt_id` 交给 `image.openai.gif.submit`。它使用 GPT‑Image‑2.6 Flare 官方图片编辑接口生成一个动画，采用 API 的 9 帧、200ms、auto 默认值。提交会将选定的原图和提示词发送给 OpenAI，按用户自己的项目计费。
 

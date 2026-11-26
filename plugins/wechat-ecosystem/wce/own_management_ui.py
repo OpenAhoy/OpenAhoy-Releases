@@ -56,10 +56,16 @@ def icon(name):
     paths = {'plus':'<path d="M12 5v14M5 12h14"/>',
         'refresh':'<path d="M20 7v5h-5M20 12a8 8 0 1 1-2-6"/>',
         'accounts':'<path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/>',
+        'gear':'<path d="m9 3-1 3-3 1-2 3 2 2-1 3 2 3 3-1 2 3h3l1-3 3-1 2-3-2-2 1-3-2-3-3 1-2-3Z"/><circle cx="12" cy="11.5" r="3"/>',
+        'person':'<circle cx="12" cy="8" r="3.2"/><path d="M5 19c.8-4.4 3.3-6.4 7-6.4s6.2 2 7 6.4"/>',
         'settings':'<path d="M3 6h5m4 0h9M3 12h11m4 0h3M3 18h2m4 0h12"/><circle cx="10" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="7" cy="18" r="2"/>',
         'wechat':'<path d="M17 9a7 6 0 0 0-14 0c0 2 1 3.5 3 4.5L5 16l3-1.5h2"/><path d="M21 15c0-3-2.5-5-6-5s-6 2-6 5 2.5 5 6 5h2l3 1-.7-2.5c1.1-1 1.7-2 1.7-3.5Z"/><path d="M7 8h.01M12 8h.01M13 14h.01M17 14h.01"/>',
         'arrow':'<path d="m9 5 7 7-7 7"/>',
         'audio':'<path d="M4 9v6m4-10v14m4-17v20m4-17v14m4-10v6"/>',
+        'source_library':'<path d="M12 6c-2-2-5-2.7-9-2v14c4-.7 7 0 9 2 2-2 5-2.7 9-2V4c-4-.7-7 0-9 2Zm0 0v14M6 8h3M6 12h3m6-4h3m-3 4h3"/>',
+        'song_list':'<path d="M4 6h12M4 11h7M4 16h6m5 0V6l5-1v4l-5 1"/><ellipse cx="12.5" cy="17.5" rx="2.5" ry="1.5"/>',
+        'analytics':'<path d="M4 4v16h16M8 16v-3m4 3V9m4 7V6m4 10V9"/>',
+        'account_permissions':'<path d="M12 3 5 6v5c0 4.6 2.8 7.7 7 10 4.2-2.3 7-5.4 7-10V6l-7-3Zm-3 9 2 2 4-4"/>',
         'image':'<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9" r="1.4"/><path d="m3 16 5-4 4 3 3-4 6 5"/>',
         'video':'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m10 9 5 3-5 3z"/>'}
     return '<svg class="oa-icon" viewBox="0 0 24 24" aria-hidden="true">'+paths[name]+'</svg>'
@@ -73,7 +79,6 @@ def jiusera_sidebar():
             '<button id="openMediaStudio" type="button" aria-expanded="false" aria-controls="jiuseraEntries">'
             + JIUSERA_MARK + '<span>Jiusera</span><span class="oa-jiusera-chevron" aria-hidden="true">›</span></button>'
             '<div id="jiuseraEntries" hidden>'
-            '<button type="button" data-studio-page="monitor" aria-controls="directorMonitor">导演台</button>'
             '<button type="button" data-studio-page="desk" aria-controls="directorBoard">工作画布</button>'
             '<button type="button" data-studio-page="assets" aria-controls="directorAssetKinds">资产库</button>'
             '</div></nav>')
@@ -100,7 +105,7 @@ def minimax_mark():
 
 def minimax_cards():
     return ''.join(
-        f'''<section id="videoMiniMax{suffix}Card" class="panel" aria-labelledby="videoMiniMax{suffix}Title">
+        f'''<section id="videoMiniMax{suffix}Card" class="panel" data-model-editor="{site}" aria-labelledby="videoMiniMax{suffix}Title">
         <div class="oa-video-relay-heading">{minimax_mark()}
         <h2 id="videoMiniMax{suffix}Title">{title}</h2></div>
         <p id="videoMiniMax{suffix}State" role="status"></p><div data-catalog="{site}"></div>
@@ -126,49 +131,95 @@ def native_page_body(logo, platform_settings):
     from .own_inline_binding_ui import HTML as binding_html
     from .video_director_ui import HTML as director_html
     from .workbench_ui import SURFACES, chrome
-    from .studio_showcase_ui import HTML as showcase_html
     from .character_library_ui import HTML as characters_html
     from .openai_gif_ui import SETTINGS_HTML as gif_settings
     from .audio_workspace_ui import HTML as audio_html
     from .workflow_guide_ui import HTML as guide_html
-    from .own_branding import openahoy_symbol, video_model_mark
-    from .writing_workflow_ui import HTML as writing_rules
+    from .own_branding import video_model_mark
+    from .openahoy_board_ui import HTML as openahoy_board
+    from .model_management_banner import HTML as model_banner
+    from .model_overview_ui import overview_html
     home = '''<section id="openAhoyHome" aria-labelledby="homeTitle" hidden>
-<header class="wb-about-card">
-<h1 id="homeTitle" tabindex="-1">关于与设置</h1>
-<p>Jiusera for Codex</p>
-<button data-wb-route="jiusera-canvas" type="button">返回工作画布</button>
-</header>
-<div class="wb-about-grid">
- <section class="wb-about-card" aria-labelledby="wbSoftwareTitle">
-  <h2 id="wbSoftwareTitle">版本与更新</h2><div id="softwareUpdateSlot"></div>
- </section>
- <section class="wb-about-card" aria-labelledby="wbHelpTitle">
-  <h2 id="wbHelpTitle">帮助与反馈</h2>
-  <div id="wbSupportSlot"></div>
-  <div class="wb-context"><button id="openWorkflowGuide" type="button" aria-expanded="false" aria-controls="workflowGuide">指导模式</button></div>
- </section>
- ''' + writing_rules + '''
+<h1 id="homeTitle" tabindex="-1">设置</h1>
+<div class="wb-settings-board">
+ ''' + model_banner + '''
+ <div id="softwareUpdateSlot"></div>
+ <div id="wbSupportSlot"></div>
+ <button id="openWorkflowGuide" class="wb-setting-guide wb-setting-action" type="button" aria-expanded="false" aria-controls="workflowGuide">指导模式</button>
+ <button class="wb-setting-canvas wb-setting-action" data-wb-route="jiusera-canvas" type="button" aria-label="返回工作画布">返回画布</button>
 </div>
 <section id="homeRecommendations" aria-labelledby="homeRecommendationsTitle" hidden>
 <h2 id="homeRecommendationsTitle">推荐插件</h2><div class="oa-home-grid"></div>
 </section>
 </section>
+<section id="wbProfile" aria-labelledby="wbProfileTitle" hidden>
+ <div class="wb-about-card wb-entry-card">
+  <h1 id="wbProfileTitle" tabindex="-1">个人资料</h1>
+  <p>尚未登录 Jiusera</p>
+ </div>
+</section>
+<section id="wbMusicHome" aria-labelledby="wbMusicHomeTitle" hidden></section>
+<section id="wbMusicSongs" aria-labelledby="wbMusicSongsTitle" hidden></section>
+<section id="wbMusic" aria-labelledby="wbMusicTitle" hidden>
+ <div class="lus-workspace">
+  <h1 id="wbMusicTitle" tabindex="-1">L-unify IMW</h1>
+  <div class="wb-context wb-music-links">
+   <button data-wb-route="music-recipes" type="button">音乐配方</button>
+   <button data-wb-route="audio" type="button">音频资产</button>
+  </div>
+ </div>
+</section>
 <section id="wbOpenAhoy" aria-labelledby="wbOpenAhoyTitle" hidden>
  <div class="oa-home-features">
-  <h1 id="wbOpenAhoyTitle" tabindex="-1">'''+openahoy_symbol()+'''<span>OpenAhoy</span></h1>
-  <p class="help">发布与账号</p>
-  <div class="oa-home-grid" id="homeFeatures"></div>
-  <p id="homeStatus" class="help" role="status">正在连接管理工具…</p>
+  '''+openahoy_board+'''
  </div>
+</section>
+<section id="wbDouyin" aria-labelledby="wbDouyinTitle" hidden>
+ <h1 id="wbDouyinTitle" class="ob-douyin-sr" tabindex="-1">抖音账号</h1>
+ <div id="obDouyinPage" class="ob-douyin-layout"></div>
 </section>'''
     mark_style = '<style>.oa-video-relay-heading .oa-minimax-mark{width:70px;aspect-ratio:30/11;border-radius:4px;background:#fff center/contain no-repeat url("' + video_model_mark() + '")}</style>'
-    credential = mark_style + '''<div class="oa-provider-grid"><section id="videoArkCard" class="panel"><h2>火山方舟</h2><p class="help">中国站 · 北京</p><p id="videoArkState" role="status"></p><div data-catalog="ark"></div><div class="oa-provider-actions"><button type="button" data-provider-control="ark" data-action="official">打开官方控制台</button><button type="button" data-provider-control="ark" data-action="model">模型文档</button><button type="button" data-provider-control="ark" data-action="assist">让 Codex 帮我开通</button></div><details class="oa-provider-cost"><summary>额度与账单</summary><p class="help">任务用量、套餐额度和已结算账单分别以官方为准。</p><button type="button" data-provider-control="ark" data-action="billing">打开官方账单</button></details><div id="videoArkCredentialForm">
+    credential = mark_style + '''<div class="oa-provider-grid"><section id="videoArkCard" class="panel" data-model-editor="ark"><h2>火山方舟</h2><p class="help">中国站 · 北京</p><p id="videoArkState" role="status"></p><div data-catalog="ark"></div><div class="oa-provider-actions"><button type="button" data-provider-control="ark" data-action="official">打开官方控制台</button><button type="button" data-provider-control="ark" data-action="model">模型文档</button><button type="button" data-provider-control="ark" data-action="assist">让 Codex 帮我开通</button></div><details class="oa-provider-cost"><summary>额度与账单</summary><p class="help">任务用量、套餐额度和已结算账单分别以官方为准。</p><button type="button" data-provider-control="ark" data-action="billing">打开官方账单</button></details><div id="videoArkCredentialForm">
 <label id="videoArkCredentialLabel" for="videoArkCredential">API Key</label>
 <input id="videoArkCredential" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" required disabled>
 <button id="videoArkCredentialSave" type="button" class="primary" disabled>保存 API Key</button>
-</div></section>'''+minimax_cards()+'''
-<section id="videoRelayCard" class="panel" aria-labelledby="videoRelayTitle">
+</div></section><section id="videoArkGlobalCard" class="panel" data-model-editor="ark_global"><h2>方舟国际站 · BytePlus ModelArk</h2><p class="help">新加坡 · ap-southeast-1</p><p id="videoArkGlobalState" role="status"></p><div data-catalog="ark_global"></div><div class="oa-provider-actions"><button type="button" data-provider-control="ark_global" data-action="official">获取 API Key</button><button type="button" data-provider-control="ark_global" data-action="model">模型文档</button></div><div id="videoArkGlobalCredentialForm">
+<label id="videoArkGlobalCredentialLabel" for="videoArkGlobalCredential">API Key</label>
+<input id="videoArkGlobalCredential" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" required disabled>
+<button id="videoArkGlobalCredentialSave" type="button" class="primary" disabled>保存 API Key</button>
+</div></section>
+<section id="videoSandCard" class="panel" data-model-editor="sand" aria-labelledby="videoSandTitle">
+<h2 id="videoSandTitle">Sand AI · MAGI-2</h2>
+<p class="help">1080p 文生视频和项目图片参考。模型权限由 Sand AI 组织授予。</p>
+<p id="videoSandState" role="status"></p><div data-catalog="sand"></div>
+<div class="oa-provider-actions"><button type="button" data-provider-control="sand" data-action="official">获取 API Key</button>
+<button type="button" data-provider-control="sand" data-action="model">模型文档</button></div>
+<div id="videoSandCredentialForm">
+<label for="videoSandCredential">API Key</label>
+<input id="videoSandCredential" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" autocapitalize="off" required disabled>
+<button id="videoSandSave" type="button" class="primary" disabled>保存 API Key</button>
+</div></section>
+<section id="videoVidMuseCard" class="panel" data-model-editor="vidmuse" aria-labelledby="videoVidMuseTitle">
+<h2 id="videoVidMuseTitle">VidMuse · MAGI-2</h2>
+<p class="help">使用 VidMuse 账号授权。实际型号、参数和积分以该账号的当前目录为准。</p>
+<p id="videoVidMuseState" role="status" aria-live="polite">尚未检查 VidMuse 连接。</p>
+<p id="videoVidMuseBalance" class="help"></p>
+<ul id="videoVidMuseModels" hidden></ul>
+<div class="oa-provider-actions">
+<button id="videoVidMuseCheck" type="button">检查连接与积分</button>
+<button id="videoVidMuseInstall" type="button" hidden>安装官方 VidMuse CLI</button>
+<button id="videoVidMuseConnect" type="button" hidden>连接 VidMuse 账号</button>
+</div>
+<div id="videoVidMuseDevice" hidden>
+<p class="help">请在 VidMuse 官方页面批准设备授权。</p>
+<p><code id="videoVidMuseCode"></code></p>
+<div class="oa-provider-actions">
+<button id="videoVidMuseOpen" type="button">打开 VidMuse 授权页</button>
+<button id="videoVidMuseFinish" type="button" class="primary">检查授权结果</button>
+<button id="videoVidMuseCancel" type="button">取消授权</button>
+</div></div>
+</section>'''+minimax_cards()+'''
+<section id="videoRelayCard" class="panel" data-model-editor="relay" aria-labelledby="videoRelayTitle">
 <div class="oa-video-relay-heading">'''+minimax_mark()+'''<h2 id="videoRelayTitle">AutoDL · MiniMax H3</h2></div>
 <div id="videoRelayForm">
 <label for="videoRelayOrigin">中转站 Base URL</label>
@@ -179,7 +230,7 @@ def native_page_body(logo, platform_settings):
 <div class="oa-video-relay-footer"><p id="videoRelayState" role="status" aria-live="polite"></p>
 <button id="videoRelaySave" type="button" class="primary" disabled>保存中转站配置</button></div>
 </div></section>
-<section id="videoTokenHexCard" class="panel" aria-labelledby="videoTokenHexTitle">
+<section id="videoTokenHexCard" class="panel" data-model-editor="tokenhex" aria-labelledby="videoTokenHexTitle">
 <div class="oa-video-relay-heading"><h2 id="videoTokenHexTitle">Token Hex · 方舟视频</h2></div>
 <div id="videoTokenHexForm" class="oa-video-tokenhex-form">
 <label for="videoTokenHexOrigin">中转站 Base URL</label>
@@ -198,22 +249,80 @@ def native_page_body(logo, platform_settings):
 </div></div></section></div>
 <p id="videoProviderNotice" class="help" role="status"></p><textarea id="videoProviderCopy" aria-label="复制 Codex 指令" readonly hidden></textarea>
 '''
+    models = '''<section id="wbModels" aria-labelledby="wbModelsTitle" hidden>
+ <div class="wb-settings-content">
+  <header class="wb-settings-heading">
+   <h1 id="wbModelsTitle" tabindex="-1">模型管理</h1>
+   <button data-wb-route="about" type="button">返回设置</button>
+  </header>
+  '''+overview_html()+'''
+  <dialog id="wbModelDialog" class="wb-model-dialog" aria-labelledby="wbModelDialogTitle">
+   <header><h2 id="wbModelDialogTitle" tabindex="-1"></h2>
+    <button id="wbModelClose" type="button">关闭</button>
+   </header>
+   <p id="wbModelDetailHint" class="wb-model-detail-hint" hidden><span>已保存凭据</span><code id="wbModelDetailMask"></code></p>
+   <div id="wbVideoModels" data-model-pane="video" hidden>'''+credential+'''</div>
+   <div id="wbGifModels" data-model-pane="gif" hidden>'''+gif_settings+'''</div>
+   <div id="wbMusicModels" data-model-pane="music" hidden>'''+audio_html+'''</div>
+  </dialog>
+ </div>
+</section>
+<section id="wbAudioWork" aria-labelledby="wbAudioWorkTitle" hidden>
+ <div class="wb-settings-content">
+  <header class="wb-settings-heading">
+   <h1 id="wbAudioWorkTitle" tabindex="-1">音频工作台</h1>
+   <button data-wb-route="audio" type="button">返回音频资产</button>
+  </header>
+  <div id="wbAudioWorkBody"></div>
+ </div>
+</section>'''
     from .wechat_analytics_ui import HTML as analytics_html
+    from .wechat_article_page import HTML as wechat_articles_html
+    from .wechat_account_desk import HTML as wechat_desk_html
     return '''<body class="oa-management oa-platform-workspace oa-native" data-workbench="startup">'''+chrome(icon)+'''<div class="oa-shell">
 '''+platform_sidebar(logo, '<p class="help">正在读取平台…</p>', localized=True)+'''
-<main class="oa-content">'''+guide_html+SURFACES+showcase_html+home+'''<div id="nativeWorkspace" hidden><header class="oa-account-header">
+<main class="oa-content">'''+guide_html+SURFACES+home+models+'''<div id="nativeWorkspace" hidden><header class="oa-account-header">
+<div id="wechatWorkspaceBack" hidden><button id="wechatBack" type="button" aria-label="返回 OpenAhoy" title="返回 OpenAhoy">'''+icon('arrow')+'''<span>返回 OpenAhoy</span></button></div>
+<button id="xPlatformBack" type="button" hidden>'''+icon('arrow')+'''<span>返回 OpenAhoy</span></button>
 <div class="oa-heading"><div id="accountCurrent"><h1 id="pageTitle" data-oa-overflow>选择平台</h1><small id="accountCaption" hidden></small></div></div>
-<div class="actions"><div id="accountTools" class="oa-account-tools"><details class="oa-more-settings"><summary>更多设置</summary><div class="oa-more-popover"><button id="accountRules" disabled>编辑本号配置</button><button id="accountCreate" disabled>快速创建配置</button><button id="accountImport" disabled>加载并保存配置</button><div><button id="accountBackend" disabled>打开公众号后台</button></div><p id="wechatBackendHelp" class="help">使用浏览器现有登录，请核对账号。</p><details><summary>账号信息</summary><div id="selectedAccount"></div></details></div></details></div>
-<button id="refresh" aria-label="刷新账号">刷新</button><button id="showAdd" class="primary" aria-label="绑定账号">绑定账号</button></div></header>
-<nav id="wechatWorkspaceNavigation" aria-label="公众号工作区" hidden>
-<button id="wechatMonitorTab" type="button" aria-pressed="true" aria-controls="wechatAnalytics">数据监控</button>
-<button id="wechatConfigTab" type="button" aria-pressed="false" aria-controls="settingsPanel">公众号配置</button>
-</nav>
+<div class="actions"><div id="accountTools" class="oa-account-tools"><details class="oa-more-settings"><summary aria-label="更多设置" title="更多设置">'''+icon('gear')+'''<span>更多设置</span></summary><div class="oa-more-popover"><button id="accountRules" disabled>编辑本号配置</button><button id="accountCreate" disabled>快速创建配置</button><button id="accountImport" disabled>加载并保存配置</button><div><button id="accountBackend" disabled>打开公众号后台</button></div><p id="wechatBackendHelp" class="help">使用浏览器现有登录，请核对账号。</p><details><summary>账号信息</summary><div id="selectedAccount"></div></details></div></details></div>
+<button id="refresh" aria-label="刷新账号" title="刷新账号">'''+icon('refresh')+'''<span>刷新</span></button><button id="showAdd" class="primary" aria-label="绑定账号">'''+icon('plus')+'''<span>绑定账号</span></button></div></header>
+<div id="wechatAccountPicker" hidden></div>
+<div id="xAccountPicker" hidden></div>
+<p id="wechatAccountMissing" class="notice error" role="status" hidden>此公众号连接当前不可用。请选择其他账号，或刷新连接状态。</p>
+<p id="wechatComponentAccessNotice" class="notice" role="status" hidden>已取得公众号授权资料。素材、统计和发表接口待授权服务接通。</p>
+<p id="xAccountMissing" class="notice error" role="status" hidden>此 X 连接当前不可用。请选择其他账号，或刷新连接状态。</p>
+<div id="xAccountEvidence" hidden></div>
 <p id="notice" class="notice" role="status" aria-live="polite">正在连接管理工具…</p>
-'''+analytics_html+'''
+<section id="wechatOfficialAccount" aria-label="公众号资料与权限" hidden>
+ <p id="wechatOfficialState" role="status"></p>
+ <dl id="wechatOfficialFields"></dl>
+ <div id="wechatOfficialGraphic"></div>
+ <button type="button" id="wechatProfileArticles">查看文章</button>
+ <section id="wechatAuthorizedDrafts" hidden aria-labelledby="wechatAuthorizedDraftsTitle">
+  <h3 id="wechatAuthorizedDraftsTitle">扫码授权草稿</h3>
+  <div class="actions"><button type="button" id="wechatAuthorizedDraftsRead">读取本号草稿</button>
+  <button type="button" id="wechatAuthorizedDraftsNext" hidden>下一页</button></div>
+  <p id="wechatAuthorizedDraftsStatus" role="status"></p>
+  <ol id="wechatAuthorizedDraftsRows"></ol>
+  <div id="wechatAuthorizedDraftContents"></div>
+ </section>
+</section>
+'''+analytics_html+wechat_articles_html+wechat_desk_html+'''
 <section id="settingsPanel" class="oa-platform-settings" aria-label="平台设置"><h2 id="platformTitle">平台设置</h2><p id="platformHelp" class="help"></p>
 <div class="actions oa-context-tabs" role="tablist" aria-label="工作区设置"><button id="platformSettingsTab" role="tab" aria-selected="true">平台设置</button><button id="contextSettingsTab" role="tab" aria-selected="false">项目与 Skills</button></div>
 <p id="unsupportedSettings" class="empty" hidden>当前平台暂不支持这些设置，未调用其他平台工具。</p>'''+platform_settings+'''</section>
+<dialog id="wechatComponentDialog" class="oa-account-remove-dialog" aria-labelledby="wechatComponentTitle">
+<h2 id="wechatComponentTitle">绑定公众号</h2>
+<p>请用该公众号管理员的微信，在微信官方页面扫码授权。</p>
+<p id="wechatComponentStatus" role="status" aria-live="polite"></p>
+<div class="actions">
+ <button id="wechatComponentStart" type="button" class="primary">打开微信扫码</button>
+ <button id="wechatComponentCheck" type="button" hidden>检查授权结果</button>
+ <button id="wechatComponentCancel" type="button">取消</button>
+</div>
+<button id="wechatComponentDirect" type="button">维护自有直连</button>
+</dialog>
 <dialog id="accountNameDialog" class="oa-account-remove-dialog" aria-labelledby="accountNameTitle">
 <form id="accountNameForm"><h2 id="accountNameTitle">编辑显示名称</h2>
 <label for="accountDisplayName">显示名称</label><input id="accountDisplayName" required maxlength="64" autocomplete="off" autofocus>
@@ -236,7 +345,7 @@ def native_page_body(logo, platform_settings):
 <p id="accountRecoveryStatus" role="status"></p>
 </dialog>
 <footer class="oa-footer"><span>Jiusera · 本机账号管理</span></footer></div><section id="mediaStudio" aria-label="Jiusera" hidden>
-'''+director_html+'''<div id="monitorComponents" hidden>'''+credential+gif_settings+audio_html+'''</div></section>'''+characters_html+binding_html+'''</main></div>'''
+'''+director_html+'''</section>'''+characters_html+binding_html+'''</main></div>'''
 
 
 HOME_STYLE = '''

@@ -1,6 +1,6 @@
 # AutoDL · MiniMax H3
 
-在 Jiusera「视频生成 → 模型设置」找到独立的「AutoDL · MiniMax H3」卡片，填写服务站的 HTTPS Base URL 和 Token。Token 独立存入系统钥匙串。卡片未配置时预填 AutoDL 官方地址 `https://autodl.art`。可替换为自有中转站。已有配置会显示已保存地址。预填只用于界面，需本人填写 Token 并保存后才可用于提交。
+在 Jiusera「设置 → 模型管理 → 画布 · 视频」找到独立的「AutoDL · MiniMax H3」卡片，填写服务站的 HTTPS Base URL 和 Token。Token 独立存入系统钥匙串。卡片未配置时预填 AutoDL 官方地址 `https://autodl.art`。可替换为自有中转站。已有配置会显示已保存地址。预填只用于界面，需本人填写 Token 并保存后才可用于提交。
 
 调用 `video.director.read`，用 `action=models` 读取 `relay → MiniMax-H3-Relay → workflow → workflows` 的实时插件能力目录。选好再调用 `video.relay.generation.submit`，传项目 ID、固定的 `generation_attempt_id` 与显式 `workflow_id`。如果用户已经在画布保存镜头配置，使用该精确修订的导演台生成入口。导演台中通过 AutoDL 的工作流下拉菜单选择相同的 ID。
 

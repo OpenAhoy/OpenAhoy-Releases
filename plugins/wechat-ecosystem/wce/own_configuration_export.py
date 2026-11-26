@@ -23,6 +23,51 @@ SPEC = schema({'connection_id': {'type': 'string', 'minLength': 1, 'maxLength': 
 RECEIPT = 'com.openahoy.configuration-export'
 
 
+def _wechat_v2(value):
+    if set(value) != {'format', 'schema_version', 'platform', 'account_name', 'account_ref',
+                      'source', 'fields', 'project', 'templates'}:
+        raise ValueError()
+    if not isinstance(value['account_ref'],str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}',value['account_ref']):
+        raise ValueError()
+    source=value['source']
+    if (type(source) is not dict or set(source) != {'store_revision','scope_revision','global_revision'}
+            or any(type(revision) is not int or not 0<=revision<=2**53-1 for revision in source.values())):
+        raise ValueError()
+    rules=value['fields']
+    if type(rules) is not dict or set(rules)!=set(FIELDS):
+        raise ValueError()
+    for item in rules.values():
+        if type(item) is not dict or set(item)!={'mode','text'} or item['mode'] not in ('inherit','override'):
+            raise ValueError()
+    from .content_templates import MARKER, Templates
+    note=rules['additional_notes']['text']
+    if not isinstance(note,str):
+        raise ValueError()
+    references=[{'id':i,'version':v,'manifest_sha256':h} for i,v,h in MARKER.findall(note)]
+    if value['templates']!=references:
+        raise ValueError()
+    if references:
+        catalog=Templates().catalog()
+        known={(row['id'],row['version'],row['manifest_sha256'])
+               for row in catalog['templates']+catalog.get('archived_templates',[])}
+        if any((ref['id'],ref['version'],ref['manifest_sha256']) not in known for ref in references):
+            raise ValueError()
+    project=value['project']
+    if project is not None:
+        safe_id=lambda s: isinstance(s,str) and re.fullmatch(r'[A-Za-z0-9_-]{1,128}',s) is not None
+        fingerprint=lambda s: isinstance(s,str) and re.fullmatch(r'[a-f0-9]{64}',s) is not None
+        if (type(project) is not dict or set(project)!={'id','source_digest','skills'}
+                or not safe_id(project['id']) or not fingerprint(project['source_digest'])
+                or type(project['skills']) is not list
+                or any(type(skill) is not dict or set(skill)!={'id','sha256'}
+                       or not safe_id(skill['id']) or not fingerprint(skill['sha256'])
+                       for skill in project['skills'])):
+            raise ValueError()
+        if len({skill['id'] for skill in project['skills']})!=len(project['skills']):
+            raise ValueError()
+    return [item['text'] for item in rules.values()]
+
+
 def _receipt(fd, binding=None):
     """Fixed 32-byte receipt using public macOS fd APIs (stdlib lacks xattrs)."""
     library = ctypes.CDLL(None, use_errno=True)
@@ -48,15 +93,18 @@ def configuration(raw):
         if type(value) is dict and value.get('format') == 'openahoy.x-operating':
             from .x_operating_config import configuration as x_configuration
             return x_configuration(raw)
-        if (type(value) is not dict or set(value) != {
-                'format', 'schema_version', 'platform', 'account_name', 'fields'}
-                or value['format'] != 'openahoy.production-preferences'
-                or type(value['schema_version']) is not int or value['schema_version'] != 1
-                or value['platform'] != 'wechat_official_account'
-                or type(value['account_name']) is not str or not value['account_name'].strip()
-                or type(value['fields']) is not dict or set(value['fields']) != set(FIELDS)):
+        if (type(value) is not dict or value.get('format') != 'openahoy.production-preferences'
+                or type(value.get('schema_version')) is not int or value.get('platform') != 'wechat_official_account'
+                or type(value.get('account_name')) is not str or not value['account_name'].strip()):
             raise ValueError()
-        for text in (value['account_name'], *value['fields'].values()):
+        if value['schema_version']==2:
+            fields=_wechat_v2(value)
+        elif (value['schema_version']==1 and set(value)=={'format','schema_version','platform','account_name','fields'}
+              and type(value['fields']) is dict and set(value['fields'])==set(FIELDS)):
+            fields=value['fields'].values()
+        else:
+            raise ValueError()
+        for text in (value['account_name'], *fields):
             if type(text) is not str or CONTROL.search(text) or SECRET.search(text):
                 raise ValueError()
             text.encode('utf-8')
@@ -178,6 +226,9 @@ def export(value, rows, *, downloads=None, platform_id='wechat_official_account'
     name = presented.get('display_name')
     if platform_id == 'x':
         if not selected or selected.get('platform_id') != 'x' or not name or name != config['account_name']:
+            raise WCEError('CONFIG_EXPORT_ACCOUNT_MISMATCH')
+    elif config['schema_version']==2:
+        if not selected or config['account_ref']!=value['connection_id'] or not name or name!=config['account_name']:
             raise WCEError('CONFIG_EXPORT_ACCOUNT_MISMATCH')
     elif (presented.get('state') not in {'SAVED', 'MISSING', 'LEGACY'}
             or presented.get('name_source') not in {'LOCAL_USER', 'REGISTRY_LABEL'}

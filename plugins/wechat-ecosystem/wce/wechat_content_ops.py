@@ -51,7 +51,29 @@ def specs(action, key, handle, page, inline_max):
                     'lifetime':{'type':'string','enum':['temporary','permanent']},
                     'mime_type':{'type':'string','enum':list(MIME_EXT)}}
     media_optional={'video_description':schema({'title':TEXT,'introduction':TEXT})}
+    article_date={'type':'string','pattern':r'^\d{4}-\d{2}-\d{2}$'}
+    from .wechat_engagement import DATA_ID, COMMENT_ID
+    comment_target={'msg_data_id':{'type':'string','pattern':'^'+DATA_ID.pattern+'$'},
+                    'index':{'type':'integer','minimum':0,'maximum':7},
+                    'comment_id':{'type':'string','pattern':'^'+COMMENT_ID.pattern+'$'}}
+    observed={'observed_offset':{'type':'integer','minimum':0,'maximum':100000}}
+    from .wechat_admin_actions import actions as admin_actions
+    from .wechat_operations_ledger import actions
     return {
+        **actions(action,key),
+        **admin_actions(action,key,ACK),
+        'article_stats': action('article_stats', {'begin_date':article_date,'end_date':article_date}),
+        'comment_auto_status':action('comment_auto_status', {}),
+        'comment_auto_enable':action('comment_auto_enable', {'confirm':ACK,
+            'expected_revision':{'type':'integer','minimum':0},
+            'target':schema({name:comment_target[name] for name in ('msg_data_id','index')})},
+            {'style':{'type':'string','maxLength':300}}),
+        'comment_auto_disable':action('comment_auto_disable', {'confirm':ACK,
+            'expected_revision':{'type':'integer','minimum':0}}),
+        'comment_take_over':action('comment_take_over',{**comment_target,'request_key':key,'confirm':ACK}),
+        **{mode:action(mode, {**comment_target,'request_key':key,'confirm':ACK,
+            **({'content':{'type':'string','minLength':1,'maxLength':600}} if mode=='reply_comment' else {})}, observed)
+           for mode in ('reply_comment','feature_comment','unfeature_comment')},
         'material_counts': action('material_counts', {}),
         'draft_count': action('draft_count', {}),
         'list_materials': action('list_materials', {'media_type': TYPE_LIST}, page),
@@ -69,7 +91,13 @@ def specs(action, key, handle, page, inline_max):
         'delete_material': action('delete_material', {'request_key': key, 'media_id': MEDIA, 'confirm': ACK}),
         'list_published': action('list_published', {}, page),
         'read_published': action('read_published', {'article_id': MEDIA},
-            {'index': SEQ, 'content_offset': {'type': 'integer', 'minimum': 0, 'maximum': 20000}}),
+            {'index': SEQ, 'content_offset': {'type': 'integer', 'minimum': 0, 'maximum': MAX_BODY},
+             'content_sha256': {'type': 'string', 'pattern': '^[a-f0-9]{64}$'}}),
+        'read_menu': action('read_menu', {}, {'menu': {'type': 'string', 'enum': ['current', 'programmed']}}),
+        'list_comments': action('list_comments', {
+            'msg_data_id': {'type': 'string', 'pattern': '^[1-9][0-9]{0,18}$'}},
+            {'index': {'type': 'integer', 'minimum': 0, 'maximum': 7}, **page,
+             'selection': {'type': 'integer', 'enum': [0, 1, 2]}}),
         'delete_published': action('delete_published', {'request_key': key, 'article_id': MEDIA,
             'index': SEQ, 'confirm': ACK}),
         'product_card': action('product_card', {'product_id': MEDIA,
@@ -94,7 +122,7 @@ MIME_EXT = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif',
             'audio/mpeg':'mp3','audio/amr':'amr','video/mp4':'mp4'}
 READS = {'material_counts', 'draft_count', 'list_materials', 'material_details', 'material_bytes', 'temporary_details',
          'high_quality_voice', 'list_published', 'read_published', 'product_card',
-         'broadcast_status', 'broadcast_speed'}
+         'broadcast_status', 'broadcast_speed', 'read_menu', 'list_comments', 'article_stats', 'comment_auto_status', 'ops_list', 'ops_put', 'ops_import_money', 'list_tags', 'plan_menu'}
 WECHAT_API = 'https://developers.weixin.qq.com/doc/subscription/api/'
 
 
@@ -129,12 +157,12 @@ def _value(response, client):
         fail('WECHAT_CONTENT_RESULT_UNDETERMINED')
 
 
-def _delivery_value(response, client):
+def _delivery_value(response, client, maximum=128*1024):
     from .publication_contract import strict_json
     if (type(response.status) is not int or not 200<=response.status<300
             or upload_wire.contains_secret(response.body,client.secret, max_nodes=16384)):
         fail('WECHAT_CONTENT_RESULT_UNDETERMINED')
-    value=strict_json(response.body,128*1024)
+    value=strict_json(response.body,maximum)
     if (type(value) is not dict or type(value.get('errcode',0)) is not int
             or upload_wire.contains_secret(value,client.secret, max_nodes=16384)):
         fail('WECHAT_CONTENT_RESULT_UNDETERMINED')
@@ -253,7 +281,8 @@ def _multipart(client,args):
     return HTTPRequest('POST',path+'?'+query,{'Content-Type':'multipart/form-data; boundary='+boundary},body),metadata
 
 
-def _record(db,client,args,action,payload,path=None,request=None,identity=None,preflight=None):
+def _record(db,client,args,action,payload,path=None,request=None,identity=None,preflight=None,
+            draft_reference=None):
     from .wechat_content import _reserve,_request,_at_send,_finish,public
     row=_reserve(db,client.policy,args['request_key'],action,identity or payload)
     if row['state']!='PREPARED':
@@ -267,6 +296,8 @@ def _record(db,client,args,action,payload,path=None,request=None,identity=None,p
             raise
         if rejected is not None:
             return _finish(db,client,row,'REJECTED',error_code=rejected)
+    if draft_reference is not None:
+        row['draft_reference_sha256'] = wire.digest(draft_reference)
     raw=client.send(request or _request(path,payload,client.secret),
                     before_http=lambda:_at_send(db,row),capability='draft_save')
     try:
@@ -393,7 +424,17 @@ def _message(db,client,args,action):
         if original['intent']['campaign']!=args['campaign']:
             fail('WECHAT_BROADCAST_ORIGINAL_REQUEST_REQUIRED')
     body['clientmsgid']=wire.digest([client.binding_sha,args['campaign'],body])[:32]
-    return _record(db,client,args,action,body,path,preflight=before_send,
+    def check_broadcast():
+        from pathlib import Path
+        from .ordinary_publication import guard_advanced_dispatch
+        from .own_connection_policy import registry_path
+        registry = Path(client.policy.value.get('registry_path') or registry_path())
+        guard_advanced_dispatch(client.policy, registry, target['reference'])
+        check_draft()
+
+    return _record(db,client,args,action,body,path,
+                   preflight=check_broadcast if target is not None else None,
+                   draft_reference=target['reference'] if target is not None else None,
                    identity={'delivery_sha':delivery_sha,'campaign':args['campaign'],**draft_sha})
 
 
@@ -407,7 +448,100 @@ def _published(client, reference):
     return result,news
 
 
+def _menu_buttons(value, maximum, allow_children=True):
+    if type(value) is not list or len(value) > maximum:
+        fail('WECHAT_MENU_UNVERIFIED')
+    result = []
+    for row in value:
+        if type(row) is not dict or type(row.get('name')) is not str:
+            fail('WECHAT_MENU_UNVERIFIED')
+        children = row.get('sub_button', [])
+        if type(children) is dict:
+            children = children.get('list', [])
+        if not allow_children and children:
+            fail('WECHAT_MENU_UNVERIFIED')
+        item = {'name': row['name'][:128],
+                **{k: row[k][:2048] for k in ('type', 'url') if type(row.get(k)) is str}}
+        if children:
+            item['children'] = _menu_buttons(children, 5, False)
+        result.append(item)
+    return result
+
+
+def _comment_page(client, args):
+    source_id = int(args['msg_data_id'])
+    if source_id >= 2**63:
+        fail('WECHAT_COMMENT_ID_INVALID')
+    offset, size = args.get('offset', 0), args.get('count', 20)
+    value = _delivery_value(_post(client, '/cgi-bin/comment/list',
+        {'msg_data_id': source_id, 'index': args.get('index', 0), 'begin': offset,
+         'count': size, 'type': args.get('selection', 0)}), client, MAX_BODY)
+    if value.get('errcode', 0):
+        return _observed(value)
+    total, rows = value.get('total'), value.get('comment', [])
+    if type(total) is not int or total < 0 or type(rows) is not list or len(rows) > size:
+        fail('WECHAT_COMMENTS_UNVERIFIED')
+    comments = []
+    for row in rows:
+        if (type(row) is not dict or type(row.get('content')) is not str
+                or type(row.get('user_comment_id')) is not int or not 0 <= row['user_comment_id'] < 2**63):
+            fail('WECHAT_COMMENTS_UNVERIFIED')
+        comment = {'id': str(row['user_comment_id']), 'content': row['content'][:4096],
+            **{k: row[k] for k in ('create_time', 'comment_type') if type(row.get(k)) is int}}
+        reply = row.get('reply')
+        if type(reply) is dict and type(reply.get('content')) is str:
+            comment['reply'] = reply['content'][:4096]
+        comments.append(comment)
+    return _observed(value, items=comments, total_count=total,
+        next_offset=offset+len(rows) if rows and offset+len(rows)<total else None)
+
+
 def execute(db,client,args,action):
+    from . import wechat_engagement as engagement
+    from . import wechat_admin_actions as administration
+    if action in administration.READS | administration.WRITES:
+        return administration.execute(db,client,args,action)
+    if action in {'ops_list','ops_put','ops_import_money'}:
+        from .wechat_operations_ledger import execute as ledger
+        return ledger(client,args,action)
+    if action == 'article_stats':
+        return engagement.article_stats(client,args)
+    if action in engagement.MUTATIONS:
+        return engagement.mutate(db,client,args,action)
+    if action in {'comment_auto_enable','comment_auto_disable','comment_auto_status','comment_take_over'}:
+        from . import wechat_comment_auto as auto
+        if action=='comment_auto_status':
+            return auto.status(client)
+        if action=='comment_take_over':
+            return auto.take_over(client,args,db)
+        return auto.configure(client,{**args,'enabled':action=='comment_auto_enable'})
+    if action == 'read_menu':
+        mode = args.get('menu', 'current')
+        route = '/cgi-bin/get_current_selfmenu_info' if mode == 'current' else '/cgi-bin/menu/get'
+        value = _value(_get(client, route), client)
+        if value.get('errcode', 0):
+            return _observed(value)
+        if mode == 'current' and type(value.get('is_menu_open')) is int and value['is_menu_open'] == 0:
+            return _observed(value, enabled=False, items=[])
+        menu = value.get('selfmenu_info' if mode == 'current' else 'menu')
+        if type(menu) is not dict:
+            fail('WECHAT_MENU_UNVERIFIED')
+        conditional = value.get('conditionalmenu', [])
+        if type(conditional) is not list:
+            fail('WECHAT_MENU_UNVERIFIED')
+        items=_menu_buttons(menu.get('button'),3)
+        if mode!='programmed':
+            return _observed(value,enabled=True,items=items)
+        from .wechat_admin_actions import MENU
+        from .prepared_contracts import strict_validate
+        editable=menu['button']
+        try:
+            if editable:strict_validate(editable,MENU)
+        except WCEError:
+            editable=None
+        return _observed(value,enabled=True,items=items,conditional_count=len(conditional),editable_items=editable)
+    if action == 'list_comments':
+        return _comment_page(client, args)
     if action=='draft_count':
         value=_value(_get(client,'/cgi-bin/draft/count'),client)
         count=value.get('total_count')
@@ -464,9 +598,13 @@ def execute(db,client,args,action):
         article=deepcopy(news[index-1]);text=article.pop('content','')
         offset=args.get('content_offset',0)
         if type(text) is not str or offset>len(text):fail('WECHAT_PUBLISHED_CONTENT_UNVERIFIED')
+        content_sha=sha256(text.encode()).hexdigest()
+        if args.get('content_sha256',content_sha)!=content_sha:
+            fail('WECHAT_PUBLISHED_CONTENT_CHANGED')
         end=min(len(text),offset+12000)
         return _observed(value,article=article,article_count=len(news),index=index,
-                         content=text[offset:end],next_content_offset=end if end<len(text) else None)
+                         content=text[offset:end],content_sha256=content_sha,
+                         next_content_offset=end if end<len(text) else None)
     if action=='product_card':
         value=_value(_post(client,'/channels/ec/service/product/getcardinfo',{k:args[k] for k in
             ('product_id','article_type','card_type')}),client)

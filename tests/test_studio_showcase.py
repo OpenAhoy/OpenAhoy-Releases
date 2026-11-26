@@ -39,7 +39,7 @@ class StudioShowcaseTests(unittest.TestCase):
                     WCEError, 'STUDIO_SHOWCASE_MEDIA_NOT_FOUND'):
                 chunk(key, offset)
 
-    def test_real_management_resource_has_one_case_surface_and_app_tool(self):
+    def test_real_management_resource_hides_case_and_preserves_app_tool(self):
         server = PersonalStdioServer(ConnectionRouter())
         descriptors = server._listed_tools()
         tool, = [row for row in descriptors if row['name'] == 'wce.ui.video.director.media']
@@ -47,7 +47,8 @@ class StudioShowcaseTests(unittest.TestCase):
         self.assertIn('showcase_index', [row['properties']['action'].get('const')
                                          for row in tool['inputSchema']['oneOf']])
         resource = server.resource('resources/read', {'uri': RESOURCE})['contents'][0]['text']
-        self.assertEqual(resource.count('id="studioShowcase"'), 1)
+        self.assertNotIn('id="studioShowcase"', resource)
+        self.assertNotIn('data-wb-route="studio-showcase"', resource)
         self.assertEqual(resource.count('</body>'), 1)
         self.assertNotIn('127.0.0.1:62112', resource)
         self.assertNotIn('u2-showcase/', resource)

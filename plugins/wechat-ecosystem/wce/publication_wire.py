@@ -425,6 +425,22 @@ def parse(method, response, token, *, account_key, intent_id, expected_task=None
         publication_fields = {'publish_id', 'publish_status', 'article_id', 'article_detail', 'fail_idx'}
         mass_fields = {'msg_id', 'msg_status'}
         success_fields = publication_fields | mass_fields | {'msg_data_id'}
+        if code in ({89504, 89505} if method == 'mass.get' else
+                    {45065, 89504, 89505} if method == 'mass.sendall' else set()):
+            # These errors may carry a real task (45065 explicitly reuses it).
+            if (publication_fields | {'msg_status'}) & value.keys():
+                raise _Invalid('CONTRADICTORY_ERROR_SUCCESS')
+            observed = (_id(value['msg_id'], 'NS' if query else 'N', method=method,
+                           account_key=account_key, intent_id=intent_id, response_sha=response_sha)
+                        if 'msg_id' in value else None)
+            if query and observed is not None and observed.digits != expected_task.digits:
+                raise _Invalid('TASK_ID_MISMATCH')
+            if code == 45065 and observed is None:
+                raise _Invalid('TASK_ID_POLICY')
+            task = expected_task if query else observed
+            result = {'task': task, 'platform_status': 'AWAITING_ADMIN' if code != 45065 else 'ACCEPTED'}
+            return Reply(result=result, error_code=code, reason='MASS_ORIGINAL_TASK',
+                         response_sha=response_sha, http_status=status)
         if code is not None and code != 0:
             if success_fields & value.keys():
                 raise _Invalid('CONTRADICTORY_ERROR_SUCCESS')
@@ -461,6 +477,13 @@ def parse(method, response, token, *, account_key, intent_id, expected_task=None
             if {'publish_status', 'msg_status', 'article_detail', 'article_id', 'fail_idx'} & value.keys():
                 raise _Invalid('CONTRADICTORY_SUBMIT_STATUS')
             result = {}
+            if method == 'mass.sendall' and 'msg_data_id' in value:
+                data_id = value['msg_data_id']
+                # Optional WeChat article stats identifier. Preserve decimal precision.
+                if type(data_id) is _Integer and _DIGITS.fullmatch(data_id.raw):
+                    result['msg_data_id'] = data_id.raw
+                elif type(data_id) is _String and _DIGITS.fullmatch(data_id.value):
+                    result['msg_data_id'] = data_id.value
         # Preserve original accepted task for querying; observed wire spelling
         # belongs to response evidence and must never rewrite original identity.
         result.update({'task': expected_task if query else task, 'observed_task': task})

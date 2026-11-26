@@ -2,11 +2,14 @@
 import ctypes as c
 from contextlib import contextmanager
 import re
+from threading import RLock
 
 from .contracts import Secret, WCEError
 from .own_keychain import NativeKeychain
 
 SERVICE = 'com.readysteadyscience.openahoy.x.oauth2.v1'
+_INTERACTION_LOCK = RLock()
+KEYCHAIN_UNLOCKED = 1  # kSecUnlockStateStatus from <Security/SecKeychain.h>
 
 
 class XKeychain(NativeKeychain):
@@ -73,6 +76,31 @@ class XKeychain(NativeKeychain):
         if size <= 0:
             raise WCEError('X_KEYCHAIN_INVALID_ITEM')
         return Secret(c.string_at(self.cf.CFDataGetBytePtr(result), size).decode('ascii'))
+
+    @contextmanager
+    def without_user_interaction(self):
+        """Read the existing, unlocked file-based keychain without UI interaction."""
+        get = 'SecKeychainGetUserInteractionAllowed'
+        set_allowed = 'SecKeychainSetUserInteractionAllowed'
+        get_status = 'SecKeychainGetStatus'
+        self._function(self.sec, get, c.c_int32, [c.POINTER(c.c_ubyte)])
+        self._function(self.sec, set_allowed, c.c_int32, [c.c_ubyte])
+        self._function(self.sec, get_status, c.c_int32, [c.c_void_p, c.POINTER(c.c_uint32)])
+        previous, keychain, state = c.c_ubyte(), c.c_void_p(), c.c_uint32()
+        with _INTERACTION_LOCK:
+            if getattr(self.sec, get)(c.byref(previous)) or getattr(self.sec, set_allowed)(0):
+                raise WCEError('X_KEYCHAIN_ACCESS_REQUIRED')
+            try:
+                if self.sec.SecKeychainCopyDefault(c.byref(keychain)) or not keychain.value:
+                    raise WCEError('X_KEYCHAIN_ACCESS_REQUIRED')
+                if getattr(self.sec, get_status)(keychain, c.byref(state)) or not state.value & KEYCHAIN_UNLOCKED:
+                    raise WCEError('X_KEYCHAIN_ACCESS_REQUIRED')
+                yield
+            finally:
+                if keychain.value:
+                    self.cf.CFRelease(keychain)
+                if getattr(self.sec, set_allowed)(previous):
+                    raise WCEError('X_KEYCHAIN_ACCESS_REQUIRED')
 
     def put(self, scope, credential):
         if type(credential) is not Secret:

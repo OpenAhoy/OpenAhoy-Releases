@@ -137,6 +137,9 @@ class ProjectContextRouter:
             name = {'x':'x.connections.list','xiaohongshu':'xhs.connections.list',
                     'wechat_official_account':'own.connections.list'}[platform]
             if not any(row['connection_id'] == cid for row in self.inner.call(name, {})['connections']):
+                if platform == 'wechat_official_account':
+                    from .wechat_component_binding import configuration_account
+                    if configuration_account(self.projects.registry,cid):return
                 raise WCEError('PROJECT_ACCOUNT_MISMATCH')
 
     def call(self, name, args):

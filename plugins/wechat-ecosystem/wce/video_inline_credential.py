@@ -8,11 +8,15 @@ from .contracts import WCEError
 from .own_inline_crypto import NativeCrypto
 from .openai_gif_keychain import PROVIDER as GIF_PROVIDER, PURPOSE as GIF_PURPOSE, save as save_gif
 from .video_keychain import save
+from .video_seedance import BYTEPLUS_PROVIDER
+from .video_sand import PROVIDER as SAND_PROVIDER
 from .video_relay import relay_origin
 from .video_relay_keychain import save_relay
 from .video_tokenhex import TOKENHEX_PROVIDER, TOKENHEX_PURPOSE, save_tokenhex
 
 PURPOSE = 'openahoy:video:ark:cn-beijing:key:v1'
+BYTEPLUS_PURPOSE = 'openahoy:video:ark:ap-southeast-1:key:v1'
+SAND_PURPOSE = 'openahoy:video:sand:key:v1'
 RELAY_PURPOSE = 'openahoy:video:comfyui-relay:key:v1:'
 TTL = 120
 
@@ -51,6 +55,10 @@ class InlineVideoCredential:
             try:
                 if origin is not None:
                     purpose = RELAY_PURPOSE + sha256(origin.encode()).hexdigest()
+                elif provider == BYTEPLUS_PROVIDER:
+                    purpose = BYTEPLUS_PURPOSE
+                elif provider == SAND_PROVIDER:
+                    purpose = SAND_PURPOSE
                 elif provider == GIF_PROVIDER:
                     purpose = GIF_PURPOSE
                 elif provider == TOKENHEX_PROVIDER:

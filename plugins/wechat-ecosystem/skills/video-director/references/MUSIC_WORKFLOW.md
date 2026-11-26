@@ -1,6 +1,6 @@
 # 歌曲与视频配乐
 
-开始任何需要新生成的歌曲或视频配乐前，用 `audio.music.provider.read` 读取本机当前默认。该设置适用于 Jiusera 在本机的所有窗口和项目。用户已明确指定供应商时，按本次指定执行。仅在工具返回 `READY` 时使用默认值，不用聊天记忆、其他项目设置、可见工具或此前版本的默认值代替。返回 `UNAVAILABLE` 时说明设置无法核对，请在Jiusera音频页核对。
+开始任何需要新生成的歌曲或视频配乐前，用 `audio.music.provider.read` 读取本机当前默认。该设置适用于 Jiusera 在本机的所有窗口和项目。用户已明确指定供应商时，按本次指定执行。仅在工具返回 `READY` 时使用默认值，不用聊天记忆、其他项目设置、可见工具或此前版本的默认值代替。返回 `UNAVAILABLE` 时说明设置无法核对，请在「设置 → 模型管理 → L-unify · 音乐」核对。
 
 - 返回 `suno` 或用户点名 Suno，使用 [Suno 歌曲与视频配乐](SUNO_AUDIO.md) 对应的官方 MCP。
 - 返回 `ace-music` 或用户点名 ACE Music，使用 [ACE Music 歌曲与项目配乐](ACE_MUSIC.md) 对应的官方 MCP。
@@ -9,7 +9,7 @@
 
 使用用户已选定的歌曲时，直接用它的本机素材和原任务关系混合，无需重新生成。对原片先核实画面、节奏与对白，再记录入点、素材截取、增益和淡入淡出。用 `audio.project.video.inspect` 读取原视频，按需要带 `include_audio_evidence` 及 `frame_start` 核对可验证的时间码。用 `audio.project.mix` 引用原视频、已就绪的原曲与新混音 attempt，给出 `video_start_ms`、`music_offset_ms`、`fade_in_ms`、`fade_out_ms`、`volume_percent`、`keep_original`。原素材在不同项目时提供实际的 `video_project_id`、`song_project_id`。有独立证据时用 `timeline.duck` 表明需保留对白或环境声的区段。
 
-Jiusera 音频页是当前设置的可见入口。每次开始新创作时从工具读回。
+默认音乐供应商在「设置 → 模型管理 → L-unify · 音乐」管理。每次开始新创作时从工具读回。
 
 ## 保存音乐配方
 
@@ -18,3 +18,7 @@ Jiusera 音频页是当前设置的可见入口。每次开始新创作时从工
 按使用场景、可听见的风格、是否含词、画面时间点分别记录。候选分别评价，来源只在用户表达实际喜好时写为 `user`，示范和测试写为 `test`。导出内容默认仅包含可分享配方及供应商提示词，试听、私有反馈和任务定位留在项目。可分享文件不自动成为官方精选。歌词确有分享授权时才显式选择随配方导出。
 
 `payload` 根据设备默认供应商或用户本次指定的供应商整理 Custom 输入：Suno 纯配乐提交 `instrumental=true` 并省略歌词，ACE `create_song` 纯配乐省略 `lyrics`；ACE 时长参数仅适用于 v1。该操作只返回参数。真正生成前按用户已授权的实际供应商入口与当前工具说明操作。
+
+## 从 L-unify 成曲进入 MV
+
+歌曲列表或当前 Codex 聊天里选中的确切版本可通过 `own.music.production` 的 `start_mv` 创建/恢复导演作品，输入 `project/song/version`，以及 `window: "whole_song"` 或以歌曲起点为零的 `{start_ms,end_ms}`。回执含 `project_id/work_id/timeline_version`、音乐原任务与摘要、歌曲范围。面板已创建的作品直接按回执调用 `video.director.read` 的 `timeline`，保留所选画面和手工剪点。需要歌词用原歌卡 `lookup`。以已选音源为时间基准，将歌曲绝对时间减去选段起点得到片中时间；画面、字幕和音乐均在此作品内编辑。若仅有供应商播放页，先取得本版本可用于剪辑的本机文件。既有视频配乐从原视频版本进入，继续用原片与选中的音乐回执。

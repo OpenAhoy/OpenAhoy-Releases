@@ -250,7 +250,7 @@ class DirectorTests(unittest.TestCase):
             inventory = models({'state':'MODELS_VISIBLE', 'models':[MODEL, 'unrelated'],
                                 'selected_model':MODEL, 'native_verified':False})
         self.assertEqual({provider:len(rows) for provider,rows in inventory['models'].items()},
-                         {'ark':7, 'cn':13, 'global':13, 'relay':1, 'tokenhex':7})
+                         {'ark':7, 'ark_global':2, 'cn':13, 'global':13, 'relay':1, 'sand':1, 'tokenhex':7})
         self.assertEqual(inventory['tokenhex_catalog']['models'], [MODEL])
         self.assertEqual(inventory['tokenhex_catalog']['selected_model'], MODEL)
         self.assertEqual({row['visibility'] for row in inventory['models']['tokenhex']}, {'VISIBLE', 'NOT_VISIBLE'})

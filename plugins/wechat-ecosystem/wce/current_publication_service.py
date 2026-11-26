@@ -3,9 +3,9 @@ from pathlib import Path
 from .contracts import WCEError
 PREFIX = 'own.publications.current.'
 METHODS = frozenset(PREFIX + action for action in ('dispatch', 'status', 'poll'))
-def local_status(policy, registry, handle):
+def local_status(policy, registry, handle, selection=None):
     from .ordinary_publication import local_status as read
-    return read(policy, registry, handle)
+    return read(policy, registry, handle, selection)
 def execute(service, name, arguments, deadline, cancel_guard=None):
     if name not in METHODS:
         raise WCEError('TOOL_NOT_IMPLEMENTED')

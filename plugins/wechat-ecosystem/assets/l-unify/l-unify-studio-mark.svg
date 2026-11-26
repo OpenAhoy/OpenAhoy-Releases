@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="179 177.5 900 900" role="img" aria-labelledby="title desc">
+<title id="title">1020 AI company logo — one-bar balanced layout R20</title>
+<desc id="desc">One vertical bar represents1; two identical vertical bars represent2; aligned vector zero rings; no chip.</desc>
+<defs>
+  <rect id="twin-bar" width="116" height="440" rx="32" fill="black"/>
+</defs>
+<rect id="upper-one" x="190" y="181" width="116" height="430" rx="32" fill="black"/>
+<path id="upper-zero" fill="black" fill-rule="evenodd" d="M 368,181 H 1024 A 44,44 0 0 1 1068,225 V 567 A 44,44 0 0 1 1024,611 H 368 A 44,44 0 0 1 324,567 V 225 A 44,44 0 0 1 368,181 Z M 396,241 H 996 A 12,12 0 0 1 1008,253 V 539 A 12,12 0 0 1 996,551 H 396 A 12,12 0 0 1 384,539 V 253 A 12,12 0 0 1 396,241 Z"/>
+<use id="bar-left" xlink:href="#twin-bar" x="190" y="634"/>
+<use id="bar-right" xlink:href="#twin-bar" x="324" y="634"/>
+<path id="lower-zero" fill="black" fill-rule="evenodd" d="M 502,634 H 1024 A 44,44 0 0 1 1068,678 V 1030 A 44,44 0 0 1 1024,1074 H 502 A 44,44 0 0 1 458,1030 V 678 A 44,44 0 0 1 502,634 Z M 530,694 H 996 A 12,12 0 0 1 1008,706 V 1002 A 12,12 0 0 1 996,1014 H 530 A 12,12 0 0 1 518,1002 V 706 A 12,12 0 0 1 530,694 Z"/>
+</svg>

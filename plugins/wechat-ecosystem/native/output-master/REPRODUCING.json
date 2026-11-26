@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "platform": "macos-arm64",
+  "min_macos": "14.0",
+  "sdk": "27.2",
+  "toolchain": "Apple clang 21.0.0 clang-2100.4.1.1",
+  "source_handoff": "JIU-LUNIFY-NATIVE-BUS-20261124",
+  "shared_integration": "OM-STUDIO-MAINBUS-20261124-05",
+  "rebuild": "Run ./build.sh in a writable copy of source/. Output is source/build/render relative to the module.",
+  "verified_byte_identical": true,
+  "renderer_sha256": "1e04f88f42da95ce97ecad68063102b8c871519de9d6d4c84684fa249eafdc64",
+  "component_executable_sha256": "9516c92c3d19f66459359676563d2ddd05957c9e9c519d8b8865a880312e24c4",
+  "source_sha256": {
+    "source/arrangement.inc": "effef7c100a918cf209d4e3013f6e1e396c6bf7a521ebf92e6c187f5adc8cfc2",
+    "source/build.sh": "5cb1da79d4508355df7e61093740f6e56c164ed954d08e2007ecb522700d592a",
+    "source/bus.mm": "06d0abca4d24f96c9146c85e1948153db77b8aee50e5ad174a92aec57e9a7b5a",
+    "source/include/LevelCalibration.hpp": "c1fd903549f155469047d60b8a0f2837d8af8675cf0bbb74c78b3b3532d2d1fb",
+    "source/include/MasterDSP.hpp": "dfd6f9ca62000c199fb08316c6047727f9f26010ae8383e221ea8842eff3f898",
+    "source/renderer.inc": "1260d8af65af47d9d822064cbe1d967f43c187b419a8c2df8c613b8083a82104"
+  }
+}

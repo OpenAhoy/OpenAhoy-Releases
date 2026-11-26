@@ -51,7 +51,12 @@ def perform(value, settings):
     if operation == 'EXPORT_CONFIG':
         from .own_configuration_export import export
         from .own_settings_protocol import overview
-        return export(arguments, overview(settings.original)['connections'])
+        from .wechat_component_binding import configuration_account
+        rows = overview(settings.original)['connections']
+        authorized = configuration_account(settings.original.registry, arguments.get('connection_id') or '')
+        if authorized:
+            rows.append(authorized)
+        return export(arguments, rows)
     if operation in OPERATIONS:
         from .own_production_rules_protocol import call
         return call(OPERATIONS[operation], arguments, settings.original.registry)

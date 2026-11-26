@@ -165,12 +165,21 @@ class XPlatform:
     def overview(self):
         try:
             rows=[]
+            now=self.clock()
             for c in self._load()['connections'].values():
                 profile=c['profile']
+                expiry=c['expires_at']
+                if c['state']!='BOUND':
+                    authorization='ACTION_REQUIRED'
+                elif type(expiry) not in (int,float) or (type(expiry) is float and not math.isfinite(expiry)):
+                    authorization='UNKNOWN'
+                else:
+                    authorization='REFRESH_DUE' if expiry<=now else 'RECORDED'
                 rows.append({'platform_id':'x','connection_id':c['connection_id'],'account_id':profile['id'],
                     'state':{'BOUND':'BOUND_IDLE','DISCONNECTED':'DISCONNECTED'}.get(c['state'],'ACTION_REQUIRED'),
                     'presentation':{'display_name':profile['name'],'avatar':None},
                     'binding_revision':self._binding_revision(c),'username':profile['username'],'profile_image_url':profile.get('profile_image_url'),
+                    'authorization':{'scopes':list(c['scope']),'state':authorization},
                     'own_application': 'CONNECTED' if 'client_id' in c and c['state']=='BOUND'
                     else 'NEEDS_AUTHORIZATION' if 'client_id' in c else 'UNCONFIGURED'})
             return rows

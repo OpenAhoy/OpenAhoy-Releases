@@ -1,49 +1,107 @@
-"""Read-only Jiusera review of the active work and its original deliveries."""
+"""Jiusera review and non-destructive editing of the active work."""
+from . import video_director_timeline_ui as timeline, video_director_tools_ui as tools
+from . import video_director_ai_ui as assistant, video_director_brief_ui as brief
 
 HTML = '''
-<section id="directorMonitor" aria-label="导演台" hidden>
+<section id="directorMonitor" aria-label="视频剪辑" hidden>
+ <aside id="dmEditColumn" class="dm-panel" aria-label="剪辑工具">
+''' + tools.EDIT_RAIL + '''
+  <button type="button" id="dmCutDetach" disabled>分离音频</button>
+  <div id="dmEditFields"></div>
+ </aside>
  <section class="dm-panel dm-main" aria-labelledby="dmScreenTitle">
+  <h2 id="dmScreenTitle">监看</h2>
+  <div id="dmScreen"></div><div id="dmCutPreview" hidden></div>
+ </section>
+ <aside class="dm-sidebar dm-panel" aria-label="添加与设置">
+''' + tools.ADD_RAIL + '''
+  <label class="imw-aspect-field" for="imwFrameAspect"><span>监看画幅</span>
+   <select id="imwFrameAspect"><option value="landscape">16:9</option><option value="portrait">9:16</option></select>
+  </label>
+  <details id="daWork"><summary id="daWorkName">项目与作品</summary>
+  <div id="dmWorkContext" class="dm-panel"></div>
+  <div class="dm-panel dm-candidates">
   <header class="dm-heading">
-   <div class="dm-heading-copy"><h2 id="dmScreenTitle">监看</h2><p id="dmNow"></p><p id="dmShotStage" role="status"></p><span id="dmPlaybackState" class="dm-state" hidden></span></div>
+   <div class="dm-heading-copy"><p id="dmNow"></p><p id="dmShotStage" role="status"></p><span id="dmPlaybackState" class="dm-state" hidden></span></div>
    <div class="dd-actions">
+    <button type="button" id="dmCutReturn" hidden></button>
     <button id="dmFilm" type="button" hidden>作品成片</button>
     <button id="dmGoCanvas" type="button">去画布</button>
    </div>
   </header>
   <label id="dmCandidateLabel" hidden>视频候选 <select id="dmCandidate"></select></label>
-  <div id="dmScreen"></div>
- </section>
- <aside class="dm-sidebar">
-  <section class="dm-panel" aria-labelledby="dmShotsTitle">
+  <div id="dmSourceStatus" role="status"></div>
+  </div>
+  <section class="dm-panel" id="daShots" aria-labelledby="dmShotsTitle" hidden>
    <div class="dm-heading"><h2 id="dmShotsTitle">镜头</h2><span id="dmShotCount"></span></div>
    <div id="dmShots"></div>
   </section>
-  <section class="dm-panel" aria-labelledby="dmTasksTitle">
+  <section class="dm-panel" id="daTasks" aria-labelledby="dmTasksTitle" hidden>
    <div class="dm-heading"><h2 id="dmTasksTitle">任务</h2><button id="dmTasksLink" type="button">任务详情</button></div>
    <div id="dmTasks"></div>
   </section>
+ </details>
+  <button type="button" id="daTaskNotice" hidden></button>
+  <details id="dmCodexDetails"><summary>Codex</summary>
+''' + assistant.HTML + '''
+  </details>
+  <div id="dmAddFields">
+  <button type="button" id="daManualBack">‹ 返回 AI 剪辑</button>
+''' + tools.PANEL + timeline.SETTINGS_HTML + '''
+  </div>
  </aside>
+''' + timeline.HTML + '''
 </section>
 '''
 
-STYLE = '''
-#directorMonitor{display:grid;grid-template-columns:minmax(0,2.35fr) minmax(212px,1fr);gap:12px;
- align-content:start;align-items:start;min-width:0}
+STYLE = timeline.STYLE + tools.STYLE + '''
+#dmCutDetach{justify-self:start;max-width:100%;min-height:30px;padding:4px 10px}
+body:not([data-imw-video=true]) #dmCutDetach{display:none}
+
+#directorMonitor{display:grid;grid-template-columns:minmax(0,2.6fr) minmax(172px,.82fr) minmax(210px,1fr);
+ grid-template-areas:"monitor shots settings" "timeline timeline timeline";gap:10px;align-items:stretch;min-width:0}
 .dm-panel{min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:12px}
-.dm-main,.dm-sidebar{display:grid;min-width:0;gap:10px;align-content:start}
+.dm-main{grid-area:monitor;display:flex;flex-direction:column;gap:0;min-width:0;padding:0;overflow:hidden;align-self:stretch;background:#151619}
+.dm-sidebar{grid-area:shots;display:grid;align-content:start;min-width:0;gap:8px}
+#dmCutSettings{grid-area:settings}
+#dmCut{grid-area:timeline}
+#dmWorkContext:empty{display:none}
+#videoDirectorDesk #dmWorkContext .dd-workbar,#videoDirectorDesk #dmWorkContext .dd-projects{display:grid;gap:6px}
+#videoDirectorDesk #dmWorkContext .dd-projects label{display:grid!important;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:6px}
+#videoDirectorDesk #dmWorkContext .dd-projects select{width:100%!important;min-width:0}
+#videoDirectorDesk #dmWorkContext .dd-workbar{margin:0;padding:0;grid-template-columns:minmax(0,1fr)}
+#videoDirectorDesk #dmWorkContext .dd-workbar>.dd-actions{justify-content:start}
 .dm-heading{display:flex;justify-content:space-between;align-items:center;gap:8px}
-.dm-heading-copy{min-width:0}
+.dm-heading-copy{min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+#directorMonitor :is(#dmCandidateLabel,#dmNow,#dmShotStage){margin:0}
 #dmNow,#dmShotCount,#dmShotStage{color:var(--muted);font-size:11px;overflow-wrap:anywhere}
 #dmNow:empty,#dmShotStage:empty{display:none}
 #videoDirectorDesk #dmCandidateLabel:not([hidden]){display:flex;align-items:center;gap:7px}
 #dmCandidateLabel>select{flex:1;min-width:0;text-overflow:ellipsis}
-#dmScreen{min-width:0}
-#dmScreen .oa-video-poster,#dmScreen video,#dmScreen .oa-frame-screen,
-#dmScreen[data-kind=image]>img,.dm-screen-empty{width:100%;aspect-ratio:16/9;max-height:min(59dvh,620px);
- object-fit:contain;border-radius:8px}
-#dmScreen[data-kind=image]>img{display:block;background:var(--soft)}
-#dmScreen .oa-inline-video-player>button{justify-self:start}
-.dm-screen-empty{display:grid;place-items:center;background:var(--soft);color:var(--muted);text-align:center;padding:10px}
+#dmScreen,#dmCutPreview{min-width:0;display:grid;align-content:center;justify-items:stretch;flex:1}
+#directorMonitor :is(#dmScreen,#dmCutPreview)[hidden]{display:none}
+#directorMonitor :is(#dmScreen,#dmCutPreview) :is(.oa-video-poster,video,.oa-frame-screen),
+#dmScreen[data-kind=image]>img,#dmScreen .dm-screen-empty{
+ box-sizing:border-box;display:block;margin-inline:auto;width:min(100%,max(160px,calc(177.7778dvh - 290px)));
+ height:auto;aspect-ratio:16/9;max-height:none;object-fit:contain;border-radius:7px;background:#151619}
+#directorMonitor .oa-frame-screen img{display:block;width:100%;height:100%;object-fit:contain}
+#dmScreen .dm-screen-empty{display:grid;place-items:center;color:var(--muted);background:var(--soft);text-align:center}
+#dmScreen p:empty{display:none}
+.dm-candidates{display:grid;gap:7px}
+#dmSourceStatus:empty,#dmSourceStatus:not(:has(p:not(:empty))){display:none}
+#dmSourceStatus p{margin:0;color:var(--muted);font-size:11px}
+#directorMonitor .dm-main :is(#dmScreen,#dmCutPreview){padding:0;gap:0;align-items:center;justify-items:center}
+#directorMonitor .dm-main :is(.oa-frame-player,.oa-inline-video-player){width:100%;min-width:0;gap:0}
+#dmScreen .oa-frame-player[role=button]{cursor:pointer}
+#dmScreen .oa-frame-player:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+@media(min-width:901px) and (min-height:580px){
+ #directorMonitor .dm-main :is(#dmScreen,#dmCutPreview) :is(.oa-video-poster,video,.oa-frame-screen),
+ #directorMonitor .dm-main #dmScreen[data-kind=image]>img,#directorMonitor .dm-main #dmScreen .dm-screen-empty{
+  width:min(100cqw,177.7778cqh);border-radius:0}
+}
+@media(max-width:900px){
+ #directorMonitor .dm-main{padding:0}
+}
 #dmShots,#dmTasks{display:grid;gap:4px;margin-top:7px;min-width:0}
 #dmShots>p,#dmTasks>p{color:var(--muted);font-size:12px}
 .dm-scene{color:var(--muted);font-size:11px;margin-top:3px}
@@ -62,19 +120,20 @@ STYLE = '''
 .dm-state[data-tone=active]{color:light-dark(#345c9b,#a9c8ff)}
 .dm-state[data-tone=attention]{color:light-dark(#936012,#ffd287)}
 .dm-state[data-tone=failed]{color:light-dark(#aa394e,#ffadb8)}
-@media(max-width:840px){
- #directorMonitor{grid-template-columns:minmax(0,1fr)}
- .dm-sidebar{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:900px){
+ #directorMonitor{grid-template-columns:repeat(2,minmax(0,1fr));
+  grid-template-areas:"monitor monitor" "timeline timeline" "shots settings"}
 }
-@media(max-width:550px){
- .dm-sidebar{grid-template-columns:minmax(0,1fr)}
+@media(max-width:560px){
+ #directorMonitor{grid-template-columns:minmax(0,1fr);grid-template-areas:"monitor" "timeline" "shots" "settings"}
  .dm-panel{padding:9px}
- #dmScreen .oa-video-poster,#dmScreen video,#dmScreen .oa-frame-screen{max-height:none}
 }
 '''
 
-SCRIPT = r'''
-function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
+STYLE += assistant.STYLE
+
+SCRIPT = timeline.SCRIPT + tools.SCRIPT + brief.SCRIPT + assistant.SCRIPT + r'''
+function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture,timelineOptions}){
  const $=id=>document.getElementById(id);
  const screen=$('dmScreen'),selector=$('dmCandidate'),shotList=$('dmShots'),taskList=$('dmTasks');
  const film=$('dmFilm'),now=$('dmNow'),go=$('dmGoCanvas');
@@ -97,7 +156,7 @@ function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
  const text=(tag,name,cls='')=>{const node=el(tag,cls);OAUI.set(node,name);return node;};
  const raw=(tag,name,cls='')=>{const node=el(tag,cls);OAUI.raw(node,name);node.title=name;return node;};
  function badge(row){
-   const [label,tone]=phase(row),node=text('span',label,'dm-state');
+   const [label,tone]=phase(row),node=text('span',row?.status_hint||label,'dm-state');
    node.dataset.tone=tone;if(row)node.dataset.state=row.state;
    return node;
  }
@@ -112,11 +171,30 @@ function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
    });
  }
  function selectSource(kind){
-   choice().source=kind;
+   timeline.returnToSource();choice().source=kind;
    draw();
  }
  const choice=()=>history.get(scope);
  function closeScreen(){player?.close();player=null;screenKey='';screen.replaceChildren();}
+ const timeline=OADirectorTimeline({...timelineOptions,async onExport(target,result){
+   await timelineOptions.onExport(target,result);
+   if(scope===JSON.stringify(target)&&model?.cards.some(row=>row.id===result.delivery_id&&playable(row))){
+     choice().source='film';choice().candidates.set('film',result.delivery_id);draw();
+   }
+ },toggleSourcePlayback(event,canPlayCut){
+   if(!player||screen.hidden)return false;
+   if(canPlayCut&&!player.engaged()&&!screen.contains(event.target))return false;
+   player.toggle(event);return true;
+ },showPreview(on){
+   const wasPreview=!$('dmCutPreview').hidden;
+   if(on){player?.close();player=null;screenKey='';}
+   screen.hidden=on;$('dmCutPreview').hidden=!on;
+   if(!on&&wasPreview)queueMicrotask(()=>{if(model&&!screenKey&&$('dmCutPreview').hidden)draw();});
+ }});
+ const shelf=OADirectorTools(timeline,timelineOptions.read,timelineOptions.edit,()=>model?.scope);
+ const ai=OADirectorAssistant(timeline,shelf,timelineOptions,()=>model);
+ $('daTaskNotice').onclick=()=>{ $('daWork').open=true;$('dmTasksLink').focus(); };
+ $('daWork').open=true;ai.sync();
  function render(state){
    if(!state?.work){
      if(!model&&screen.dataset.kind==='empty')return;
@@ -131,6 +209,7 @@ function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
    }
    const next=JSON.stringify(state.scope);
    if(next!==scope){
+     shelf.reset();
      scope=next;choiceEpoch++;choosing=false;thumbs=new Map();shotKey='';taskKey='';optionKey='';closeScreen();
      if(!history.has(scope))history.set(scope,{source:'auto',candidates:new Map()});
    }
@@ -150,6 +229,7 @@ function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
                  work.inbox?inbox:(focus?.rows||[]);
    const category=sources===films?'film':work.inbox?'inbox':focus?.shot.id;
    const active=sources.find(row=>row.id===selection.candidates.get(category))||preferred(sources);
+   timeline.render(model,active);
    const revision=focus&&context.revision;
    const visibleTitle=sources===films?active?.title:work.inbox?active?.title:revision?.title;
    OAUI.raw(now,visibleTitle||'');
@@ -182,7 +262,7 @@ function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
    const visual=playable(active)?['video',scope,active.id,(active.asset||active).sha256]:
      target?['image',scope,target,active?.state]:['empty',scope,active?.state];
    const fingerprint=JSON.stringify(visual);
-   if(fingerprint!==screenKey){
+   if(fingerprint!==screenKey&&$('dmCutPreview').hidden){
      closeScreen();screenKey=fingerprint;screen.dataset.kind=visual[0];
      if(visual[0]==='video')player=play(screen,active,model.scope);
      else{
@@ -206,7 +286,7 @@ function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
        control.onclick=async()=>{
          if(scope!==JSON.stringify(model.scope))return;
          const intent=++choiceEpoch;
-         choice().source='shot';
+         timeline.returnToSource();choice().source='shot';
          choosing=true;go.disabled=true;
          try{await chooseShot(scene.id,shot.id,item.revision);}
          finally{
@@ -224,8 +304,13 @@ function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
      const prior=tasks.get(row.attempt_id);
      if(!prior||phase(row)[2]<phase(prior)[2])tasks.set(row.attempt_id,row);
    }
+   $('daShots').hidden=!shots.length;$('daTasks').hidden=!tasks.size;
    const ordered=[...tasks.values()].sort((a,b)=>phase(a)[2]-phase(b)[2]);
-   const taskSignature=JSON.stringify(ordered.map(row=>[row.attempt_id,row.state,row.title]));
+   const needsReview=ordered.filter(r=>phase(r)[2]<=1);
+   $('daTaskNotice').hidden=!needsReview.length;
+   $('daTaskNotice').textContent=document.documentElement.lang==='en'?'Tasks · '+needsReview.length:'任务动态 · '+needsReview.length;
+   ai.sync();
+   const taskSignature=JSON.stringify(ordered.map(row=>[row.attempt_id,row.state,row.title,row.status_hint]));
    if(taskSignature!==taskKey){
      taskKey=taskSignature;
      taskList.replaceChildren(...(ordered.length?ordered.map(row=>{
@@ -240,7 +325,9 @@ function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
    return revision?{...model.scope,scene_id:focus.scene.id,shot_id:focus.shot.id,revision_id:revision}:null;
  }
  function clear(){
+   shelf.reset();timeline.clear();
    closeScreen();model=null;scope='';choiceEpoch++;choosing=false;thumbs.clear();shotKey='';taskKey='';optionKey='';
+   $('daShots').hidden=$('daTasks').hidden=$('daTaskNotice').hidden=true;ai.sync();
    delete screen.dataset.kind;
    OAUI.raw(now,'');OAUI.raw($('dmShotCount'),'');OAUI.raw($('dmShotStage'),'');
    $('dmPlaybackState').hidden=true;film.hidden=true;
@@ -248,12 +335,12 @@ function OADirectorMonitor({chooseShot,goCanvas,openTasks,play,picture}){
    shotList.replaceChildren();taskList.replaceChildren();go.disabled=true;$('dmTasksLink').disabled=true;
  }
  selector.onchange=()=>{
-   if(model)choice().candidates.set(selector.dataset.category,selector.value);
+   if(model){timeline.returnToSource();choice().candidates.set(selector.dataset.category,selector.value);}
    if(model)draw();
  };
  film.onclick=()=>{if(model)selectSource('film');};
  go.onclick=()=>goCanvas();
  $('dmTasksLink').onclick=openTasks;
- return {render,clear};
+ return {render,clear,checkTimelineRevision:timeline.checkTimelineRevision};
 }
 '''

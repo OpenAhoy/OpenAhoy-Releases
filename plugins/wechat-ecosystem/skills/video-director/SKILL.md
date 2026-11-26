@@ -17,4 +17,6 @@ description: Plan and produce social videos in Jiusera. Use when Codex should tu
 
 ## 导演画布
 
-在 Jiusera 从当前 Codex 聊天开始创作时，无论由面板发起还是用户直接开口，都按导演台说明匹配本聊天的真实项目根，以原操作编号创建或复用作品并精确读回。打开面板可只读浏览监看和画布。使用 [导演台说明](references/DIRECTOR_DESK.md) 读回准确的镜头和修订。独立文字卡、原图和既有音视频资产可以关联同一镜头。生成或修改图片时，用原镜头的 `project_id`、`scene_id`、`shot_id` 和当前修订作为基底，保存新修订后按原回执读回。
+在 Jiusera 从当前 Codex 聊天开始创作时，无论由面板发起还是用户直接开口，都按项目画布说明匹配本聊天的真实项目根，以原操作编号创建或复用作品并精确读回。打开面板可只读浏览监看和画布。使用 [画布与 IMW 说明](references/DIRECTOR_DESK.md) 读回准确的镜头和修订。独立文字卡、原图和既有音视频资产可以关联同一镜头。生成或修改图片时，用原镜头的 `project_id`、`scene_id`、`shot_id` 和当前修订作为基底，保存新修订后按原回执读回。
+
+从歌曲结果做 MV，沿 L-unify 的已选版本和片段锁定母带；为已有视频做配乐，沿 IMW 当前作品保留原声与画面时长。分割、调整次序与源入出点、配乐、导出均通过[IMW 剪辑操作](references/DIRECTOR_DESK.md)读写同一作品。对话由当前 Codex 负责。

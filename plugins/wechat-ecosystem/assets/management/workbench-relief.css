@@ -1,0 +1,225 @@
+/* Shared management surfaces. Studio keeps its own channel and transport controls. */
+body.oa-management.oa-native[data-workbench] {
+  --wb-panel: light-dark(#f5f4f1, #292929);
+  --wb-highlight: light-dark(#fcfbf9, #373737);
+  --wb-shadow: light-dark(#cbc8c3, #171717);
+  --wb-border: light-dark(#d8d5d0, #575757);
+  --wb-focus: light-dark(#215f9b, #a5ceff);
+  --wb-active: light-dark(#165658, #a3e1d5);
+  --wb-raised: -2px -2px 5px var(--wb-highlight), 2px 3px 5px var(--wb-shadow);
+  --wb-inset: inset 2px 2px 5px var(--wb-shadow), inset -2px -2px 5px var(--wb-highlight);
+  --wb-floating: -4px -4px 13px var(--wb-highlight), 5px 7px 15px var(--wb-shadow);
+  --wb-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --wb-dock-offset: max(8px, var(--wb-safe-bottom));
+  --wb-dock: calc(var(--wb-dock-reserve, 70px) + var(--wb-dock-offset) - 8px);
+  --wb-surface: var(--wb-panel);
+  --wb-transport-bottom: calc(var(--wb-dock) + 8px);
+  --wb-transport-control: 36px;
+  --wb-transport-height: calc(var(--wb-transport-control) + 12px);
+}
+
+body.oa-management.oa-native[data-workbench]:not([data-workbench=l-unify]) {
+  --bg: var(--wb-panel);
+  --surface: var(--wb-panel);
+  --soft: var(--wb-panel);
+  --wb-float: var(--wb-panel);
+  --wb-line: var(--wb-border);
+  --wb-depth: var(--wb-floating);
+  --control-shadow: var(--wb-raised);
+  --field-shadow: var(--wb-inset);
+  --control-pressed: var(--wb-inset);
+  --raised: var(--wb-floating);
+  background: var(--wb-panel);
+}
+
+.oa-management.oa-native[data-workbench] .wb-dock-wrap { bottom: var(--wb-dock-offset); }
+body.oa-management.oa-native[data-workbench=l-unify] {
+  /* The combined transport inherits the same neutral surface as the workspace. */
+  --wb-dock-surface: var(--wb-panel);
+  --wb-dock-ink: light-dark(#242424, #f3f3f3);
+}
+.oa-management.oa-native[data-workbench]:not([data-workbench=l-unify]) .wb-dock {
+  --wb-dock-gap: 4px;
+  --wb-dock-group-surface: var(--wb-panel);
+  --wb-dock-group-raised: var(--wb-raised);
+  --wb-dock-group-inset: var(--wb-inset);
+  gap: 4px;
+  padding: 4px;
+  border-radius: 26px;
+  background: var(--wb-panel);
+  border-color: transparent;
+  box-shadow: var(--wb-floating);
+  color: light-dark(#242424, #f3f3f3);
+}
+.oa-management.oa-native[data-workbench]:not([data-workbench=l-unify]) .wb-dock button {
+  background: var(--wb-panel);
+  border: 0;
+  border-radius: 99px;
+  box-shadow: var(--wb-raised);
+  font-weight: 650;
+}
+.oa-management.oa-native[data-workbench]:not([data-workbench=l-unify])
+  .wb-dock button:not(:where([data-wb-disclosure] button)):is(:active, [aria-current=page]) {
+  background: var(--wb-panel);
+  box-shadow: var(--wb-inset);
+  color: var(--wb-active);
+}
+.oa-management.oa-native[data-workbench]:not([data-workbench=l-unify]) .wb-dock .wb-dock-step {
+  background: transparent;
+  box-shadow: none;
+}
+.oa-management.oa-native[data-workbench] :is(.wb-dock button, .wb-titlebar button):focus-visible {
+  outline: 2px solid var(--wb-focus);
+  outline-offset: -2px;
+}
+/* Action controls share depth; artwork, logos, chart and media surfaces retain their own palette. */
+.oa-management.oa-native[data-workbench]:not([data-workbench=l-unify]) :is(
+  .wb-context, .wb-published-tools, .wb-about-card, #wbProfile,
+  #videoDirectorDesk, #nativeWorkspace, #inlineBinding, #accountPanel, .oa-sidebar,
+  #mediaMonitor, #monitorProviders, dialog[open], [popover]:popover-open
+) :is(button, .dd-more > summary):not(
+  .ob-platform-entry, .ob-account-name, .ja-preview-btn, .ja-exhibit :where(button), .cl-exhibit-piece,
+  .cl-wardrobe-object, .dd-canvas-handle, .jh-work-option, .jtrend :where(button)
+) {
+  box-shadow: var(--wb-raised);
+  border-color: transparent;
+}
+.oa-management.oa-native[data-workbench]:not([data-workbench=l-unify]) :is(
+  .wb-context, .wb-published-tools, .wb-about-card, #wbProfile,
+  #videoDirectorDesk, #nativeWorkspace, #inlineBinding, #accountPanel, .oa-sidebar,
+  #mediaMonitor, #monitorProviders, dialog[open], [popover]:popover-open
+) :is(
+  button:active, button[aria-pressed=true], button[aria-selected=true], button[aria-current=page],
+  .dd-more[open] > summary
+):not(.ob-platform-entry, .ob-account-name, .ja-preview-btn, .ja-exhibit :where(button), .cl-exhibit-piece, .dd-canvas-handle, .jtrend :where(button)) {
+  box-shadow: var(--wb-inset);
+}
+.oa-management.oa-native[data-workbench]:not([data-workbench=l-unify]) :is(
+  .oa-content, .oa-sidebar, dialog, [popover]
+) :is(input:not([type=checkbox],[type=radio],[type=range],[type=file],[type=color]), select, textarea) {
+  background-color: var(--wb-panel);
+  border-color: transparent;
+  box-shadow: var(--wb-inset);
+}
+.oa-management.oa-native[data-workbench]:not([data-workbench=l-unify]) :is(
+  .oa-content, .oa-sidebar, dialog, [popover]
+) :is(input, textarea, select, button, summary):focus-visible {
+  outline: 2px solid var(--wb-focus);
+  outline-offset: -2px;
+}
+.oa-management.oa-native[data-workbench]:not([data-workbench=l-unify]) :is(
+  .oa-content, .oa-sidebar, dialog, [popover]
+) :is(button, select, input, textarea):disabled {
+  box-shadow: none;
+  border-color: transparent;
+  cursor: default;
+}
+
+.oa-management.oa-native[data-workbench]:not([data-workbench=l-unify]) :is(
+  .wb-about-card, .dm-panel, #jaImageDetail, #jaGalleryDetail, #jslEditor,
+  #characterDetail, #characterPicker, #characterImport, .cl-equipment-drawer,
+  #directorDialog, #directorCanvasPreview, .dd-more-menu, #wbCanvasDetails,
+  .oa-video-preview, .oa-video-library, .oa-audio-card, #monitorDetail,
+  .oa-software-update, .oa-more-popover, .oa-workspace-popover:popover-open,
+  .jh-account-menu > div, .jh-filter-popup, .jh-modal
+) {
+  background-color: var(--wb-panel);
+  border-color: transparent;
+  box-shadow: var(--wb-floating);
+}
+.oa-management.oa-native[data-workbench]:not([data-workbench=l-unify]) :is(
+  #jaImageList, .jsl-row, .dm-screen-empty, .cl-voice-preview, .oa-video-library-items, #monitorList
+) {
+  background-color: var(--wb-panel);
+  box-shadow: var(--wb-inset);
+}
+.oa-management.oa-native[data-workbench=assets] .ja-exhibit {
+  box-shadow: var(--wb-raised);
+}
+.oa-management.oa-native[data-workbench=assets] .ja-exhibit:not([data-state=ready]) {
+  background-color: var(--wb-panel);
+  box-shadow: var(--wb-inset);
+}
+.oa-management.oa-native[data-workbench=assets] #characterDetail :is(.cl-browse-tile, .cl-slot):not(:disabled) {
+  background-color: var(--wb-panel);
+}
+.oa-management.oa-native[data-workbench=assets] #characterDetail
+  :is(.cl-browse-tile, .cl-slot):is([aria-pressed=true], [aria-expanded=true], [data-located=true]) {
+  box-shadow: var(--wb-inset);
+  border-color: color-mix(in srgb, var(--wb-active) 55%, transparent);
+}
+.oa-management.oa-native[data-workbench=published] .jh { --jh-paint: var(--wb-panel); }
+.oa-management.oa-native[data-workbench=published] .jtrend { box-shadow: var(--wb-floating); }
+.oa-management.oa-native[data-workbench=published] .jh :is(.jh-work-step, .jh-work-action) {
+  box-shadow: var(--wb-raised);
+}
+.oa-management.oa-native[data-workbench=published] .jh :is(.jh-work-step, .jh-work-action):active {
+  box-shadow: var(--wb-inset);
+}
+.oa-management.oa-native[data-workbench=published] .jh .jh-work-option[aria-current] {
+  box-shadow: var(--wb-inset);
+}
+
+/* Canvas retains its own actions on the same axis as the Studio transport. */
+.oa-management.oa-native[data-workbench=canvas] :is(
+  #videoDirectorDesk > .dd-toolbar, .dd-canvas-toolbar > .dd-actions:last-child
+) {
+  inset-inline: 0;
+  margin-inline: auto;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  justify-content: center;
+  padding: 5px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--wb-panel);
+  box-shadow: var(--wb-floating);
+}
+.oa-management.oa-native[data-workbench=canvas] .dd-canvas-toolbar > .dd-actions:last-child {
+  bottom: var(--wb-transport-bottom);
+}
+.oa-management.oa-native[data-workbench=canvas] #videoDirectorDesk > .dd-toolbar {
+  bottom: calc(var(--wb-transport-bottom) + var(--wb-transport-height) + 8px);
+}
+.oa-management.oa-native[data-workbench=canvas] :is(
+  #videoDirectorDesk > .dd-toolbar, .dd-canvas-toolbar > .dd-actions:last-child
+) :is(button, #directorMore > summary) {
+  min-height: var(--wb-transport-control);
+  padding-block: 2px;
+  font-weight: 650;
+  line-height: 16px;
+}
+.oa-management.oa-native[data-workbench=canvas] :is(
+  #videoDirectorDesk > .dd-toolbar, .dd-canvas-toolbar > .dd-actions:last-child
+) :is(.dd-more-menu button) {
+  min-height: 32px;
+}
+.oa-management.oa-native[data-workbench=canvas] :is(#directorCanvasMap, .dd-footer) {
+  bottom: calc(var(--wb-transport-bottom) + var(--wb-transport-height) * 2 + 16px);
+}
+.oa-management.oa-native[data-workbench=canvas] #directorCanvasFeedback {
+  bottom: calc(var(--wb-transport-bottom) + var(--wb-transport-height) * 2 + 43px);
+}
+
+@media (max-width: 820px) {
+  body.oa-management.oa-native[data-workbench] { --wb-transport-control: 43px; }
+  body.oa-management.oa-native[data-workbench=l-unify] { --wb-dock-reserve: 106px; }
+  .oa-management.oa-native[data-workbench]:not([data-workbench=l-unify]) .wb-dock { padding: 2px; }
+  .oa-management.oa-native[data-workbench]:not([data-workbench=l-unify]) .wb-dock-entries {
+    padding: 0;
+    scroll-padding-inline: 0;
+  }
+  .oa-management.oa-native[data-workbench] .wb-dock button { --wb-raised: -1px -1px 3px var(--wb-highlight), 1px 1px 3px var(--wb-shadow); }
+  .oa-management.oa-native[data-workbench=canvas] .dd-canvas-toolbar > .dd-actions:last-child {
+    width: max-content;
+    max-width: calc(100% - 12px);
+    flex-wrap: nowrap;
+    overflow: auto hidden;
+    justify-content: start;
+    overscroll-behavior-inline: contain;
+  }
+  .oa-management.oa-native[data-workbench=canvas] .dd-canvas-toolbar > .dd-actions:last-child button {
+    flex: none;
+    padding-inline: 6px;
+  }
+}

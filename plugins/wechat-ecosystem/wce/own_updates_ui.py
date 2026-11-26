@@ -11,33 +11,9 @@ STYLE = """
 body.oa-management[data-color-scheme=dark] .oa-software-update{--update-text:#b7f5d2;--update-bg:#18392b;--update-hover:#234d38}
 @media(prefers-color-scheme:dark){body.oa-management:not([data-color-scheme=light]) .oa-software-update{--update-text:#b7f5d2;--update-bg:#18392b;--update-hover:#234d38}}
 #wbHomeUpdateStatus{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;pointer-events:none}
-.oa-management .wb-titlebar #wbHomeUpdate{
- justify-self:end;display:inline-flex;align-items:center;justify-content:center;gap:5px;
- width:102px;height:34px;min-height:34px;padding:3px 5px;border:1px solid var(--wb-line);
- border-radius:10px;background:var(--wb-float);color:var(--wb-ink);box-shadow:none;font-size:10px;white-space:nowrap
-}
-.wb-version-text{min-width:0;display:grid;justify-items:start;line-height:1.12}
-#wbHomeRunning{font-variant-numeric:tabular-nums;font-weight:650}
-.wb-version-icon{flex:none;width:13px;height:13px}
-#wbHomeUpdateHint{color:var(--muted);font-size:9px}
-#wbHomeUpdate:is([data-update=available],[data-update=restart]) .wb-version-icon{color:#108051}
-body[data-color-scheme=dark] #wbHomeUpdate:is([data-update=available],[data-update=restart]) .wb-version-icon{color:#8aebba}
-#wbHomeUpdate:is([data-update=error],[data-update=recovery]) .wb-version-icon{color:#b66a17}
-body[data-color-scheme=dark] #wbHomeUpdate:is([data-update=error],[data-update=recovery]) .wb-version-icon{color:#f1b977}
-.oa-management .wb-titlebar #wbUpdateFace[data-update=available],#wbHomeUpdateBubble{
- color:#076441;background:#dff5e8
-}
-#wbHomeUpdateBubble{
- position:absolute;inset:auto auto auto calc(100% + 4px);border-radius:8px;padding:4px 6px;
- white-space:nowrap;font-size:10px;font-weight:650;line-height:1.2;pointer-events:none
-}
-#wbHomeUpdateBubble:empty{display:none}
-body[data-color-scheme=dark].oa-management .wb-titlebar #wbUpdateFace[data-update=available],
-body[data-color-scheme=dark] #wbHomeUpdateBubble{color:#b6f5d2;background:#1e4634}
-.oa-management .wb-titlebar :is(#wbUpdateFace,#wbHomeUpdate):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-@media(max-width:400px){
- .oa-management .wb-titlebar #wbHomeUpdate{width:75px;gap:4px;padding-inline:3px}
- #wbHomeUpdateBubble{inset-inline-start:100%;padding-inline:4px}
+.oa-management[data-workbench] .wb-dock>#wbHomeUpdate[data-update=available]{color:light-dark(#08704a,#8aebba)}
+.oa-management[data-workbench] .wb-dock>#wbHomeUpdate:is([data-update=error],[data-update=recovery],[data-update=restart]){
+ color:light-dark(#925311,#f1b977)
 }
 .oa-update-version{font-size:12px;font-weight:700;color:var(--ink)}
 .oa-update-versions{margin:0;display:grid;gap:4px;font-variant-numeric:tabular-nums}
@@ -90,11 +66,15 @@ window.OASoftwareUpdates={mount(rpc,installed){
  const node=suffix=>box.querySelector('.oa-update-'+suffix);
  const status=node('status'),jobStatus=node('job'),checkButton=node('check'),startButton=node('start'),receiptButton=node('receipt');
  const stable=node('latest'),installedRow=node('installed-row'),helpButton=node('help'),history=node('history');
- const home=document.getElementById('wbHomeUpdate'),homeRunning=document.getElementById('wbHomeRunning');
- const face=document.getElementById('wbUpdateFace'),bubble=document.getElementById('wbHomeUpdateBubble');
- const homeHint=document.getElementById('wbHomeUpdateHint'),homeStatus=document.getElementById('wbHomeUpdateStatus');
- if(home)ui.raw(homeRunning,'v'+installed);
+ const home=document.getElementById('wbHomeUpdate');
+ const homeStatus=document.getElementById('wbHomeUpdateStatus');
  const technical=node('technical'),checkDetail=node('check-detail'),jobDetail=node('job-detail');
+ if(slot.closest('.wb-settings-board')){
+  const version=document.createElement('section');version.className='wb-setting-version';
+  const title=node('version');ui.set(title,'关于 Jiusera');version.append(title,node('versions'),status);
+  const details=document.createElement('div');details.className='wb-setting-update-details';details.append(jobStatus,technical,history);
+  box.prepend(version);box.append(details);
+ }
  ui.set(stable,'待检查');
  ui.raw(node('running'),installed);
  const pendingKey='OpenAhoy.softwareUpdate.pending.'+installed;
@@ -126,7 +106,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
   startButton.hidden=!latest||busy||terminal.has(job)||Boolean(pendingRequest);
   startButton.disabled=!ready||closed||checking||reading||startButton.hidden;
   helpButton.hidden=!canOpenLinks||!(jobHelp||box.dataset.discovery==='CHECK_UNAVAILABLE');
-  if(!home&&!face)return;
+  if(!home)return;
   let state='unknown',label='检查更新',values=[];
   if(job==='INSTALLED_RELOAD_REQUIRED'){
    state='restart';label='需重启';
@@ -147,21 +127,13 @@ window.OASoftwareUpdates={mount(rpc,installed){
   }
   const detail=[status.textContent,jobStatus.textContent].filter(Boolean).join(' ');
   if(homeStatus&&homeStatus.textContent!==detail)ui.raw(homeStatus,detail);
-  if(homeHint)ui.set(homeHint,({
-   unknown:'待检查',current:box.dataset.discovery==='DEVELOPMENT_AHEAD'?'开发版':'最新',
-   checking:'检查中',available:'有更新',updating:'升级中',
-   restart:'需重启',recovery:'待核对',error:job==='FAILED'||job==='START_REJECTED'?'升级失败':'检查失败'
-  })[state]);
-  if(bubble){
-   if(state==='available')ui.set(bubble,'有更新');else ui.raw(bubble,'');
-  }
-  for(const button of [face,home]){
-   if(!button)continue;
-   button.dataset.update=state;
-   button.disabled=!ready||closed||checking||reading||busy||!readJob;
-   ui.attr(button,'aria-label',label,...values);
-   ui.attr(button,'title',detail);
-  }
+  const hasUpdate=Boolean(latest||pendingRequest||busy)||
+    ['INSTALLED_RELOAD_REQUIRED','INSTALL_UNKNOWN','FAILED','INTERRUPTED','DOWNLOADED_NOT_INSTALLED','BUSY'].includes(job);
+  home.hidden=!hasUpdate;
+  home.dataset.update=state;
+  home.disabled=!ready||closed||checking||reading||busy||!readJob;
+  ui.attr(home,'aria-label',label,...values);
+  ui.attr(home,'title',label,...values);
  }
  function sayJob(text,state,...values){ui.set(jobStatus,text,...values);box.dataset.state=state;paintAvailable();buttons();}
  function paintAvailable(){
@@ -424,7 +396,6 @@ window.OASoftwareUpdates={mount(rpc,installed){
   if(latest&&!startButton.hidden){void start(event);return;}
   void check();
  }
- face?.addEventListener('click',activate);
  home?.addEventListener('click',activate);
  helpButton.addEventListener('click',event=>{
   if(event.isTrusted&&canOpenLinks)void rpc('ui/open-link',{
@@ -450,6 +421,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
   }};
 
 }};
+
 '''
 
 

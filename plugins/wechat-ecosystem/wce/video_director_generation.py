@@ -5,13 +5,14 @@ from tempfile import TemporaryDirectory
 
 from . import video_director_delivery as delivery
 from . import video_autodl_catalog as autodl
+from . import video_vidmuse as vidmuse
 from .video_director import require
 from .video_director_media import compute_request
 
 TARGET_KEYS = ('project_id', 'work_id', 'scene_id', 'shot_id', 'revision_id')
 
 
-def submit(router, args):
+def submit(router, args, *, vidmuse_plan=None, vidmuse_previous=None):
     jobs, director = router.jobs, router.director
     target = {key: args[key] for key in TARGET_KEYS}
     project, attempt = target['project_id'], args['generation_attempt_id']
@@ -63,7 +64,11 @@ def submit(router, args):
                                    if 'character_reference' in item else {})
                                 for index, item in enumerate(inputs, 1) if 'asset_version' in item])
 
-    if mode == 'subject':
+    if route == vidmuse.PROVIDER:
+        require(vidmuse_plan is not None, 'VIDMUSE_CONFIRM_IN_CANVAS')
+        identity = {'project_id':project,'provider':route,'model':model,'mode':mode,**witness['request']}
+        row = jobs.submit_vidmuse(attempt,project,identity,vidmuse_plan,bind,vidmuse_previous)
+    elif mode == 'subject':
         row = jobs.submit_subject(attempt, project, route, prompt, config['subject_image_url'], director_bind=bind)
     elif mode == 'workflow':
         row = jobs.submit_relay(attempt, project, autodl.director_inputs(config, prompt), director_bind=bind)
@@ -76,13 +81,13 @@ def submit(router, args):
             workspace.pop('audio', None)
         if route == 'tokenhex':
             workspace.pop('ratio', None)
-        elif route == 'ark':
+        elif route in ('ark', 'ark_global', 'sand'):
             workspace.setdefault('audio', False)
         if source := config.get('source'):
             workspace.update(source_attempt_id=source['attempt_id'], source_sha256=source['sha256'])
             if 'reference_asset' in source:
                 workspace['reference_asset'] = source['reference_asset']
         row = jobs.submit(attempt, project, None, None, prompt, model=model, workspace=workspace, tokenhex=route == 'tokenhex',
-                          director_bind=bind)
+                          ark_global=route == 'ark_global', sand_native=route == 'sand', director_bind=bind)
     matches(row)
     return row

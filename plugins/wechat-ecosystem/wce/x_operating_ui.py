@@ -33,7 +33,7 @@ const OAXOperating=(()=>{
   if(Object.hasOwn(s,'const')&&v!==s.const)fail();if(s.enum&&!s.enum.includes(v))fail();
  }
  return {mount(call,{downloadArtifact,onSaved}={}){
-  const $=id=>document.getElementById(id),buffers=new Map();let row=null,ready=false,closed=false,epoch=0,tab=0,importEpoch=0,workspace=null;
+  const $=id=>document.getElementById(id),buffers=new Map();let row=null,ready=false,closed=false,epoch=0,tab=0,importEpoch=0,workspace=null,readState='';
   const ui=globalThis.OAUI||globalThis.OAPlainUI;
   const b=()=>row?buffers.get(row.connection_id):null;
   const op=prefix=>prefix+[...crypto.getRandomValues(new Uint8Array(16))].map(v=>v.toString(16).padStart(2,'0')).join('');
@@ -69,7 +69,7 @@ const OAXOperating=(()=>{
   }
   if(globalThis.OATaskWorkspace)workspace=OATaskWorkspace.mount('xConfig',['内容定位','表达与关注','栏目与节奏','配图与素材','项目与 Skill'].map((title,i)=>({title,
     show:shown=>{sections[i].hidden=!shown;tabs[i].setAttribute('aria-selected',String(shown));if(shown)tab=i;},
-    summary:()=>{const p=b()?.config.profile;if(!p)return ['读取本号配置…'];return [p.positioning.topics||['按内容选择主题'],p.positioning.voice||(p.growth.methods.length?['{0}',ui.list(p.growth.methods)]:['按内容选择表达']),['{0} 个栏目 · {1}',p.columns.length,p.timezone],p.images.style||p.images.subject||['按主题选择画面'],['保留原项目与 Skills']][i];}
+    summary:()=>{const p=b()?.config.profile;if(!p)return [readState];return [p.positioning.topics||['按内容选择主题'],p.positioning.voice||(p.growth.methods.length?['{0}',ui.list(p.growth.methods)]:['按内容选择表达']),['{0} 个栏目 · {1}',p.columns.length,p.timezone],p.images.style||p.images.subject||['按主题选择画面'],['保留原项目与 Skills']][i];}
   })));
   function area(parent,label,get,set,type='textarea',choiceLabel=null){
    const l=document.createElement('label'),caption=document.createElement('span');ui.set(caption,label);const e=document.createElement(type);ui.attr(e,'aria-label',label);
@@ -94,9 +94,13 @@ const OAXOperating=(()=>{
    });
    const add=document.createElement('button');ui.set(add,'添加栏目');add.onclick=()=>{p.columns.push({time:'09:00',name:'',purpose:'',format:'auto',selection:'',missing:'',assets:''});changed();renderColumns(parent,p);buttons();};parent.append(add);
   }
+  function paintTarget(){
+   const label=row&&(row.presentation?.display_name||row.label||row.username||row.connection_id);
+   ui.set($('xConfigTarget'),row?'目标账号：{0}':'选择已绑定的 X 账号。',row?[label,row.username?'@'+row.username:''].filter(Boolean).join(' · '):'');
+  }
   function render(){const v=b();if(!v)return;const p=v.config.profile;
    $('xConfigConflicts').hidden=!v.conflicts?.length;$('xConfigConflicts').open=!!v.conflicts?.length;$('xConfigConflictText').textContent=v.conflicts?.length?JSON.stringify(v.conflicts,null,2):'';
-   ui.set($('xConfigTarget'),'目标账号：{0}',(row.presentation?.display_name||'')+(row.username?' · @'+row.username:''));
+   paintTarget();
    sections.forEach(s=>s.replaceChildren());choiceEditors=[];const g=grid(sections[0]);
    for(const [k,label,group]of [['topics','主题领域','主题'],['readers','目标读者','读者'],['allowed','允许内容','内容形式'],['language','语言','语言']])
     area(g,label,()=>p.positioning[k],s=>p.positioning[k]=s,'textarea',group);
@@ -115,9 +119,10 @@ const OAXOperating=(()=>{
   }
   async function load(){if(!ready||closed||!row)return;const cid=row.connection_id,t=++epoch,old=b();
    if(old?.dirty||old?.pending||old?.busy){const renamed=!old.pending&&old.config.account_name!==row.presentation.display_name;if(renamed){old.config.account_name=row.presentation.display_name;old.dirty=true;old.skill='';}render();say(old.pending?'原保存待确认，请查询原操作。':renamed?'显示名已同步到未保存草稿，其他填写保留；保存后更新 Skill。':'本号未保存填写已保留。');return;}
-   try{const r=await invoke('X_CONFIG_READ',{connection_id:cid});if(!current(cid,t))return;const config=clone(r.configuration||blank),renamed=!!r.configuration&&config.account_name!==row.presentation.display_name;if(!r.configuration||renamed)config.account_name=row.presentation.display_name;if(!r.configuration)config.profile.timezone=Intl.DateTimeFormat().resolvedOptions().timeZone;
+   readState='读取本号配置…';workspace?.refresh();
+   try{const r=await invoke('X_CONFIG_READ',{connection_id:cid});if(!current(cid,t))return;if(r.connection_id!==cid)throw new Error('X_CONFIG_ACCOUNT_MISMATCH');const config=clone(r.configuration||blank),renamed=!!r.configuration&&config.account_name!==row.presentation.display_name;if(!r.configuration||renamed)config.account_name=row.presentation.display_name;if(!r.configuration)config.profile.timezone=Intl.DateTimeFormat().resolvedOptions().timeZone;
     buffers.set(cid,{config,base:clone(r.configuration||config),revision:r.revision,dirty:renamed,saved:!!r.configuration,skill:renamed?'':r.skill.text,busy:false,pending:null,conflicts:[]});render();say(renamed?'账号显示名已变化；已保留运营内容并填写新显示名，保存后同步更新 Skill。':r.configuration?'已读取本号已保存配置及完整创作 Skill。':'尚无运营配置；可以新建或加载，原补充偏好仍保留。');
-   }catch(e){if(current(cid,t))say('配置读取未完成：'+e.message+'；可再次读取，原配置未变。',true);}finally{if(!closed&&row?.connection_id===cid)buttons();}
+   }catch(e){if(current(cid,t)){readState='本号配置未读到';workspace?.refresh();say('配置读取未完成：'+e.message+'；可再次读取，原配置未变。',true);}}finally{if(!closed&&row?.connection_id===cid)buttons();}
   }
   async function preview(){const v=b();if(!v)return;const cid=row.connection_id,t=epoch;v.busy=true;buttons();try{const r=await invoke('X_CONFIG_PREVIEW',{connection_id:cid,configuration_text:JSON.stringify(v.config)});if(!current(cid,t))return;v.skill=r.skill.text;$('xConfigSkill').textContent=v.skill;tabs[4].click();workspace?.show(4);say(v.dirty?'预览已生成，尚未保存应用。':'当前已保存配置的完整创作 Skill。');}catch(e){if(current(cid,t))say('预览未完成：'+e.message,true);}finally{v.busy=false;if(!closed&&row?.connection_id===cid)buttons();}}
   async function save(){const v=b();if(!v||v.busy||v.pending||!ready)return;const cid=row.connection_id,t=epoch;v.busy=true;const a={connection_id:cid,configuration_text:JSON.stringify(v.config),expected_revision:v.revision,operation_id:op('project-')};v.pending=a;buttons();
@@ -149,9 +154,27 @@ const OAXOperating=(()=>{
     else if(current(cid,t))say('下载仍待确认；再次点击只查询原下载快照，不包含之后的修改。');
    }catch(e){if(current(cid,t))say('下载未完成：'+e.message+'；未切换其他下载通路。',true);}finally{v.busy=false;if(!closed&&row?.connection_id===cid)buttons();}}
   $('xConfigNew').onclick=()=>{const v=b();if(!v)return;starter?.forget(row.connection_id);v.config=clone(blank);v.config.account_name=row.presentation.display_name;v.config.profile.timezone=Intl.DateTimeFormat().resolvedOptions().timeZone;changed();render();};
-  $('xConfigReload').onclick=async()=>{const v=b();if(!v||v.pending||v.busy)return;if(!v.dirty){await load();return;}const cid=row.connection_id,t=epoch;v.busy=true;buttons();try{const r=await invoke('X_CONFIG_READ',{connection_id:cid});if(!current(cid,t))return;const remote=clone(r.configuration||blank);if(!r.configuration){remote.account_name=row.presentation.display_name;remote.profile.timezone=v.base.profile.timezone;}const conflicts=[];starter?.forget(cid);v.config=merge(v.base,v.config,remote,'',conflicts);v.base=remote;v.conflicts=conflicts;v.revision=r.revision;v.skill='';render();say(conflicts.length?'已合并不冲突的最新修改。请核对下方冲突原值；保存会明确采用本页冲突值。':'已合并其他页面的新修改，并保留本页填写；尚未保存。');}catch(e){if(current(cid,t))say('最新配置未读到，填写保留：'+e.message,true);}finally{v.busy=false;if(!closed&&row?.connection_id===cid)buttons();}};
+  $('xConfigReload').onclick=async()=>{const v=b();if(!v||v.pending||v.busy)return;if(!v.dirty){await load();return;}const cid=row.connection_id,t=epoch;v.busy=true;buttons();try{const r=await invoke('X_CONFIG_READ',{connection_id:cid});if(!current(cid,t))return;if(r.connection_id!==cid)throw new Error('X_CONFIG_ACCOUNT_MISMATCH');const remote=clone(r.configuration||blank);if(!r.configuration){remote.account_name=row.presentation.display_name;remote.profile.timezone=v.base.profile.timezone;}const conflicts=[];starter?.forget(cid);v.config=merge(v.base,v.config,remote,'',conflicts);v.base=remote;v.conflicts=conflicts;v.revision=r.revision;v.skill='';render();say(conflicts.length?'已合并不冲突的最新修改。请核对下方冲突原值；保存会明确采用本页冲突值。':'已合并其他页面的新修改，并保留本页填写；尚未保存。');}catch(e){if(current(cid,t))say('最新配置未读到，填写保留：'+e.message,true);}finally{v.busy=false;if(!closed&&row?.connection_id===cid)buttons();}};
   $('xConfigSave').onclick=save;$('xConfigPreview').onclick=preview;$('xConfigQuery').onclick=query;$('xConfigExport').onclick=()=>download('configuration');$('xConfigSkillExport').onclick=()=>download('skill');
-  buttons();return {ready(value){ready=value;if(value)void load();buttons();},target(value){const changed=row?.connection_id!==value?.connection_id;row=value;if(changed)epoch++;buttons();if(ready&&row)void load();},dispose(){closed=true;ready=false;epoch++;buttons();}};
+  function target(value){
+   const changed=row?.connection_id!==value?.connection_id;
+   row=value;
+   paintTarget();
+   if(changed){
+    epoch++;
+    readState=row?'读取本号配置…':'';
+    if(b())render();
+    else{
+     sections.forEach(section=>section.replaceChildren());
+     choiceEditors=[];
+     $('xConfigConflicts').hidden=true;$('xConfigConflicts').open=false;$('xConfigConflictText').textContent='';
+     workspace?.refresh();
+    }
+    say(row?'读取本号配置…':'');
+   }
+   buttons();if(ready&&row)void load();
+  }
+  buttons();return {ready(value){ready=value;if(value)void load();buttons();},target,dispose(){closed=true;ready=false;epoch++;buttons();}};
  }};
 })();
 '''.replace('__BLANK__', json.dumps(blank(), ensure_ascii=False)).replace('__METHODS__', json.dumps(METHODS, ensure_ascii=False)).replace('__SPEC__', json.dumps(SPEC, ensure_ascii=False))

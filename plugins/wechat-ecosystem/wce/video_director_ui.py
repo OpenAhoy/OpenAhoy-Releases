@@ -9,11 +9,10 @@ from .article_work_ui import STYLE as ARTICLE_STYLE, SCRIPT as ARTICLE_SCRIPT
 HTML = '''
 <section id="videoDirectorDesk" aria-labelledby="directorTitle" hidden>
  <header class="dd-toolbar">
-  <h1 id="directorTitle" tabindex="-1">导演台</h1>
+  <h1 id="directorTitle" tabindex="-1">视频剪辑</h1>
   <div class="dd-actions">
    <button id="directorSound" type="button" aria-label="预览声音" aria-pressed="false">声音关</button>
    <button id="directorToolBack" type="button" hidden>返回</button>
-   <button id="directorShowcase" data-wb-route="studio-showcase" type="button" hidden>演播室案例</button>
    <button id="directorAssetBack" type="button" hidden>返回资产库</button>
    <details id="directorMore" class="dd-more"><summary>
       <svg class="oa-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h5m4 0h9M3 12h11m4 0h3M3 18h2m4 0h12"/><circle cx="10" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="7" cy="18" r="2"/></svg>
@@ -26,7 +25,6 @@ HTML = '''
      <button type="button" id="directorStopFollowing" hidden>停止等待聊天结果</button>
      <button type="button" id="directorProjectSettings">登记项目</button>
      <button type="button" id="directorCardsLink">提示词库</button>
-     <button type="button" id="directorSettings">供应商设置</button>
     </div>
    </details>
   </div>
@@ -238,7 +236,7 @@ function OADirector(tool, send, canSend, navigation){
   style:'视觉风格',caption_safe_area:'字幕安全区',whitebox:'白模',prompt:'完整生成提示词'
  };
  const modeLabels={text:'文生视频',first:'首帧',last:'尾帧',frames:'首尾帧',reference:'多图参考',edit:'修改画面',extend:'延长镜头'};
- const providers={ark:'火山方舟',cn:'MiniMax 中国站',global:'MiniMax 国际站',tokenhex:'Token Hex'};
+ const providers={ark:'火山方舟',ark_global:'方舟国际站 · BytePlus ModelArk',cn:'MiniMax 中国站',global:'MiniMax 国际站',tokenhex:'Token Hex',sand:'Sand AI',vidmuse:'VidMuse'};
  const roles={composition:'构图预览',first:'首帧',last:'尾帧',subject:'主体参考',environment:'环境参考',reference:'其他参考'};
  const cardKinds={movement:'运镜',lens:'焦距',sequence:'组合',style:'风格'};
  const codes={
@@ -429,15 +427,23 @@ function OADirector(tool, send, canSend, navigation){
  }
  function render(){
    if(mode!=='desk'&&mode!=='monitor')return;
-   const work=present(),editing=mode==='desk',article=work?.kind==='article';
+   const editing=mode==='desk',imw=mode==='monitor'&&document.body.dataset.imwVideo==='true';
+   const work=imw&&present()?.kind==='article'?null:present(),article=work?.kind==='article';
+   if(mode==='monitor')navigation.imwWork?.(pid(),work);
    document.body.toggleAttribute('data-workbench-has-work',!!work&&!work.inbox);
-   $('directorWorkbar').hidden=false;
+   const workbar=$('directorWorkbar'),context=$('dmWorkContext');
+   if(!editing&&!article){
+     if(workbar.parentElement!==context)context.append(workbar);
+   }else if(workbar.parentElement===context){
+     $('directorWorkHint').before(workbar);
+   }
+   workbar.hidden=false;
    $('directorWorkSettings').hidden=!editing||article;
    board.hidden=!editing||article;
    $('directorMonitor').hidden=editing||article;
    $('directorSound').hidden=article;
    document.body.toggleAttribute('data-workbench-article',article);
-   const works=data?.works||[];
+   const works=(data?.works||[]).filter(row=>!imw||row.kind!=='article');
    optionsFor(workSelect,[[ '',works.length?'选择作品':'暂无作品'],
      ...works.map(row=>[row.id,row.kind==='article'?[row.title,
        row.account_label&&row.account_label+' · '+row.account_hint].filter(Boolean).join(' / '):row.title,!!row.inbox])],work?.id||'');
@@ -451,7 +457,7 @@ function OADirector(tool, send, canSend, navigation){
    const hint=$('directorWorkHint');
    hint.hidden=!!work&&!pending;
    OAUI.set(hint,pending?'已保留原请求，作品就绪后会显示在这里。':
-     canSend()?'从当前聊天开始，也可手动新建作品。':'当前宿主无法发送聊天请求，可用作品工具手动新建。');
+     canSend()?'从当前聊天开始，也可在画布工具中手动新建。':'当前宿主无法发送聊天请求，可在画布工具中手动新建。');
    const scope=work&&workScope(),cached=scope&&workspaceRows.get(workKey(scope));
    if(article){
      review.clear();canvas.suspend();
@@ -462,7 +468,7 @@ function OADirector(tool, send, canSend, navigation){
    if(editing){
      canvas.render(scope?workKey(scope):'',work,context?.shot_id,context?.revision||null);
      if(cached)canvas.setDeliveries(workKey(scope),cached.cards,cached.version);
-   }else review.render({work,scope,context,cards:cached?.cards||[]});
+   }else review.render({work,scope,context,cards:cached?.cards||[],workVersion:data?.version});
    $('directorCanvasEngine').disabled=!context;
    const editable=!!work&&!work.inbox;
    $('directorWorkSettings').disabled=!editable;
@@ -860,6 +866,23 @@ function OADirector(tool, send, canSend, navigation){
    if(!modelData||refresh)modelData=await read('models',refresh?{refresh_tokenhex:true}:{});
    return modelData;
  }
+ function vidmuseCatalog(catalog,snapshot){
+   const profiles={};
+   const byMode=new Map();
+   for(const entry of snapshot.models||[]){
+     const group=byMode.get(entry.mode)||[];group.push(entry);byMode.set(entry.mode,group);
+   }
+   for(const [mode,entries] of byMode){
+     if(entries.length!==1)continue;
+     const entry=entries[0];
+     profiles[mode]={resolutions:Object.fromEntries(entry.resolution.map(size=>[size,entry.duration])),
+       ratios:entry.ratio,local_roles:[],reference_count:entry.reference_count,audio:entry.audio.includes(true),
+       vidmuseAudio:entry.audio};
+   }
+   const modes=Object.keys(profiles);
+   catalog.models.vidmuse=modes.length?[{id:'magi-2',name:'MAGI-2',modes,profiles,visibility:'VISIBLE'}]:[];
+   catalog.vidmuse=snapshot;
+ }
  async function pickEngine(){
    if(!context)return;
    if(context.revision.id!==context.head_revision){
@@ -875,7 +898,14 @@ function OADirector(tool, send, canSend, navigation){
       catch(problem){if(scopeKey()===target)error(problem);}
       finally{refresh.disabled=false;}
    });
-   picker.append(refresh,status,cards);
+   const vidmuseRefresh=button('读取 VidMuse 的 MAGI-2',async()=>{
+     vidmuseRefresh.disabled=true;
+     try{
+       vidmuseCatalog(modelData,await navigation.vidmuse.get(true));
+       if(dialogNode.open&&scopeKey()===target)paint();
+     }finally{vidmuseRefresh.disabled=false;}
+   });
+   picker.append(refresh,vidmuseRefresh,status,cards);
    function paint(){
      if(!modelData)return;
      const needle=search.value.trim().toLowerCase();
@@ -901,7 +931,8 @@ function OADirector(tool, send, canSend, navigation){
      OAUI.set(status,{NOT_CHECKED:'',MODELS_VISIBLE:'已读到 Token Hex 账号目录',
        NOT_CONFIGURED:'Token Hex 连接未配置',NO_SUPPORTED_MODELS:'此账号无本插件支持的型号',
        EMPTY_CATALOG:'账号目录为空',AUTH_REQUIRED:'Token Hex 连接需要授权',
-       CHECK_UNAVAILABLE:'Token Hex 目录暂不可读'}[modelData.tokenhex_catalog?.state]||'');
+       CHECK_UNAVAILABLE:'Token Hex 目录暂不可读'}[modelData.tokenhex_catalog?.state]||
+       (modelData.vidmuse?navigation.vidmuse.text(modelData.vidmuse.state):''));
    }
    try{
      await engineData();
@@ -939,11 +970,13 @@ function OADirector(tool, send, canSend, navigation){
        audioUrl=textarea(urls,'参考音频公开 HTTPS 链接',config.reference_audio?.join('\n')||'',2),
        subjectUrl=input(urls,'主体图片公开 HTTPS 链接',config.subject_image_url||'','url');
      const inputArea=node('div','dd-form'),workflowForm=node('div','dd-pairs'),connection=label('p',''),hint=label('p','');
-     const rowName=label('h3','');
+     const rowName=label('h3',''),vidmuseControls=node('div','dd-actions');
+     const vidmuseRefresh=button('读取 VidMuse 的 MAGI-2',()=>loadVidMuse(true));
+     vidmuseControls.append(vidmuseRefresh,button('VidMuse 连接设置',navigation.vidmuseSettings));
      let originals=[],sourcePending=false,localFields=[],workflowFields=[],previousWorkflow='',workflowChoice=config.workflow_id||'';
      const workflowDrafts=new Map();
      const split=value=>value.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
-     pane.append(rowName,connection,cols,inputArea,sourceArea,urls,workflowForm,hint);
+     pane.append(rowName,connection,vidmuseControls,cols,inputArea,sourceArea,urls,workflowForm,hint);
      pane.oninput=pane.onchange=()=>{engineDirty=true;};
      const modelRow=()=>catalog.models[provider.value]?.find(row=>row.id===pickedModel.value);
      const profile=()=>modelRow()?.profiles?.[kind.value];
@@ -1087,9 +1120,22 @@ function OADirector(tool, send, canSend, navigation){
        show(workflow,!!options.length);
        showWorkflowFields();
        OAUI.raw(rowName,row?engineName({provider:provider.value,model:row.id}):'');
-       OAUI.set(hint,active?.url_inputs?'使用已有公开链接。链接和模型账号的访问尚未核验。':'');
+       OAUI.set(hint,provider.value==='sand'&&kind.value==='reference'?
+         '使用当前项目的 PNG 或 JPEG 作为画面参考，最多 10 张。':
+         active?.url_inputs?'使用已有公开链接。链接和模型账号的访问尚未核验。':'');
+       vidmuseControls.hidden=provider.value!=='vidmuse';
+       if(provider.value==='vidmuse'){
+         const state=catalog.vidmuse?.state;
+         OAUI.set(connection,state?navigation.vidmuse.text(state):'尚未检查 VidMuse 连接。');
+         if(active?.vidmuseAudio?.length===1){
+           audio.checked=active.vidmuseAudio[0];audio.disabled=true;
+         }
+         return;
+       }
        OAUI.set(connection,provider.value==='tokenhex'&&row?.visibility!=='VISIBLE'?'Token Hex 型号可见性待核':
-         catalog.connections[provider.value]==='CONFIGURED'?'本机已配置连接':'本机连接未配置或暂不可读');
+         catalog.connections[provider.value]==='CONFIGURED'?
+          (provider.value==='sand'?'密钥已保存，模型调用权限未核验':'本机已配置连接'):
+          '本机连接未配置或暂不可读');
      }
      function modes(preferred){
        const row=modelRow();
@@ -1101,7 +1147,20 @@ function OADirector(tool, send, canSend, navigation){
          .map(row=>[row.id,row.name||row.id,false]),preferred??(pickedModel.value||config.model));
        modes();
      }
-     provider.onchange=()=>modelsForProvider();pickedModel.onchange=()=>modes();kind.onchange=outputs;resolution.onchange=durations;
+     async function loadVidMuse(force){
+       vidmuseRefresh.disabled=true;
+       try{
+         const snapshot=await navigation.vidmuse.get(force);
+         if(!visible(key))return;
+         vidmuseCatalog(catalog,snapshot);
+         if(provider.value==='vidmuse')modelsForProvider('magi-2');
+       }finally{vidmuseRefresh.disabled=false;}
+     }
+     provider.onchange=()=>{
+       modelsForProvider();
+       if(provider.value==='vidmuse'&&!catalog.vidmuse)loadVidMuse(false);
+     };
+     pickedModel.onchange=()=>modes();kind.onchange=outputs;resolution.onchange=durations;
      workflow.onchange=()=>{workflowChoice=workflow.value;showWorkflowFields();};
      const prompt=textarea(pane,'完整生成提示词',rev.prompt,5);
      modelsForProvider(draft?.model);
@@ -1157,10 +1216,65 @@ function OADirector(tool, send, canSend, navigation){
      },'primary'));
      const actions=node('div','dd-actions');
      actions.append(button('预检已保存配置',()=>preflight(key)),button('复制提示词',()=>copy(rev.prompt)));
-     if(fresh&&rev.configuration)actions.append(button('交给 Codex 生成',()=>handoffGeneration(key)));
+     if(fresh&&rev.configuration){
+       actions.append(rev.configuration.provider==='vidmuse'
+         ?button('获取 VidMuse 积分报价',event=>vidmuseQuote(key,event.currentTarget),'primary')
+         :button('交给 Codex 生成',()=>handoffGeneration(key)));
+     }
      if(!fresh)actions.append(button('查看最新修订',()=>selectShot(context.scene_id,context.shot_id,context.head_revision)));
      pane.append(actions);inspector.replaceChildren(pane);
+     if(provider.value==='vidmuse'&&!catalog.vidmuse)loadVidMuse(false);
    }catch(problem){if(visible(key)&&tab==='generation'){inspector.replaceChildren(label('p','模型目录暂不可读。'));error(problem);}}
+ }
+ async function vidmuseQuote(key,trigger){
+   if(engineDirty){say('请先保存当前提示词与配置。',true);return;}
+   const target=exact(),panel=$('directorDialog'),defaultSave=$('directorDialogSave');
+   trigger.disabled=true;
+   const showError=problem=>{
+     const messages={VIDMUSE_PRICE_UNAVAILABLE:'官方目录缺少本次参数的积分报价。',
+       VIDMUSE_BALANCE_UNAVAILABLE:'暂时无法读取 VidMuse 积分。',
+       VIDMUSE_QUOTE_CHANGED:'VidMuse 账号、参数或积分报价已变化，请重新报价。',
+       VIDMUSE_QUOTE_EXPIRED:'积分报价已过期，请重新报价。',
+       VIDMUSE_ORIGINAL_ATTEMPT_CHANGED:'原任务状态已变化，请先检查原任务。',
+       VIDMUSE_MODEL_AMBIGUOUS:'当前参数对应多个 VidMuse 型号，请核对目录。',
+       VIDMUSE_REVISION_CHANGED:'镜头已修改，请使用最新修订。'};
+     return messages[problem.message]||navigation.vidmuse.text(problem.message.replace(/^VIDMUSE_/,''));
+   };
+   const credits=(amount,balance)=>OAUI.format('本次预计积分')+' '+amount+' · '+OAUI.format('可用积分')+' '+balance;
+   const stateText=result=>result.attempt_state==='SUBMIT_UNKNOWN'||result.state==='SUBMIT_UNKNOWN'
+     ?'VidMuse 原请求结果待确认，未自动重发。':'VidMuse 原任务已登记到当前镜头。';
+   try{
+     const quote=await navigation.vidmuse.call({action:'quote',...target});
+     if(!visible(key))return;
+     if(quote.state==='ORIGINAL_ATTEMPT'){say(stateText(quote));await readWork({keep:true});return;}
+     if(quote.state==='INSUFFICIENT_CREDITS'){say(txt('VidMuse 积分不足。')+' '+credits(quote.estimate,quote.balance),true);return;}
+     if(quote.state!=='QUOTED')throw Error('VIDMUSE_PRICE_UNAVAILABLE');
+     const content=node('div','dd-form');
+     const summary=quote.shot+' · '+quote.model_name+' · '+quote.duration+' s · '+quote.resolution+' · '+quote.ratio+
+       ' · '+OAUI.format(quote.mode==='text'?'文字生成':'图片参考')+' ('+quote.references+') · '+OAUI.format(quote.audio?'生成音频':'关闭音频');
+     const notice=raw('p',credits(quote.estimate,quote.balance));
+     notice.setAttribute('role','status');
+     content.append(raw('p',summary),raw('p',OAUI.format('VidMuse 账号')+' '+quote.account),notice);
+     const confirm=button('确认提交 VidMuse 任务',async()=>{
+       if(!visible(key))return;
+       confirm.disabled=true;
+       OAUI.set(notice,'正在确认并提交 VidMuse 任务…');
+       try{
+         const result=await navigation.vidmuse.call({action:'confirm',quote_id:quote.quote_id});
+         if(result.state==='INSUFFICIENT_CREDITS'){
+           OAUI.raw(notice,txt('VidMuse 积分不足。')+' '+credits(result.estimate,result.balance));return;
+         }
+         if(panel.open&&content.isConnected)panel.close();
+         if(visible(key)){say(stateText(result));await readWork({keep:true});}
+       }catch(problem){OAUI.set(notice,showError(problem));}
+     },'primary');
+     content.append(confirm);
+     dialog('确认 VidMuse 积分与任务',content,null);
+     defaultSave.hidden=true;
+     panel.addEventListener('close',()=>{defaultSave.hidden=false;},{once:true});
+     confirm.focus();
+   }catch(problem){if(visible(key))say(showError(problem),true);}
+   finally{trigger.disabled=false;}
  }
  async function handoffGeneration(key){
    const target=exact();
@@ -1356,19 +1470,18 @@ function OADirector(tool, send, canSend, navigation){
    if(mode==='monitor')review.clear();
    mode=target;root.scrollTop=0;
    const main=mode==='desk'||mode==='monitor';
-   OAUI.set($('directorTitle'),({monitor:'导演台',desk:'工作画布',assets:'资产库',cards:'提示词库',
-     tasks:'任务详情',providers:'供应商设置'})[mode]);
+   OAUI.set($('directorTitle'),({monitor:'视频剪辑',desk:'工作画布',assets:'资产库',cards:'提示词库',
+     tasks:'任务详情'})[mode]);
    $('directorMore').open=false;
-   OAUI.set($('directorMoreLabel'),mode==='desk'?'画布工具':mode==='assets'?'资产工具':'作品工具');
-   $('directorMore').hidden=!main&&mode!=='assets';
-   $('directorToolBack').hidden=!['cards','tasks','providers'].includes(mode);
-   $('directorShowcase').hidden=mode!=='assets';
+   OAUI.set($('directorMoreLabel'),mode==='desk'?'画布工具':'作品工具');
+   $('directorMore').hidden=!main;
+   $('directorToolBack').hidden=!['cards','tasks'].includes(mode);
    $('directorCardPage').hidden=mode!=='cards';
    $('directorWorkbar').hidden=!main;
    if(mode!=='desk')board.hidden=true;
    if(mode!=='monitor')$('directorMonitor').hidden=true;
    if(!main){
-     $('directorSound').hidden=mode!=='assets';
+     $('directorSound').hidden=true;
      $('directorWorkHint').hidden=true;
      articleStage.hide();
      document.body.removeAttribute('data-workbench-article');
@@ -1384,10 +1497,21 @@ function OADirector(tool, send, canSend, navigation){
    project.disabled=!list.length;
    project.title=list.find(row=>row.id===project.value)?.label||'';
  }
- async function refreshProjects({restore=false}={}){
+ async function refreshProjects({restore=false,imwScope}={}){
    guideRead=0;navigation.guideChanged?.();
    const epoch=++projectLoad,intent=selection,current=pid(),{projects:list}=await read('projects');
    if(epoch!==projectLoad||intent!==selection||!mode)return;
+   if(imwScope){
+     const id=list.some(row=>row.id===imwScope.project_id)?imwScope.project_id:'';
+     resetWork();setProjectList(list,id);explicitProject=id;render();
+     if(!id){render();return;}
+     if(imwScope.work_id){await readWork({work:imwScope.work_id});return;}
+     const overview=await read('overview',{project_id:id});
+     if(epoch!==projectLoad||intent!==selection||mode!=='monitor'||pid()!==id)return;
+     const eligible=overview.works.find(row=>row.kind!=='article'&&!row.inbox);
+     if(overview.work?.kind==='article'&&eligible){await readWork({work:eligible.id});return;}
+     await readWork({overview});return;
+   }
    let saved=null;
    if(restore&&!current&&mainView()){
      try{saved=JSON.parse(localStorage.getItem('jiusera.workbench.last-work'));}catch(_){}
@@ -1412,6 +1536,17 @@ function OADirector(tool, send, canSend, navigation){
  }
  async function openShot(shot){
    const {project_id,work_id,scene_id,shot_id,revision_id}=shot.scope;
+   if(mode==='monitor'&&shot.kind==='mv-work'){
+     if(![project_id,work_id].every(value=>/^[a-f0-9]{32}$/.test(value||''))||
+       !projects.some(row=>row.id===project_id))return;
+     project.value=project_id;explicitProject=project_id;
+     if(await readWork({work:work_id})&&mode==='monitor'&&present()?.id===work_id){
+       root.scrollTop=0;
+       $('dmScreenTitle').setAttribute('tabindex','-1');
+       $('dmScreenTitle').focus({preventScroll:true});
+     }
+     return;
+   }
    if(mode!=='desk'||![project_id,work_id,scene_id,shot_id,revision_id].every(value=>/^[a-f0-9]{32}$/.test(value||''))||
       !projects.some(row=>row.id===project_id))return;
    project.value=project_id;
@@ -1423,10 +1558,17 @@ function OADirector(tool, send, canSend, navigation){
    if(toggle&&toggle.getAttribute('aria-expanded')!=='true')toggle.click();
  }
  async function open(target='monitor',shot){
+   if(target==='monitor'&&shot?.scope){resetWork();review.clear();}
    root.hidden=false;
    view(target);
    if(!workspaceTimer)workspaceTimer=setInterval(tickWorkspace,2600);
-   try{await refreshProjects({restore:true});if(shot)await openShot(shot);await checkChatRequest();}
+   const intent=selection;
+   try{
+     const imwScope=target==='monitor'&&['mv-work','imw-project'].includes(shot?.kind)?shot.scope:undefined;
+     await refreshProjects({restore:true,imwScope});
+     if(shot&&!imwScope&&selection===intent&&mode===target)await openShot(shot);
+     await checkChatRequest();
+   }
    catch(problem){if(mode)error(problem);}
  }
  function startPrompt(id){
@@ -1501,9 +1643,19 @@ function OADirector(tool, send, canSend, navigation){
    try{
      await checkChatRequest();
      try{await followFirstWork();}catch(_){/* Leave the verified view available. */}
+     if(mode==='monitor'&&present()&&!present().inbox&&present().kind!=='article'){
+       const scope=workScope(),cached=workspaceRows.get(workKey(scope));
+       const stamp=await review.checkTimelineRevision().catch(()=>null);
+       if(stamp&&stamp.project_id===pid()&&stamp.work_id===present()?.id&&
+          stamp.version===data?.version&&cached?.version===stamp.version&&
+          cached.cards.every(card=>['ASSET_READY','FAILED','CANCELLED'].includes(card.state)))return;
+     }
      await syncWorkspace();
    }finally{ticking=false;}
  }
+ const checkOnReturn=()=>{if(mode==='monitor'&&!document.hidden)void tickWorkspace();};
+ window.addEventListener('focus',checkOnReturn);
+ document.addEventListener('visibilitychange',checkOnReturn);
  function close(){
    navigation.closeCharacterPicker();imageDraft=null;releaseVoicePreview();canvas.suspend();review.clear();articleStage.hide();
    document.body.removeAttribute('data-workbench-article');
@@ -1514,7 +1666,12 @@ function OADirector(tool, send, canSend, navigation){
    $('directorCopy').hidden=true;
  }
  project.onchange=()=>{
+   navigation.imwChoose?.({project_id:pid()});navigation.projectSelected?.(pid());
    selection++;explicitProject=pid();
+   try{
+     if(explicitProject)localStorage.setItem('jiusera.workbench.last-work',JSON.stringify({project:explicitProject}));
+     else localStorage.removeItem('jiusera.workbench.last-work');
+   }catch(_){}
    guideWorkChoice=null;
    project.title=projects.find(row=>row.id===pid())?.label||'';
    resetWork();render();
@@ -1523,7 +1680,8 @@ function OADirector(tool, send, canSend, navigation){
  workSelect.onchange=()=>{
    const chosen=workSelect.value;
    if(!chosen){render();return;}
-   selection++;stopWatch();engineDraft=null;engineDirty=false;
+   navigation.imwChoose?.({project_id:pid(),work_id:chosen});selection++;stopWatch();engineDraft=null;engineDirty=false;
+   if(mode==='monitor'&&document.body.dataset.imwVideo==='true'){resetWork();review.clear();render();}
    void readChosenWork(chosen).catch(error);
  };
  $('directorSceneSelect').onchange=()=>selectScene($('directorSceneSelect').value);
@@ -1579,7 +1737,6 @@ function OADirector(tool, send, canSend, navigation){
  $('directorSendText').onclick=()=>askCodex('text');
  $('directorSendImage').onclick=()=>askCodex('image');
  $('directorCopyContext').onclick=()=>askCodex('text',true);
- $('directorSettings').onclick=()=>navigation.go('providers');
  $('directorCardsLink').onclick=()=>navigation.go('cards');
  $('directorToolBack').onclick=navigation.back;
  $('directorTabs').querySelectorAll('button').forEach(pick=>pick.onclick=()=>{tab=pick.dataset.tab;renderInspector();});
@@ -1677,10 +1834,10 @@ function OADirector(tool, send, canSend, navigation){
    attachImage(slot,await canvasImage(row,true),true);
    return slot.firstChild;
  }
- function playCanvasVideo(slot,row,scope=workScope()){
+ function playCanvasVideo(slot,row,scope=workScope(),statusTarget=null){
    const args={...scope,delivery_id:row.id,sha256:(row.asset||row).sha256};
    return OAVideoPreview(slot,row.asset||row,{
-     lazy:true,sound:navigation.sound,
+     lazy:true,sound:navigation.sound,statusTarget,
      chunk:offset=>media('canvas_video_chunk',{...args,offset}),
      frames:start=>media('canvas_video_frames',{...args,start}),
    });
@@ -1732,7 +1889,7 @@ function OADirector(tool, send, canSend, navigation){
    workspaceRows.set(key,payload);
    if(pid()===scope.project_id&&present()?.id===scope.work_id){
      if(mode==='desk')canvas.setDeliveries(key,payload.cards,payload.version);
-     if(mode==='monitor')review.render({work:present(),scope,context,cards:payload.cards});
+     if(mode==='monitor')review.render({work:present(),scope,context,cards:payload.cards,workVersion:payload.version});
    }
    return true;
  }
@@ -1772,6 +1929,18 @@ function OADirector(tool, send, canSend, navigation){
  const canvas=OADirectorCanvas(canvasCommit,selectCanvasNode,showCanvasNode,canvasPicture,engineName,
    playCanvasVideo,adoptCanvasVideo);
  const review=OADirectorMonitor({
+   timelineOptions:{read,edit,send,canSend,uid:randomID,sound:navigation.sound,
+     masterChunk:(selection,offset)=>tool('wce.ui.studio',{action:'media',...selection,asset:'wav',offset}),
+     chunk:(scope,clip,offset)=>media('canvas_video_chunk',{...scope,delivery_id:clip.delivery_id,sha256:clip.sha256,offset}),
+     exactFrame:(scope,clip,time_us)=>media('canvas_video_frame',{...scope,delivery_id:clip.delivery_id,sha256:clip.sha256,time_us}),
+     frames:(scope,clip,start)=>media('canvas_video_frames',{...scope,delivery_id:clip.delivery_id,sha256:clip.sha256,start}),
+     audioChunk:(scope,song,offset)=>tool('wce.ui.video.workspace',{action:'audio_chunk',project_id:scope.project_id,attempt_id:song.attempt_id,offset}),
+     onExport:async(scope,result)=>{
+       const payload=await read('deliveries',scope);
+       if(!payload.cards.some(row=>row.id===result.delivery_id&&row.state==='ASSET_READY'))throw Error('DIRECTOR_EXPORT_NOT_VERIFIED');
+       acceptDeliveries(scope,payload);
+     }},
+
    chooseShot:async(scene_id,shot_id,revision_id)=>{
      const scope=workScope(),key=workKey(scope),focus={scene_id,shot_id,revision_id};
      const previous=preferredShots.get(key);
@@ -1797,7 +1966,7 @@ function OADirector(tool, send, canSend, navigation){
      const response=await media('image',{...target,thumbnail});
      const slot=node('div');attachImage(slot,response,thumbnail);return slot.firstChild;
    },
-   play:playCanvasVideo,
+   play:(slot,row,scope)=>playCanvasVideo(slot,row,scope,$('dmSourceStatus')),
  });
  return {open,close,view,canAttach,attach,guideContext,goToArticle,openShot};
 }

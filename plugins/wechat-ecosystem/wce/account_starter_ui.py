@@ -94,7 +94,7 @@ globalThis.OAAccountStarter = (() => {
   const choiceTones = {'读者':'violet', '表达':'violet', '配图':'teal', '版式':'teal', '目标':'amber'};
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-  function mount(root, platform, {read, write, empty, onChange}) {
+  function mount(root, platform, {read, write, empty, onChange,allowedFields=null,autoOpen=true}) {
     const picker = document.createElement('details');
     const heading = document.createElement('summary');
     ui.set(heading, '选择账号方案');
@@ -125,7 +125,7 @@ globalThis.OAAccountStarter = (() => {
     let account = '';
     let locked = true;
     let announcement = '';
-    const keys = Object.keys(options[0][platform]);
+    const keys = allowedFields||Object.keys(options[0][platform]);
     function restore() {
       const previous = history.get(account);
       if (!previous) return false;
@@ -174,7 +174,8 @@ globalThis.OAAccountStarter = (() => {
         const restored = restore();
         announcement = '';
         const changes = new Map();
-        for (const [key, suggestion] of Object.entries(option[platform])) {
+        for (const key of keys) {
+          const suggestion=option[platform][key];
           const before = read(key);
           if (!replace.checked && !empty(key, before)) continue;
           const after = typeof before === 'string' ? suggestion : {text: suggestion, inherit: false};
@@ -199,7 +200,7 @@ globalThis.OAAccountStarter = (() => {
       announcement = '已撤销方案填写。之后单独修改过的内容已保留。';
       if (restored) onChange();
       update(account, locked);
-      if (keys.every(key => empty(key, read(key)))) picker.open = true;
+      if (autoOpen&&keys.every(key => empty(key, read(key)))) picker.open = true;
     };
 
     function update(id, disabled) {
@@ -213,7 +214,7 @@ globalThis.OAAccountStarter = (() => {
       if (switched) {
         replace.checked = false;
         announcement = '';
-        picker.open = allEmpty;
+        picker.open = autoOpen&&allEmpty;
       }
       ui.set(heading, previous ? '已填写 · {0}' : '选择账号方案', ui.message(previous?.name || ''));
       replaceLabel.hidden = allEmpty;

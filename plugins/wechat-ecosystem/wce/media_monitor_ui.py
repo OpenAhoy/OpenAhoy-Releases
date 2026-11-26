@@ -7,13 +7,16 @@ HTML = '''
   <nav id="monitorFilters" aria-label="媒体类型"><button type="button" data-kind="all">全部</button><button type="button" data-kind="video">视频</button><button type="button" data-kind="audio">音频</button><button type="button" data-kind="gif">动图</button></nav>
   <input id="monitorSearch" type="search" placeholder="搜索资产" aria-label="搜索资产">
   <button id="musicRecipesOpen" type="button" hidden aria-expanded="false">音乐配方</button>
+  <button id="audioWorkOpen" data-wb-route="audio-workspace" type="button" hidden>音频工作台</button>
   <button id="monitorRefresh" type="button">刷新</button>
  </div>
  <div class="mm-toolbar mm-status"><nav id="monitorStates" aria-label="按状态筛选"></nav><span id="monitorRead" role="status"></span></div>
  <section id="musicRecipes" class="mm-music-recipes" hidden aria-labelledby="musicRecipesOpen">
   <div class="mm-toolbar mm-recipe-controls">
-   <select id="musicRecipeProject" aria-label="项目"></select>
-   <select id="musicRecipeChoice" aria-label="音乐配方"></select>
+   <label for="musicRecipeProject">项目</label>
+   <select id="musicRecipeProject" disabled></select>
+   <label for="musicRecipeChoice">音乐配方</label>
+   <select id="musicRecipeChoice" disabled></select>
    <button id="musicRecipeImport" type="button">导入 .jmusic</button>
    <input id="musicRecipeFile" type="file" accept=".jmusic" hidden>
   </div>
@@ -28,25 +31,36 @@ HTML = '''
   </section>
  </div>
 </section>
-<section id="monitorProviders" hidden>
- <nav id="monitorProviderTabs" class="mm-toolbar"><button id="monitorVideoProvider" type="button">视频</button><button id="monitorGifProvider" type="button">动图</button><button id="monitorAudioProvider" type="button">音频</button></nav>
- <div id="monitorVideoSettings"></div><div id="monitorGifSettings" hidden></div><div id="monitorAudioSettings" hidden></div>
-</section>
 '''
 
 STYLE = '''
 .oa-management [id^="monitor"]{min-width:0}
-#mediaMonitor,#monitorProviders{display:flex;min-height:0;flex:1;flex-direction:column;gap:8px;font-size:13px}
-#monitorProviders{overflow:auto;padding:2px 4px}
+#mediaMonitor{display:flex;min-height:0;flex:1;flex-direction:column;gap:8px;font-size:13px}
 #mediaStudio h1{font-size:21px;line-height:1.2;margin:0;letter-spacing:-.02em}
 .mm-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .mm-toolbar>h1{margin-inline-end:auto!important}
 #musicRecipes{overflow:auto;min-height:0;flex:1;padding:8px 2px 12px}
 #mediaMonitor.mm-recipes-open :is(.mm-status,.mm-columns,#monitorSearch,#monitorRefresh){display:none}
 #musicRecipes .mm-recipe-candidates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0}
-#musicRecipes .mm-recipe-controls{margin-bottom:9px}
+#musicRecipes .mm-recipe-controls{
+ display:grid;grid-template-columns:repeat(2,minmax(0,1fr)) auto;
+ grid-template-areas:"project-label recipe-label ." "project recipe import";gap:4px 8px;margin-bottom:9px
+}
+#musicRecipes [for=musicRecipeProject]{grid-area:project-label}
+#musicRecipes [for=musicRecipeChoice]{grid-area:recipe-label}
+#musicRecipeProject{grid-area:project}
+#musicRecipeChoice{grid-area:recipe}
+#musicRecipeImport{grid-area:import;justify-self:start}
+#musicRecipes :is(label,button){font-weight:600}
+#musicRecipes select{margin:0}
 #musicRecipes #musicRecipeStatus:empty{display:none}
 @media(max-width:690px){#musicRecipes .mm-recipe-candidates{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:550px){
+ #musicRecipes .mm-recipe-controls{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  grid-template-areas:"project-label recipe-label" "project recipe" "import import"
+ }
+}
 #musicRecipes[hidden],#musicRecipesOpen[hidden],#musicRecipeFile[hidden]{display:none}
 #musicRecipes p{margin:5px 0}
 #musicRecipes .mm-recipe-lyrics{white-space:pre-wrap;overflow-wrap:anywhere}
@@ -259,7 +273,7 @@ function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged,musi
    }
    return new Blob(chunks,{type:row.asset.mime||mediaMime[row.kind]});
  }
- let recipeEpoch=0,recipeSource='',recipePlayer=null,recipeRows=[];
+ let recipeEpoch=0,recipeSource='',recipePlayer=null;
  const recipePanel=$('musicRecipes'),recipeToggle=$('musicRecipesOpen');
  const recipeProject=$('musicRecipeProject'),recipeSelect=$('musicRecipeChoice');
  const recipeDetail=$('musicRecipeDetail'),recipeStatus=$('musicRecipeStatus');
@@ -278,20 +292,30 @@ function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged,musi
  function option(select,value,text){
    const node=element('option');node.value=value;node.textContent=text;select.append(node);
  }
+ function showEmptyRecipeOption(select,message){
+   const node=element('option');node.value='';OAUI.set(node,message);
+   select.replaceChildren(node);select.disabled=true;
+ }
  async function loadRecipeList(preferred=''){
    const epoch=++recipeEpoch;
-   clearRecipePlayer();recipeSelect.replaceChildren();recipeDetail.replaceChildren();
+   clearRecipePlayer();recipeDetail.replaceChildren();
+   showEmptyRecipeOption(recipeSelect,recipeProject.value?'正在读取…':'暂无音乐配方');
    $('musicRecipeImport').disabled=!recipeProject.value;
-   if(!recipeProject.value){OAUI.set(recipeStatus,'此项目暂无音乐配方。');return;}
+   if(!recipeProject.value){OAUI.set(recipeStatus,'请先登记一个项目。');return;}
    try{
      const response=await recipeCall('list');
      if(epoch!==recipeEpoch)return;
-     recipeRows=response.presets;
-     for(const row of recipeRows)option(recipeSelect,row.id,row.name);
-     if(recipeRows.some(row=>row.id===preferred))recipeSelect.value=preferred;
-     if(recipeRows.length){await showRecipe();return;}
-     OAUI.set(recipeStatus,'此项目暂无音乐配方。');
-   }catch(error){if(epoch===recipeEpoch)recipeStatus.textContent=error.message;}
+     const recipes=response.presets;
+     if(!recipes.length){
+       showEmptyRecipeOption(recipeSelect,'暂无音乐配方');OAUI.set(recipeStatus,'此项目暂无音乐配方。');return;
+     }
+     recipeSelect.replaceChildren();recipeSelect.disabled=false;
+     for(const row of recipes)option(recipeSelect,row.id,row.name);
+     if(recipes.some(row=>row.id===preferred))recipeSelect.value=preferred;
+     await showRecipe();
+   }catch(error){
+     if(epoch===recipeEpoch){showEmptyRecipeOption(recipeSelect,'—');OAUI.raw(recipeStatus,error.message);}
+   }
  }
  async function showRecipe(){
    const epoch=++recipeEpoch;
@@ -382,20 +406,32 @@ function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged,musi
    }catch(error){if(epoch===recipeEpoch)recipeStatus.textContent=error.message;}
  }
  let recipePlayback=0;
- recipeToggle.onclick=async()=>{
-   if(!recipePanel.hidden){closeRecipes();return;}
+ async function openRecipes(focus=false){
+   if(kind!=='audio'||!active)return;
+   if(focus)recipeToggle.focus({preventScroll:true});
+   if(!recipePanel.hidden)return;
    recipePanel.hidden=false;recipeToggle.setAttribute('aria-expanded','true');root.classList.add('mm-recipes-open');
    const previous=recipeProject.value||byKey(selected)?.project;
-   recipeProject.replaceChildren();recipeDetail.replaceChildren();recipeSelect.replaceChildren();
+   recipeDetail.replaceChildren();OAUI.raw(recipeStatus,'');
+   showEmptyRecipeOption(recipeProject,'正在读取…');showEmptyRecipeOption(recipeSelect,'正在读取…');
+   $('musicRecipeImport').disabled=true;
    const epoch=++recipeEpoch;
    try{
      const response=await musicCall('video.director.read',{action:'projects'});
      if(epoch!==recipeEpoch)return;
-     for(const row of response.projects)option(recipeProject,row.id,row.label||row.name);
-     if(response.projects.some(row=>row.id===previous))recipeProject.value=previous;
+     if(response.projects.length){
+       recipeProject.replaceChildren();recipeProject.disabled=false;
+       for(const row of response.projects)option(recipeProject,row.id,row.label||row.name);
+       if(response.projects.some(row=>row.id===previous))recipeProject.value=previous;
+     }else showEmptyRecipeOption(recipeProject,'暂无项目');
      await loadRecipeList();
-   }catch(error){if(epoch===recipeEpoch)recipeStatus.textContent=error.message;}
- };
+   }catch(error){
+     if(epoch===recipeEpoch){
+       showEmptyRecipeOption(recipeProject,'—');showEmptyRecipeOption(recipeSelect,'—');OAUI.raw(recipeStatus,error.message);
+     }
+   }
+ }
+ recipeToggle.onclick=()=>{if(recipePanel.hidden)void openRecipes();else closeRecipes();};
  recipeProject.onchange=()=>void loadRecipeList();
  recipeSelect.onchange=()=>void showRecipe();
  $('musicRecipeImport').onclick=()=>recipeFile.click();
@@ -719,7 +755,7 @@ function OAMediaMonitor(invoke,sendChat,{sound,canAttach,attach,typeChanged,musi
  narrow.addEventListener('change',()=>{if(active)renderDetail();});
  $('monitorRefresh').onclick=()=>void refresh();
  list.onscroll=detail.onscroll=()=>{if(active&&!restoring)saveSelection();};
- return {open(target,asset=null){
+ return {openRecipes,open(target,asset=null){
    const changed=kind!==target;
    if(active&&changed&&!restoring)saveSelection();
    kind=target;filters.hidden=target!=='all';root.hidden=false;

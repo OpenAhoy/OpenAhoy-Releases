@@ -162,9 +162,14 @@ class XPlatformRouter:
         if name not in SPECS:
             value = self.inner.call(name, args)
             if name == 'wce.ui.management.overview':
+                from .own_settings_protocol import read_platform_overview
                 value = deepcopy(value)
                 value['platforms'].append(deepcopy(PLATFORM))
-                value['connections'].extend(self.x.overview())
+                rows, status = read_platform_overview(self.x.overview)
+                if rows and rows[0]['connection_id'] == 'x-unavailable':
+                    status = {'state': 'FAILED'}
+                value.setdefault('platform_reads', {})['x'] = status
+                value['connections'].extend(rows or [])
             return value
         strict_validate(args, SPECS[name])
         if name == SETUP:

@@ -20,7 +20,10 @@ def snapshot(connection_id, registry):
     with locked(registry.parent/'connections.lock',nonblocking=True,shared=True,existing=True,readonly=True):
         registered=read_registry(registry)
         path=registered['connections'].get(connection_id)
-        if path is None:raise WCEError('RULES_ACCOUNT_UNAVAILABLE')
+        if path is None:
+            from .wechat_component_binding import configuration_account
+            if configuration_account(registry,connection_id):return None
+            raise WCEError('RULES_ACCOUNT_UNAVAILABLE')
         policy=load_policy(path,active=False)
         check_member(policy,revocation=False,readonly=True)
         binding=digest({'registry':str(registry),'identity':policy.data,'owner_digest':policy.value.get('owner_digest')})

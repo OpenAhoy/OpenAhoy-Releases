@@ -81,6 +81,14 @@ def identity(connection_id, registry):
         if connection_id:
             current = read_registry(registry)
             path = current['connections'].get(connection_id)
+            if path is None:
+                from .wechat_component_binding import configuration_account
+                row = configuration_account(registry, connection_id)
+                need(row is not None, 'RULES_ACCOUNT_UNAVAILABLE')
+                binding = digest({'owner': owner_binding, 'provider': 'WECHAT_THIRD_PARTY',
+                                  'appid': row['account_id'],
+                                  'original_id': row['official_profile']['original_id']})
+                return {'owner': owner_binding, 'binding': binding}
             need(path is not None, 'RULES_ACCOUNT_UNAVAILABLE')
             policy = load_policy(path, active=False)
             need(policy.data['connection_id'] == connection_id and policy.value['schema'] == 2, 'RULES_ACCOUNT_UNAVAILABLE')

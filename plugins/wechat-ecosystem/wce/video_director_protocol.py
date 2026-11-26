@@ -9,6 +9,7 @@ from .contracts import WCEError
 from .prepared_contracts import ID, strict_validate
 from .own_contracts import SPECS as ARTICLE_SPECS
 from .tools import schema
+from .video_director_look import look_schema
 from .video_director import Director, WORK_FIELDS, canvas_state, lookup, primary_reference_index, require, work_view
 from . import video_director_delivery as delivery
 from . import character_library as characters
@@ -49,7 +50,7 @@ ORIGIN = {'type': 'string', 'enum': ['panel', 'codex']}
 CARD = schema({'id': {'type': 'string', 'pattern': '^[a-z0-9-]+$', 'maxLength': 80},
                'version': {'type': 'integer', 'minimum': 1}})
 CONFIG = schema({
-    'provider': {'type': 'string', 'enum': ['ark', 'cn', 'global', 'relay', 'tokenhex']},
+    'provider': {'type': 'string', 'enum': ['ark', 'ark_global', 'cn', 'global', 'relay', 'tokenhex', 'sand', 'vidmuse']},
     'model': {'type': 'string', 'maxLength': 160, 'minLength': 1},
     'mode': {'type': 'string', 'enum': ['text', 'first', 'last', 'frames', 'reference', 'edit', 'extend', 'subject', 'workflow']},
 }, {'duration': {'type': 'integer', 'minimum': -1, 'maximum': 30},
@@ -90,6 +91,27 @@ CANVAS_NODE = {'oneOf': [
 ]}
 
 
+WAVEFORM_WINDOW = WORK_ARG | {'sha256': HANDLE, 'start_ms': MS, 'end_ms': MS,
+                              'bins': {'type': 'integer', 'minimum': 1, 'maximum': 512}}
+TRANSCRIBE_WINDOW = WORK_ARG | {'sha256': HANDLE, 'start_ms': MS, 'end_ms': MS}
+TRANSCRIBE_OPTIONS = {'language': {'type': 'string', 'enum': ['auto', 'zh', 'en']}}
+TIMELINE_WRITE = WORK_ARG | WRITE | {'expected_timeline_version': ORDINAL}
+LEVEL = {'type': 'integer', 'minimum': 0, 'maximum': 100}
+TIMELINE_CLIP = schema({'id': PROJECT, 'delivery_id': PROJECT, 'sha256': HANDLE,
+                        'in_ms': MS, 'out_ms': MS, 'volume': LEVEL}, {'look': look_schema(MS), 'audio_detached': {'type': 'boolean', 'const': True}})
+TIMELINE_MUSIC = schema({'attempt_id': ATTEMPT, 'sha256': HANDLE, 'in_ms': MS,
+                         'start_ms': MS, 'volume': LEVEL}, {'out_ms': MS})
+
+DETACHED_AUDIO = schema({'id': PROJECT, 'clip_id': PROJECT, 'delivery_id': PROJECT, 'sha256': HANDLE,
+                         'start_ms': MS, 'in_ms': MS, 'out_ms': MS, 'volume': LEVEL})
+
+STUDIO_ID = {'type': 'string', 'minLength': 1, 'maxLength': 128}
+STUDIO_SELECTION = schema({'song': STUDIO_ID, 'version': STUDIO_ID, 'revision': ORDINAL, 'identity': HANDLE,
+                     'audible': {'type': 'array', 'maxItems': 256, 'uniqueItems': True, 'items': STUDIO_ID}},
+                    {'window_sha256': HANDLE, 'source_audio': {'type': 'boolean'}})
+STUDIO_MIX = {'oneOf': [STUDIO_SELECTION, schema({'mode': {'type':'string', 'const':'picture_only'}}, {'source_audio': {'type': 'boolean'}})]}
+
+
 SPECS = {
     READ: {'oneOf': [
         action('projects', {}),
@@ -102,6 +124,13 @@ SPECS = {
         action('article_catalog', {}, PROJECT_ARG | {'excerpt': {'type': 'boolean'}}),
         action('context', TARGET),
         action('deliveries', WORK_ARG),
+        action('timeline_revision', WORK_ARG),
+        action('timeline', WORK_ARG, {'export_version': ORDINAL}),
+        action('timeline_transcribe', TRANSCRIBE_WINDOW | {'delivery_id': PROJECT}, TRANSCRIBE_OPTIONS),
+        action('timeline_transcribe', TRANSCRIBE_WINDOW | {'attempt_id': ATTEMPT}, TRANSCRIBE_OPTIONS),
+        action('timeline_waveform', WAVEFORM_WINDOW | {'delivery_id': PROJECT}),
+        action('timeline_waveform', WAVEFORM_WINDOW | {'attempt_id': ATTEMPT}),
+        action('timeline_export_status', WORK_ARG | {'expected_timeline_version': ORDINAL}, {'studio_mix': STUDIO_MIX}),
         action('preflight', TARGET),
         action('models', {}, {'refresh_tokenhex': {'type': 'boolean'}}),
         action('cards', {}, {'card_id': CARD['properties']['id']}),
@@ -125,6 +154,13 @@ SPECS = {
         action('register_work_video', WORK_ARG | WRITE | {'file': FILE, 'title': TITLE}),
         action('adopt_video', SHOT_ARG | WRITE | {'candidate_id': PROJECT, 'sha256': HANDLE},
                {'expected_candidate_id': PROJECT}),
+        action('create_clip_variant', WORK_ARG | WRITE | {
+            'delivery_id': PROJECT, 'sha256': HANDLE, 'in_ms': MS, 'out_ms': MS,
+            'mode': {'type': 'string', 'enum': ['slow', 'fast', 'reverse', 'freeze', 'denoise', 'voice', 'normalize']}}),
+        action('timeline_save', TIMELINE_WRITE | {
+            'clips': {'type': 'array', 'maxItems': 256, 'items': TIMELINE_CLIP}},
+               {'music': TIMELINE_MUSIC, 'detached_audio': {'type': 'array', 'maxItems': 256, 'items': DETACHED_AUDIO}}),
+        action('timeline_export', TIMELINE_WRITE | {'title': TITLE}, {'retry': {'type': 'boolean'}, 'studio_mix': STUDIO_MIX}),
         action('canvas_view', CANVAS_WRITE | {'viewport': VIEWPORT}),
         action('canvas_add', CANVAS_WRITE | {'node': CANVAS_NODE, 'position': POSITION}),
         action('canvas_note_edit', CANVAS_WRITE | {'node_id': PROJECT, 'title': TITLE, 'text': TEXT}),
@@ -156,6 +192,7 @@ SPECS = {
         action('character_layer', PROJECT_ARG | characters.SELECTOR | {'sha256': HANDLE, 'offset': ORDINAL}),
         action('work_video_chunk', WORK_ARG | {'delivery_id': PROJECT, 'offset': MS}),
         action('canvas_video_chunk', WORK_ARG | {'delivery_id': PROJECT, 'sha256': HANDLE, 'offset': MS}),
+        action('canvas_video_frame', WORK_ARG | {'delivery_id': PROJECT, 'sha256': HANDLE, 'time_us': MS}),
         action('canvas_video_frames', WORK_ARG | {'delivery_id': PROJECT, 'sha256': HANDLE, 'start': FRAME_INDEX}),
         action('import_image_chunk', WORK_ARG | {
             'sha256': HANDLE, 'offset': {'type': 'integer', 'minimum': 0, 'maximum': FRAME_LIMIT-1},
@@ -173,8 +210,8 @@ SPECS = {
     ]},
 }
 DESCRIPTIONS = {
-    READ: 'Read account-scoped WeChat article works, their original draft/publish status, project storyboards, one exact shot revision, shared model/channel options, original-work delivery status, local preflight, built-in video-director cards, a work_request by its original operation_id, or registered character reference versions. Refresh Token Hex only when explicitly requested. Preflight only validates local input and encoding; no generation.',
-    EDIT: 'Create or revise a storyboard in a registered local project. The original own.documents.prepare HTML route automatically registers each article under its containing project. Use register_article with exact connection, bundle, version and article ID to recover a missing association. For chat starts use start_work with the original operation_id and both the current chat’s verified project_root and its matched project_id. Pass either an exact existing work_id or fields for a new work. First read work_request to recover any earlier result. Manage canvas layout, exact shot generation bindings and work-level local MP4 delivery. Character_import records a verified project-local JSON index. Character_set_current changes one role pointer using the observed version. Character_set_primary pins the visible identity reference for one form. A storyboard use pins the character, form and selected asset version; special references depend on the work. Adopt_video selects an exact verified take for one shot without changing its storyboard revision. Read deliveries for candidate IDs and the current adoption. Poll_delivery may query the original provider and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Use project-relative files with project_id and SHA-256.',
+    READ: 'Poll timeline_export_status with the original work and expected_timeline_version to recover a local render. Read timeline for the saved edit version, ordered clips and eligible project songs/video sources; pass export_version to recover the exact cut behind an earlier export. Read account-scoped WeChat article works, their original draft/publish status, project storyboards, one exact shot revision, shared model/channel options, original-work delivery status, local preflight, built-in video-director cards, a work_request by its original operation_id, or registered character reference versions. Refresh Token Hex only when explicitly requested. Preflight only validates local input and encoding; no generation.',
+    EDIT: 'Edit a registered work using timeline_save (ordered, non-destructive source ranges in milliseconds, volume 0..100, optional backing song and detached_audio regions; each region has a timeline start_ms and independent source in_ms/out_ms/volume. Its original clip keeps audio_detached=true after removing the region. Pass an explicit array to edit detached audio; omitting it preserves earlier regions and flags) or timeline_export (start one local background MP4 render for the saved work/version; recover with timeline_export_status; retry:true only after a confirmed failure/interruption on explicit request). Use timeline_version from read as expected_timeline_version. Create or revise a storyboard in a registered local project. The original own.documents.prepare HTML route automatically registers each article under its containing project. Use register_article with exact connection, bundle, version and article ID to recover a missing association. For chat starts use start_work with the original operation_id and both the current chat’s verified project_root and its matched project_id. Pass either an exact existing work_id or fields for a new work. First read work_request to recover any earlier result. Manage canvas layout, exact shot generation bindings and work-level local MP4 delivery. Character_import records a verified project-local JSON index. Character_set_current changes one role pointer using the observed version. Character_set_primary pins the visible identity reference for one form. A storyboard use pins the character, form and selected asset version; special references depend on the work. Adopt_video selects an exact verified take for one shot without changing its storyboard revision. Read deliveries for candidate IDs and the current adoption. Poll_delivery may query the original provider and save its result. Other actions are local. No action submits generation. Use a fresh operation_id, and for revise give the exact current base_revision. Set origin=codex for chat changes. Use project-relative files with project_id and SHA-256.',
     SUBMIT: 'Submit one expressly authorized billable video from the exact saved shot revision. Inputs and provider come from that immutable revision. Use the original project and attempt with video.ark.generation.status after any ambiguous result. The exact original attempt is linked to the Jiusera canvas before submission.',
     MEDIA: 'App-only local image import and verified storyboard image, whitebox or completed clip previews.',
 }
@@ -192,6 +229,8 @@ class DirectorRouter:
         self.director = Director(self.jobs.projects)
         self.characters = characters.CharacterLibrary(self.director)
         self.stage = stage_assets.StageLibrary(self.director)
+        from .video_vidmuse_panel import VidMusePanel
+        self.vidmuse_panel = VidMusePanel(self)
         self.trial = asset_trial.AssetTrial(self)
         self.registry = self.director.projects.registry
 
@@ -223,13 +262,16 @@ class DirectorRouter:
                              'annotations': {'readOnlyHint': False, 'destructiveHint': False,
                                              'idempotentHint': True, 'openWorldHint': False}})
         descriptions.append({'name': source_library.TOOL, 'title': 'Project source library',
-                             'description': 'List/add/edit reusable public information sources in a registered project, and record/read the original article references used for a topic or draft. Record entrances only when verified as reusable. Never fetch or publish URLs.',
+                             'description': 'Manage project or WeChat account sources; edit requires name. Record article references with optional strict account validation. Start/read/check a time-window scan of public feeds or articles; resume failed sources by original scan ID. No publication.',
                              'inputSchema': deepcopy(source_library.SPEC),
                              'annotations': {'readOnlyHint': False, 'destructiveHint': False,
-                                             'idempotentHint': True, 'openWorldHint': False}})
+                                             'idempotentHint': False, 'openWorldHint': True}})
+        descriptions.append(self.vidmuse_panel.tool())
         return self.inner.list_tools() + descriptions
 
     def call(self, name, args):
+        if name == self.vidmuse_panel.TOOL:
+            return self.vidmuse_panel.run(args)
         if name == source_library.TOOL:
             return source_library.SourceLibrary(self).run(args)
         if name == music_presets.TOOL:
@@ -247,7 +289,7 @@ class DirectorRouter:
             row = submit(self, args)
             return {key: val for key, val in row.items()
                     if key not in {'recipe', 'project_video_root', 'project_video_copy',
-                                   'relay_connection', 'tokenhex_connection'}}
+                                   'relay_connection', 'tokenhex_connection', 'sand_poll_after', 'sand_poll_delay', 'vidmuse_account'}}
         command = args['action']
         if command in {'article_work', 'article_image', 'article_catalog', 'register_article'}:
             from . import article_work
@@ -290,6 +332,14 @@ class DirectorRouter:
             return self.director.request(args['operation_id'])
         if command == 'start_work':
             return self.director.start_work(args, partial(validate_revision, self.jobs))
+        if command == 'create_clip_variant':
+            from . import video_director_clip_variant
+            return video_director_clip_variant.create(self.director, self.jobs, args)
+        if command in ('timeline_export', 'timeline_export_status'):
+            from . import video_director_export
+            if command == 'timeline_export':
+                return video_director_export.start(self.director, args)
+            return video_director_export.status(self.director, args)
         if name == EDIT and command != 'poll_delivery':
             return self.director.edit(args, partial(validate_revision, self.jobs), self.verify_canvas_node, self.jobs)
         if command == 'projects':
@@ -323,6 +373,22 @@ class DirectorRouter:
                 if work_id == inbox or result['work'] is None:
                     result['work'] = work_view(WORK_FIELDS | item | {'scenes': {}, 'focus': None})
             return result
+        if command == 'timeline_transcribe':
+            from . import video_director_transcribe
+            return video_director_transcribe.read(self.director, self.jobs, args)
+        if command == 'timeline_waveform':
+            from . import video_director_waveform
+            return video_director_waveform.read(self.director, self.jobs, args)
+        if command in {'timeline', 'timeline_revision'}:
+            from . import video_director_export, video_director_timeline
+            root, state, work = video_director_export.load_work(self.director, args)
+            if command == 'timeline_revision':
+                return {'project_id': args['project_id'], 'work_id': work['id'], 'version': state['version'],
+                        'timeline_version': video_director_timeline.saved(work)['timeline_version']}
+            result = video_director_timeline.read(self.jobs, root, args['project_id'], work, args.get('export_version'))
+            export_state = video_director_export.from_state(root, state, work, result['timeline_version'])
+            result['export_job'] = None if export_state['state'] == 'NOT_FOUND' else export_state
+            return result
         if command == 'cards':
             catalog = prompt_cards()
             if 'card_id' not in args:
@@ -342,13 +408,13 @@ class DirectorRouter:
                 return import_image_chunk(self.director, args)
             except OSError:
                 raise WCEError('DIRECTOR_IMAGE_IMPORT_UNAVAILABLE') from None
-        if command in ('deliveries', 'poll_delivery', 'work_video_chunk', 'canvas_video_chunk', 'canvas_video_frames'):
+        if command in ('deliveries', 'poll_delivery', 'work_video_chunk', 'canvas_video_chunk', 'canvas_video_frame', 'canvas_video_frames'):
             project = args['project_id']
             root, pin = self.director.project(project)
             state = self.director.load(project, self.director.storage(root, pin))
             if args['work_id'] == delivery.inbox_id(project):
                 rows = delivery.inbox_rows(self.jobs, project, pin, state['works'])
-                if command in ('canvas_video_chunk', 'canvas_video_frames'):
+                if command in ('canvas_video_chunk', 'canvas_video_frame', 'canvas_video_frames'):
                     return delivery.inbox_playback(rows, self.jobs, args)
                 require(command == 'deliveries', 'DIRECTOR_WORK_NOT_FOUND')
                 return {'project_id': project, 'work_id': args['work_id'], 'version': state['version'],
@@ -356,7 +422,7 @@ class DirectorRouter:
             work = lookup(state['works'], args['work_id'], 'DIRECTOR_WORK_NOT_FOUND')
             if command == 'work_video_chunk':
                 return delivery.chunk(root, work, args)
-            if command in ('canvas_video_chunk', 'canvas_video_frames'):
+            if command in ('canvas_video_chunk', 'canvas_video_frame', 'canvas_video_frames'):
                 return delivery.playback(self.jobs, root, work, args)
             return {'project_id': project, 'work_id': work['id'], 'version': state['version'],
                     'cards': delivery.collect(self.jobs, root, project, work, poll_attempt=args.get('attempt_id'))}

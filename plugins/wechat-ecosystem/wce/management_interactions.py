@@ -11,14 +11,16 @@ body.oa-management.oa-native {
   transition: background-color 120ms ease, box-shadow 100ms ease, color 120ms ease;
 }
 @media (hover:hover) and (pointer:fine) {
-  .oa-management.oa-native :is(button,summary,.account[role=option]):hover:not(:disabled):not([aria-disabled=true]) {
+  .oa-management.oa-native
+    :is(button,summary,.account[role=option]):not(:where(.wb-dock [data-wb-disclosure] button)):hover:not(:disabled):not([aria-disabled=true]) {
     box-shadow: inset 0 0 0 1px var(--oa-hover-ring);
   }
   .oa-management.oa-native :is(#accounts .account[role=option]:not(.is-selected), #mediaMonitor .mm-row:not([aria-current=true])):hover {
     background: var(--oa-fill,var(--soft));
   }
 }
-.oa-management.oa-native :is(button, summary, .account[role=option]):active:not(:disabled):not([aria-disabled=true]) {
+.oa-management.oa-native
+  :is(button,summary,.account[role=option]):not(:where(.wb-dock [data-wb-disclosure] button)):active:not(:disabled):not([aria-disabled=true]) {
   translate: none;
   box-shadow: inset 0 1px 3px var(--oa-pressed-ring);
 }

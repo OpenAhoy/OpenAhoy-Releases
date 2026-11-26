@@ -7,6 +7,7 @@ import secrets
 
 from .contracts import Secret, WCEError
 from .own_keychain import valid_secret
+from .video_keychain import configured_item, masked_credential, read_for_display
 from .video_relay import relay_origin
 from .x_keychain import XKeychain
 
@@ -17,8 +18,7 @@ class RelayKeychain(XKeychain):
     scope = sha256(service.encode()).hexdigest()
 
 
-def _read(backend, scope):
-    stored = backend.load(scope)
+def _decode(stored):
     if stored is None:
         return None
     row = json.loads(stored.reveal_for_adapter())
@@ -27,6 +27,10 @@ def _read(backend, scope):
     if not valid_secret(token) or not re.fullmatch(r'[a-f0-9]{64}', identity_key):
         raise ValueError()
     return origin, token, identity_key
+
+
+def _read(backend, scope):
+    return _decode(backend.load(scope))
 
 
 def load_relay(backend=None, *, keychain=RelayKeychain):
@@ -41,11 +45,17 @@ def load_relay(backend=None, *, keychain=RelayKeychain):
         raise WCEError('VIDEO_RELAY_KEYCHAIN_ACCESS_REQUIRED') from None
 
 
-def relay_status(backend=None, *, keychain=RelayKeychain):
+def relay_status(backend=None, *, keychain=RelayKeychain, show_mask=False):
     try:
-        current = _read(backend if backend is not None else keychain(), keychain.scope)
-        return {'state': 'NOT_CONFIGURED'} if current is None else {
-            'state': 'CONFIGURED', 'base_url': current[0]}
+        backend = backend if backend is not None else keychain()
+        if show_mask:
+            state, stored = read_for_display(backend, keychain.scope, lambda: configured_item(backend, keychain.scope))
+            current = _decode(stored)
+            if current is None:
+                return {'state': state}
+            return {'state': state, 'base_url': current[0], 'credential_mask': masked_credential(current[1])}
+        current = _read(backend, keychain.scope)
+        return {'state': 'NOT_CONFIGURED'} if current is None else {'state': 'CONFIGURED', 'base_url': current[0]}
     except Exception:
         return {'state': 'ACTION_REQUIRED'}
 

@@ -143,7 +143,7 @@ function OADirectorCanvas(commit, select, show, picture, engineName, playVideo, 
  const clamp=(value,low,high)=>Math.max(low,Math.min(high,value));
  const minZoom=10;
  const point=value=>clamp(Math.round(value),-1000000,1000000);
- const stateText=row=>states[row.state]||states.UNKNOWN;
+ const stateText=row=>row.status_hint||states[row.state]||states.UNKNOWN;
  const previewStore=key=>'OpenAhoy.director.candidates.'+key;
  function transform(){
    plane.style.transform='translate('+view.x+'px,'+view.y+'px) scale('+(view.scale/100)+')';
@@ -444,7 +444,7 @@ function OADirectorCanvas(commit, select, show, picture, engineName, playVideo, 
    card.element.dataset.deliveryState=active.state;
    card.element.dataset.candidateId=active.id;
    const asset=active.asset||active;
-   const mediaKey=JSON.stringify([active.id,active.state,asset.sha256]);
+   const mediaKey=JSON.stringify([active.id,active.state,active.status_hint,asset.sha256]);
    if(card.mediaKey===mediaKey)return;
    card.mediaKey=mediaKey;card.player?.close();card.player=null;slot.replaceChildren();
    if(active.state==='ASSET_READY')card.player=playVideo(slot,active);
@@ -610,7 +610,9 @@ function OADirectorCanvas(commit, select, show, picture, engineName, playVideo, 
    const worldY=top+((event.clientY-r.top)*map.height/r.height-y)/unit;
    setView({x:viewport.clientWidth/2-worldX*view.scale/100,y:viewport.clientHeight/2-worldY*view.scale/100,scale:view.scale});
  };
- new ResizeObserver(drawMap).observe(viewport);
+ function redrawVisibleGeometry(){if(viewport.getClientRects().length)drawGeometry();}
+ new ResizeObserver(redrawVisibleGeometry).observe(viewport);
+ new MutationObserver(redrawVisibleGeometry).observe(document.body,{attributes:true,attributeFilter:['data-color-scheme']});
  retry.onclick=()=>void persistView();
  actions.remove.onclick=()=>{if(work?.canvas.nodes[selected]){flush();void queue('canvas_remove',{node_id:selected});}};
  return {render,flush,focusShot(shot){

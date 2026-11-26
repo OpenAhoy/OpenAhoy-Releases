@@ -1,7 +1,7 @@
 """Account-scoped analytics in the main WeChat workspace."""
 
 HTML = """
-<section id="wechatAnalytics" aria-labelledby="wechatMonitorTab" aria-describedby="wxStatsAccount" hidden>
+<section id="wechatAnalytics" aria-label="公众号数据监控" aria-describedby="wxStatsAccount" hidden>
  <header class="wx-stats-header">
   <div class="wx-stats-context"><span id="wxStatsAccount" class="wx-visually-hidden"></span><p id="wxStatsMeta"></p></div>
   <div class="wx-stats-controls">

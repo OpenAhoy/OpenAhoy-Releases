@@ -1,0 +1,196 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "openahoy.production-preferences"
+    },
+    "schema_version": {
+      "const": 2
+    },
+    "platform": {
+      "const": "wechat_official_account"
+    },
+    "account_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "account_ref": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "store_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "scope_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "global_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "store_revision",
+        "scope_revision",
+        "global_revision"
+      ]
+    },
+    "fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "audience_topics": {
+          "$ref": "#/$defs/field"
+        },
+        "author": {
+          "$ref": "#/$defs/field"
+        },
+        "voice": {
+          "$ref": "#/$defs/field"
+        },
+        "image_preferences": {
+          "$ref": "#/$defs/field"
+        },
+        "visual_layout": {
+          "$ref": "#/$defs/field"
+        },
+        "content_qa": {
+          "$ref": "#/$defs/field"
+        },
+        "delivery_publication": {
+          "$ref": "#/$defs/field"
+        },
+        "additional_notes": {
+          "$ref": "#/$defs/field"
+        }
+      },
+      "required": [
+        "audience_topics",
+        "author",
+        "voice",
+        "image_preferences",
+        "visual_layout",
+        "content_qa",
+        "delivery_publication",
+        "additional_notes"
+      ]
+    },
+    "project": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            },
+            "source_digest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "skills": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "id",
+                  "sha256"
+                ]
+              }
+            }
+          },
+          "required": [
+            "id",
+            "source_digest",
+            "skills"
+          ]
+        }
+      ]
+    },
+    "templates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+          },
+          "manifest_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "manifest_sha256"
+        ]
+      }
+    }
+  },
+  "required": [
+    "format",
+    "schema_version",
+    "platform",
+    "account_name",
+    "account_ref",
+    "source",
+    "fields",
+    "project",
+    "templates"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Jiusera WeChat account preferences v2",
+  "$defs": {
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "inherit",
+            "override"
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "text"
+      ]
+    }
+  }
+}

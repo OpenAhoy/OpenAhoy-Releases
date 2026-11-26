@@ -86,7 +86,12 @@ class XHSRouter:
         if name not in SPECS:
             result=self.inner.call(name,args)
             if name=='wce.ui.management.overview':
-                result=deepcopy(result);result['platforms'].append(deepcopy(PLATFORM));result['connections'].extend(self.xhs.overview())
+                from .own_settings_protocol import read_platform_overview
+                result=deepcopy(result)
+                result['platforms'].append(deepcopy(PLATFORM))
+                rows,status=read_platform_overview(self.xhs.overview)
+                result.setdefault('platform_reads', {})['xiaohongshu']=status
+                result['connections'].extend(rows or [])
             return result
         validate(args,SPECS[name])
         if name==UI:return self.xhs.ui(args['operation'],args.get('connection_id'),args.get('binding_id'))

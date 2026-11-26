@@ -20,7 +20,9 @@ window.OASupport={mount(rpc){
  const $=id=>document.getElementById(id),box=$('oaSupportDialog'),links=document.createElement('section');links.className='oa-support-links';ui.attr(links,'aria-label','帮助与反馈');
  let ready=false,busy=false,mode='feedback',report=null,exportPending=false,pendingRows=[],openLinks=false,toast=null,toastTimer=null;
  function submittedNotice(){if(toastTimer)clearTimeout(toastTimer);if(!toast){toast=document.createElement('div');toast.className='oa-support-toast';toast.setAttribute('role','status');document.body.append(toast);}ui.set(toast,'反馈已提交，诊断信息已自动附上。');toast.hidden=false;toastTimer=setTimeout(()=>{toast.hidden=true;toastTimer=null;},5000);}
- const feedback=document.createElement('button'),diagnostics=document.createElement('button');ui.set(feedback,'反馈问题');ui.set(diagnostics,'诊断日志');links.append(feedback,diagnostics);(document.getElementById('wbSupportSlot')||document.querySelector('.oa-sidebar')).append(links);
+ const feedback=document.createElement('button'),diagnostics=document.createElement('button');
+ feedback.className='wb-setting-feedback wb-setting-action';diagnostics.className='wb-setting-log wb-setting-action';
+ ui.set(feedback,'反馈问题');ui.set(diagnostics,'诊断日志');links.append(feedback,diagnostics);(document.getElementById('wbSupportSlot')||document.querySelector('.oa-sidebar')).append(links);
  const say=(key,...values)=>ui.set($('oaSupportStatus'),key,...values);
  const scope=()=>{const id=document.querySelector('#platformNavigation [aria-current="page"]')?.dataset.platformId;return id==='x'?'x':id==='wechat_official_account'?'wechat':'general';};
  function buttons(){feedback.disabled=diagnostics.disabled=!ready;for(const id of ['oaSupportQuery','oaSupportCopy','oaSupportExport','oaSupportNew'])$(id).disabled=busy;$('oaSupportSend').hidden=mode!=='feedback';$('oaSupportSend').disabled=busy||!!report&&report.state!=='PREPARED';}

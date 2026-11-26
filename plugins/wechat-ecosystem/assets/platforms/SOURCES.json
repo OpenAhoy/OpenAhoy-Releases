@@ -36,6 +36,63 @@
       "resolved": "https://www.xiaohongshu.com/favicon.ico",
       "verified_at": "2026-11-13",
       "extraction": "Exact official favicon bytes, no edits"
+    },
+    "douyin.ico": {
+      "sha256": "e67348e3ab54fa207e1ce4be78e8399d1b73a794d819a17d8656ea2b17a1109d",
+      "page": "https://www.douyin.com/",
+      "source": "https://www.douyin.com/favicon.ico",
+      "extraction": "Exact official favicon, transparent canvas",
+      "verified_at": "2026-11-23"
+    },
+    "bilibili.ico": {
+      "sha256": "2681561eb24e7435fea1acf26f3af95e4efc9f7d451587b58bef62f030f337e9",
+      "page": "https://open.bilibili.com/doc/",
+      "source": "https://www.bilibili.com/favicon.ico",
+      "extraction": "Exact favicon linked in official Open Platform page, transparent canvas",
+      "verified_at": "2026-11-23"
+    },
+    "instagram.png": {
+      "sha256": "d31ce478c9729130303a3537a43906bc8164debf5546f7ad4d1beed9d9b2c630",
+      "page": "https://www.instagram.com/",
+      "source": "https://static.cdninstagram.com/rsrc.php/y4/r/QaBlI0OZiks.ico",
+      "extraction": "Exact PNG bytes linked as favicon by official Instagram site, transparent canvas",
+      "verified_at": "2026-11-23"
+    },
+    "tiktok.png": {
+      "sha256": "a21b43e31bb9def6d01c8c433a577353ae3efc8003a6257e8f3db3fd2dc94e61",
+      "page": "https://developers.tiktok.com/docs/en/getting-started-design-guidelines",
+      "source": "https://sf16-va.tiktokcdn.com/obj/eden-va2/uvzhqeh7nuhd/tt4d/logo-pack.zip",
+      "extraction": "Exact TikTok_Icon_Black_Circle.png from official developer pack, transparent outside brand lockup",
+      "verified_at": "2026-11-23"
+    },
+    "tiktok-wordmark-black.png": {
+      "sha256": "53fe7f72eaeedb58aa8364c7b761f3e3386abb076d511c0c87b304cdbe4ac437",
+      "page": "https://developers.tiktok.com/docs/en/getting-started-design-guidelines",
+      "source": "https://sf16-va.tiktokcdn.com/obj/eden-va2/uvzhqeh7nuhd/tt4d/logo-pack.zip",
+      "extraction": "Official TikTok-logo-RGB-Horizontal-black-simplified.png, transparent outer padding cropped and resized proportionally to display resolution; untouched logo design",
+      "verified_at": "2026-11-23"
+    },
+    "tiktok-wordmark-white.png": {
+      "sha256": "a9f9ef74f510b77b4ae13656f1cebd985b1c6683b97cdf9a027247d8679f1af2",
+      "page": "https://developers.tiktok.com/docs/en/getting-started-design-guidelines",
+      "source": "https://sf16-va.tiktokcdn.com/obj/eden-va2/uvzhqeh7nuhd/tt4d/logo-pack.zip",
+      "extraction": "Official TikTok-logo-RGB-Horizontal-white-simplified.png, transparent outer padding cropped and resized proportionally to display resolution; untouched logo design",
+      "verified_at": "2026-11-23"
+    },
+    "xiaohongshu-app-icon.png": {
+      "sha256": "801f03e1f906aef6838cc927ef2a49fee859cf98b76e7ecab169f47eb0427c8d",
+      "page": "https://apps.apple.com/cn/app/id741292507",
+      "source": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/69/c3/c8/69c3c8f3-5b08-09fc-2f8b-a9fe28d47063/AppIcon-0-0-1x_U007epad-0-11-0-85-220.png/256x256bb.png",
+      "extraction": "Publisher App Store artwork in exact 256px PNG rendition. Square color field is part of the mark; board rounds only its corners.",
+      "verified_at": "2026-11-23"
+    },
+    "bilibili-tv.svg": {
+      "sha256": "b765d3899f1d4ffa4b9be5fb6f4ef41b3d9c5e6905f174c29e92b43409483d24",
+      "page": "https://github.com/simple-icons/simple-icons/blob/develop/icons/bilibili.svg",
+      "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/bilibili.svg",
+      "source_sha256": "0b31005ccf765a9d37be2c42f1d36e44572ccadb088250626d9905ae5d4f3d21",
+      "extraction": "Simple Icons transparent vector TV silhouette. Exact path, with the catalog brand fill #00A1D6.",
+      "verified_at": "2026-11-23"
     }
   },
   "display": "contain; symmetric 5px padding in 30px tile; no invented official numeric minimum/clear-space rule; host light/dark chooses matching official X variant, no global theme/layout redesign"

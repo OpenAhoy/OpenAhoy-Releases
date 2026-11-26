@@ -175,7 +175,9 @@ SPECS = {
         action('begin_tokenhex', {}),
         action('tokenhex_select', ARK_MODEL),
         action('begin_relay', {'base_url': {'type': 'string', 'minLength': 1, 'maxLength': 512}}),
-        action('status', {'provider': {'type': 'string', 'enum': [*KEY_PROVIDERS, 'relay', TOKENHEX_PROVIDER]}}),
+        action('status_all', {}),
+        action('status', {'provider': {'type': 'string', 'enum': [*KEY_PROVIDERS, 'relay', TOKENHEX_PROVIDER]}},
+               {'show_mask': {'type': 'boolean'}}),
         schema({'action': {'type': 'string', 'const': 'submit'}, 'session': HANDLE,
                 'jwe': {'type': 'string', 'minLength': 1, 'maxLength': 16384,
                         'pattern': r'^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){4}$'}}),
@@ -215,9 +217,20 @@ DESCRIPTIONS = {
     CREDENTIAL: 'App-only local video and OpenAI GIF Key configuration. Accepts only a one-use encrypted envelope, never a plaintext Key.',
     WORKSPACE: 'App-only project video history, previews, library and export. Supports legacy panel requests.',
     SUBMIT: 'Submit one authorized billable Seedance task. Supply either first_frame and last_frame or, for Seedance 2.5, 1–30 ordered reference_images. Each image needs a project-local original PNG/JPEG path and SHA-256 hash. Default: Seedance 2.5, 5 seconds. Seedance 2.5 accepts 4–30 seconds or -1 for Auto. For explicit mode, resolution or audio use configuration with mode, paths (ordered project-relative PNG/JPEG), duration, resolution and audio. Seedance 2.5 also supports text, edit and extend; edit/extend require the original source_attempt_id and source_sha256 in the same project. Reuse the original generation_attempt_id and identical inputs. Never submit a replacement after SUBMIT_UNKNOWN.',
-    STATUS: 'Read the original video receipt (Ark, MiniMax or video relay). With poll=true, query only the original provider task and save its verified MP4 if ready.',
+    STATUS: 'Read the original video receipt, including Sand AI MAGI-2. With poll=true, query only the original provider task and save its verified MP4 if ready.',
     H3_SUBMIT: 'Submit one authorized billable MiniMax video generation. H3 uses V2; Hailuo/T2V/I2V use V1. Select the site matching the configured Key. For S2V-01 use mode=subject and a public HTTPS subject_image_url for one character. No paths, duration, resolution or ratio are sent for S2V. For the other modes use project-relative PNG/JPEG paths and model-appropriate duration, resolution and ratio. Poll the original attempt with video.ark.generation.status.',
 }
+
+
+def credential_status(provider, *, show_mask=False):
+    options = {'show_mask': True} if show_mask else {}
+    if provider == GIF_PROVIDER:
+        return gif_status(**options)
+    if provider == TOKENHEX_PROVIDER:
+        return tokenhex_status(**options)
+    if provider == 'relay':
+        return relay_status(**options)
+    return status(provider=provider, **options)
 
 
 class VideoRouter:
@@ -331,12 +344,11 @@ class VideoRouter:
             return self.video_jobs.tokenhex_check()
         if name == CREDENTIAL:
             action = arguments['action']
+            if action == 'status_all':
+                return {'providers': {provider: credential_status(provider, show_mask=True)
+                                      for provider in (*KEY_PROVIDERS, 'relay', TOKENHEX_PROVIDER)}}
             if action == 'status':
-                if arguments['provider'] == GIF_PROVIDER:
-                    return gif_status()
-                if arguments['provider'] == TOKENHEX_PROVIDER:
-                    return tokenhex_status()
-                return relay_status() if arguments['provider'] == 'relay' else status(provider=arguments['provider'])
+                return credential_status(arguments['provider'], show_mask=arguments.get('show_mask', False))
             if action == 'tokenhex_select':
                 return self.video_jobs.tokenhex_select(arguments['model'])
             if action == 'begin_tokenhex':
@@ -380,7 +392,8 @@ class VideoRouter:
         else:
             row = self.video_jobs.status(attempt, project, arguments.get('poll', False))
         return {key: value for key, value in row.items()
-                if key not in {'recipe', 'project_video_root', 'project_video_copy', 'relay_connection', 'tokenhex_connection'}}
+                if key not in {'recipe', 'project_video_root', 'project_video_copy', 'relay_connection', 'tokenhex_connection',
+                               'sand_poll_after', 'sand_poll_delay', 'vidmuse_account'}}
 
     def workspace(self, arguments):
         job = self.video_jobs

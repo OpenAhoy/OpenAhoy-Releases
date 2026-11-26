@@ -3,13 +3,15 @@ from urllib.parse import parse_qsl
 
 from .contracts import WCEError
 from . import video_autodl_catalog as autodl
+from . import video_sand as sand
+from . import video_vidmuse as vidmuse
 from .project_context import text as project_text
 from .video_minimax import H3_MODES, H3_MODELS, RATIOS, SITES, SUBJECT_MODEL, V1_MODELS
 from .video_relay import RELAY_MODEL, RESOLUTIONS, https_url
-from .video_seedance import ARK_MODELS, ARK_RATIOS, MAX_REFERENCE_IMAGES
+from .video_seedance import ARK_MODELS, ARK_RATIOS, BYTEPLUS_MODELS, BYTEPLUS_PROVIDER, MAX_REFERENCE_IMAGES
 
-CHANNELS = {'ark': '火山方舟', 'cn': 'MiniMax 中国站', 'global': 'MiniMax 国际站',
-            'relay': 'AutoDL', 'tokenhex': 'Token Hex'}
+CHANNELS = {'ark': '火山方舟', BYTEPLUS_PROVIDER: '方舟国际站 · BytePlus ModelArk', 'cn': 'MiniMax 中国站', 'global': 'MiniMax 国际站',
+            'relay': 'AutoDL', 'tokenhex': 'Token Hex', sand.PROVIDER: 'Sand AI', vidmuse.PROVIDER:'VidMuse'}
 HEX_MODES = ('text', 'frames', 'reference')
 LOCAL_ROLES = {'first': ('first',), 'last': ('last',), 'frames': ('first', 'last')}
 REFERENCE = ('subject', 'environment', 'reference')
@@ -43,17 +45,29 @@ def params(sizes, durations, ratios, **inputs):
 
 
 def mode_profiles(provider, model):
-    if provider in ('ark', 'tokenhex') and model in ARK_MODELS:
-        modes, minimum, maximum, sizes, audio = ARK_MODELS[model]
+    if provider == vidmuse.PROVIDER and model == vidmuse.MODEL:
+        # Only bounds for saved local drafts; the user-facing execution options are from the connected catalog.
+        return {mode:params(('1080p',),lambda _size: vidmuse.DURATIONS,vidmuse.RATIOS,mode=mode,
+                            audio=True,reference_count=vidmuse.REFERENCE_LIMIT if mode=='reference' else 0)
+                for mode in ('text','reference')}
+    if provider == sand.PROVIDER and model == sand.MODEL:
+        return {mode: params((sand.RESOLUTION,), lambda _size: sand.DURATIONS, sand.RATIOS,
+                             mode=mode, audio=True,
+                             reference_count=sand.MAX_REFERENCES if mode == 'reference' else 0)
+                for mode in ('text', 'reference')}
+    international = provider == BYTEPLUS_PROVIDER
+    ark_models = BYTEPLUS_MODELS if international else ARK_MODELS
+    if provider in ('ark', 'tokenhex', BYTEPLUS_PROVIDER) and model in ark_models:
+        modes, minimum, maximum, sizes, audio = ark_models[model]
         if provider == 'tokenhex':
             modes = tuple(mode for mode in modes if mode in HEX_MODES)
-        ratios = ('adaptive', *ARK_RATIOS) if provider == 'ark' else ('adaptive',)
+        ratios = ('adaptive', *ARK_RATIOS) if provider != 'tokenhex' else ('adaptive',)
         def durations(mode):
             if mode == 'edit':
                 return (-1,)
             return (*range(minimum, maximum+1), *((-1,) if audio else ()))
         return {mode: params(sizes, lambda _size: durations(mode), ratios, mode=mode, audio=audio,
-                             reference_count=MAX_REFERENCE_IMAGES if mode == 'reference' else 0)
+                             reference_count=(9 if international else MAX_REFERENCE_IMAGES) if mode == 'reference' else 0)
                 for mode in modes}
     if provider in SITES:
         if model == SUBJECT_MODEL:

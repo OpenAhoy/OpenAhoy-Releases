@@ -14,18 +14,17 @@ from .own_contracts import list_tools, validate
 
 # Codex budgets the namespace instructions once per model-facing tool.
 # The packaged Skill holds the shared account, authorization and retry rules.
-INSTRUCTIONS = 'Jiusera Skill.'
+INSTRUCTIONS = ''
 
 PUBLICATION_DESCRIPTIONS = {
     'own.publications.current.dispatch': (
-        'Publish an explicitly requested draft once without follower push. Use its original '
-        'successful save attempt_id or completed merge intent_handle. Never resend UNKNOWN.'
+        'Publish original draft once. Notify all followers only with explicit authorization. Never resend UNKNOWN.'
     ),
     'own.publications.current.poll': (
-        'Query WeChat for the original publication task. Polling never submits or resends.'
+        'Query the original WeChat publication.'
     ),
     'own.publications.current.status': (
-        'Read the local status of the original save or publication. Does not contact WeChat.'
+        'Read the original local save/publication receipt.'
     ),
 }
 
@@ -66,8 +65,8 @@ def _mcp_tools(catalog):
             # The old generic paragraph repeats the same workflow guidance for
             # every legacy tool, including ordinary-publication tools. Keep the
             # complete workflow in the packaged Skill, not each budgeted spec.
-            row['description'] = 'Use the enabled account and original IDs. Never resend UNKNOWN.'
-        if row['name'] in MODEL_DESCRIPTIONS:
+            row['description'] = 'Use original account and IDs. Never resend UNKNOWN.'
+        if row['name'] in MODEL_DESCRIPTIONS and row.get('_meta', {}).get('ui', {}).get('visibility') != ['app']:
             row['description'] = MODEL_DESCRIPTIONS[row['name']]
         if row['name'] in PUBLICATION_DESCRIPTIONS:
             row['description'] = PUBLICATION_DESCRIPTIONS[row['name']]
@@ -206,6 +205,10 @@ class PersonalStdioServer(OperatorStdioServer):
         from .wechat_content import ContentRouter
         from .video_protocol import VideoRouter
         from .own_storage_adoption_protocol import AdoptionRouter
+        from .openahoy_mcp_status import OpenAhoyMCPStatus
+        from .studio_protocol import StudioRouter
+        from .wechat_component_binding import ComponentBindingRouter
+        from .own_production_rules_protocol import RulesUpdateRouter
         self._inline_open_lock = threading.Lock()
         self._last_tools_list_observation = {'state': 'NOT_OBSERVED_IN_THIS_SERVER'}
         self._management_resources = {}
@@ -213,7 +216,10 @@ class PersonalStdioServer(OperatorStdioServer):
         from .video_director_protocol import DirectorRouter
         draft_router=DraftManagementRouter(DirectorRouter(VideoRouter(WritingRouter(support, router.registry), router.registry)),
             registry=router.registry, launcher=router.launcher)
-        managed=AdoptionRouter(ContentRouter(draft_router), router.registry)
+        connected = AdoptionRouter(ContentRouter(draft_router), router.registry)
+        connected = OpenAhoyMCPStatus(connected)
+        connected = ComponentBindingRouter(connected, router.registry)
+        managed = StudioRouter(RulesUpdateRouter(connected,router.registry), router.registry)
         self._tool_observer=support
         rows=managed.list_tools()
         # The personal router describes fixed tools. Entitlements are checked
@@ -235,8 +241,10 @@ class PersonalStdioServer(OperatorStdioServer):
         # One hook surrounds every formal tool and its MCP representation.
         from .support_protocol import refreshes_director_catalog
         from .video_director_protocol import MEDIA as DIRECTOR_MEDIA
+        from .video_vidmuse_panel import VidMusePanel
         from .video_protocol import AUDIO_VIDEO, WORKSPACE
-        if name == DIRECTOR_MEDIA or (name == WORKSPACE and arguments.get('action') in {'playback', 'preview_frames', 'intro_frames', 'audio_chunk', 'audio_preview_frames'}):
+        from .studio_protocol import TOOL as STUDIO
+        if name in (DIRECTOR_MEDIA, STUDIO, VidMusePanel.TOOL) or (name == WORKSPACE and arguments.get('action') in {'playback', 'preview_frames', 'intro_frames', 'audio_chunk', 'audio_preview_frames'}):
             value = self.router.call(name, arguments)
             return {'content': [], 'structuredContent': value, 'isError': False}
         if name == AUDIO_VIDEO and 'frame_start' in arguments:
@@ -270,14 +278,20 @@ class PersonalStdioServer(OperatorStdioServer):
             super().serve(source, destination)
         finally:
             try:
-                self.router.video_credential.close()
-                self.router.x.close()
-                self.router.binding.close()
-                self.router.manager.close()
-                self.router.management.close()
+                self.router.live.close()
             finally:
-                from .own_inline_probe import close
-                close()
+                self._close_services()
+
+    def _close_services(self):
+        try:
+            self.router.video_credential.close()
+            self.router.x.close()
+            self.router.binding.close()
+            self.router.manager.close()
+            self.router.management.close()
+        finally:
+            from .own_inline_probe import close
+            close()
 
     def dispatch(self, message):
         opening = (type(message) is dict and message.get('method') == 'tools/call'

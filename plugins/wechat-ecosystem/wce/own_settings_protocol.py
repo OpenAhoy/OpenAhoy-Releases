@@ -1,6 +1,7 @@
 """Non-secret Settings discovery. Enrollment is deliberately not an MCP tool."""
 from copy import deepcopy
 import threading
+from time import time
 
 from .contracts import WCEError
 from .prepared_contracts import ID, strict_validate
@@ -125,6 +126,15 @@ def overview(router, *, native=False):
     return {'connections': projected, 'platform_business_capabilities': 'NOT_VERIFIED'}
 
 
+def read_platform_overview(read):
+    """Report a local inventory failure without hiding other platforms."""
+    try:
+        result = read()
+    except (WCEError, OSError, EOFError):
+        return None, {'state': 'FAILED'}
+    return result, {'state': 'READ', 'read_at': int(time())}
+
+
 def native_overview(registry):
     """Read the local binding view without queuing behind live business calls."""
     import os
@@ -133,6 +143,7 @@ def native_overview(registry):
     from .own_connection_registry import MembershipProofError, revoked
     from .own_connection_broker import RUNTIME, SOCKET
     from .own_presentation import project
+    from .wechat_official_profile import read_official_profile
     from .service import digest
 
     registry = Path(registry) if registry is not None else registry_path()
@@ -166,6 +177,8 @@ def native_overview(registry):
             endpoints = any(os.path.lexists(policy.root/name) for name in (SOCKET, RUNTIME))
             state = ('BOUND' if endpoints else 'BOUND_IDLE') if enabled else 'DISCONNECTED'
             row.update(state=state, account_id=policy.data['appid'], binding_revision=policy.fingerprint)
+            if enabled:
+                row['official_profile'] = read_official_profile(registry, cid, row['account_id'], row['binding_revision'])
             binding = digest({'registry': str(registry), 'identity': policy.data,
                               'owner_digest': policy.value.get('owner_digest')})
             try:
@@ -413,9 +426,11 @@ class SettingsRouter:
         if name == OVERVIEW:
             strict_validate(arguments, schema({}))
             from .own_platform_catalog import WECHAT, platforms
-            value = overview(self.original, native=True)
+            value, status = read_platform_overview(lambda: overview(self.original, native=True))
+            if value is None:
+                value = {'connections': [], 'platform_business_capabilities': 'NOT_VERIFIED'}
             return dict(value, platforms=platforms(), connections=[dict(row, platform_id=WECHAT)
-                for row in value['connections']])
+                for row in value['connections']], platform_reads={WECHAT: status})
         if name == ACTION:
             from .own_platform_catalog import perform
             return perform(arguments, self)
