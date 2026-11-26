@@ -321,7 +321,7 @@ def native_page_body(logo, platform_settings):
 <p>请用该公众号管理员的微信，在微信官方页面扫码授权。</p>
 <p id="wechatComponentStatus" role="status" aria-live="polite"></p>
 <div class="actions">
- <button id="wechatComponentStart" type="button" class="primary">准备扫码入口</button>
+ <button id="wechatComponentStart" type="button" class="primary">继续微信扫码</button>
  <a id="wechatComponentLink" role="link" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" hidden>打开微信扫码</a>
  <button id="wechatComponentHostOpen" type="button" hidden>用 Codex 打开</button>
  <button id="wechatComponentCheck" type="button" hidden>检查授权结果</button>

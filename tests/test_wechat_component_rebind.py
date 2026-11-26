@@ -4,9 +4,11 @@ from io import BytesIO
 from pathlib import Path
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from time import time
 import unittest
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 
 WORK = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(WORK / 'plugins/wechat-ecosystem'))
@@ -43,6 +45,8 @@ def response(target, state, **kw):
 class Transport:
     def __init__(self):
         self.log = []
+        self.enrollment = (200, {'state':'WORKSPACE_ACTIVE'})
+        self.enroll = (201, {'state':'WORKSPACE_PROVISIONAL'})
         self.preflight = (200, {'state':'TARGET_READY','expected_authorizer_appid':A})
         self.workspace = [grant(A), grant(B)]
         self.start = self.status = response(A, 'PENDING')
@@ -50,6 +54,10 @@ class Transport:
         self.profile = (200,{'state':'ACTIVE','appid':A,'originalId':'gh_scopea','generation':1,'authorizerInfo':INFO})
     def request(self, path, proof, **options):
         self.log.append((path, options))
+        if path in ('enroll', 'enrollment'):
+            result = getattr(self, path)
+            if isinstance(result, Exception): raise result
+            return copy.deepcopy(result)
         if path == 'status' and 'profile' in options: return copy.deepcopy(self.profile)
         if path == 'status' and 'target' in options: return copy.deepcopy(self.preflight)
         if path == 'status' and not options: return 200, {'bindings':copy.deepcopy(self.workspace)}
@@ -134,8 +142,102 @@ class Rebind(unittest.TestCase):
         self.transport.start=response(None,'PENDING')
         self.assertEqual(self.act('BEGIN')['status'],'PENDING')
         self.assertEqual(self.act('STATUS',CA)['status'],'REAUTH_INTENT_CONFLICT')
-        self.assertEqual([op for op,v in self.transport.log],['start'])
-        self.assertEqual(set(self.transport.log[0][1]),{'idempotency'})
+        self.assertEqual([op for op,v in self.transport.log],['enrollment','start'])
+        self.assertEqual(set(self.transport.log[1][1]),{'idempotency'})
+
+    def test_new_workspace_only_explicit_begin_initializes(self):
+        new = self.path/'new'
+        new.mkdir(mode=0o700)
+        registry = new/'connections.json'
+        secret = object()
+        proof = Mock()
+        proof.read.side_effect = lambda *, create=False: secret if create else None
+        self.transport.enrollment = (404, {'state':'WORKSPACE_NOT_REGISTERED'})
+        self.transport.start = response(None,'PENDING')
+        client = ComponentBinding(registry,transport=self.transport,workspace_proof=proof,clock=lambda:NOW)
+        self.assertEqual(client.action('WORKSPACE_STATUS')['status'],'WORKSPACE_PROOF_NOT_CONFIGURED')
+        self.assertEqual(client.action('BEGIN',ALIAS)['status'],'REAUTH_TARGET_UNAVAILABLE')
+        self.assertFalse(registry.exists())
+        proof.read.assert_not_called()
+        self.assertEqual(client.action('BEGIN')['status'],'PENDING')
+        self.assertEqual([operation for operation,_ in self.transport.log],['enrollment','enroll','start'])
+        self.assertEqual(json.loads(registry.read_bytes())['connections'],{})
+        proof.read.assert_called_with(create=True)
+
+    def test_enrollment_requires_exact_not_registered(self):
+        for code,payload,result in (
+            (401,{'state':'WORKSPACE_NOT_REGISTERED'},'WORKSPACE_AUTHENTICATION_REQUIRED'),
+            (403,{'state':'WORKSPACE_NOT_REGISTERED'},'WORKSPACE_NOT_REGISTERED'),
+            (403,{'state':'WORKSPACE_REVOKED'},'WORKSPACE_REVOKED'),
+            (404,{},'WORKSPACE_ENROLLMENT_UNAVAILABLE'),
+            (200,{'bindings':[]},'WORKSPACE_ENROLLMENT_UNAVAILABLE'),
+            (429,{'state':'WORKSPACE_ENROLLMENT_LIMITED'},'WORKSPACE_ENROLLMENT_RATE_LIMITED'),
+        ):
+            self.transport.enrollment = (code,payload)
+            self.transport.log.clear()
+            self.assertEqual(self.act('BEGIN',CA)['status'],result)
+            self.assertEqual(self.transport.log,[('enrollment',{})])
+            self.assertIsNone(self.binding._load_flow())
+        self.assertFalse(any(call.kwargs for call in self.proof.read.call_args_list))
+
+    def test_missing_on_previously_used_workspace_never_rotates(self):
+        self.proof.read.reset_mock()
+        self.proof.read.return_value = None
+        self.assertEqual(self.act('BEGIN',CA)['status'],'WORKSPACE_PROOF_RECOVERY_REQUIRED')
+        self.assertEqual(self.act('BEGIN')['status'],'WORKSPACE_PROOF_RECOVERY_REQUIRED')
+        self.assertFalse(self.transport.log)
+        self.assertFalse(any(call.kwargs for call in self.proof.read.call_args_list))
+
+    def test_enrollment_lost_response_recovers_with_original_proof(self):
+        self.transport.enrollment = (404, {'state':'WORKSPACE_NOT_REGISTERED'})
+        original = self.proof.read.return_value
+        recorded = []
+        simulated = self.transport.request
+        def request(path, proof, **options):
+            recorded.append((path, proof))
+            if path == 'enroll':
+                self.transport.enrollment = (200, {'state':'WORKSPACE_PROVISIONAL'})
+                raise WCEError('WECHAT_COMPONENT_SERVICE_UNAVAILABLE')
+            return simulated(path,proof,**options)
+        self.transport.request = request
+        self.assertEqual(self.act('BEGIN',CA)['status'],'WECHAT_COMPONENT_SERVICE_UNAVAILABLE')
+        self.assertIsNone(self.binding._load_flow())
+        self.reload()
+        self.assertEqual(self.act('BEGIN',CA)['status'],'PENDING')
+        self.assertEqual([path for path,_ in recorded],['enrollment','enroll','enrollment','status','start'])
+        self.assertTrue(all(proof is original for _,proof in recorded))
+
+    def test_concurrent_new_workspace_starts_only_once(self):
+        new = self.path/'parallel'
+        new.mkdir(mode=0o700)
+        registry = new/'connections.json'
+        state = {}
+        def read(*,create=False):
+            return state.setdefault('proof',object()) if create else state.get('proof')
+        proof = Mock(read=read)
+        self.transport.enrollment = (404, {'state':'WORKSPACE_NOT_REGISTERED'})
+        self.transport.start = self.transport.status = response(None,'PENDING')
+        clients = [ComponentBinding(registry,transport=self.transport,workspace_proof=proof,clock=lambda:NOW)
+                   for _ in range(2)]
+        with ThreadPoolExecutor(2) as workers:
+            results = list(workers.map(lambda client:client.action('BEGIN'),clients))
+        self.assertEqual([item['status'] for item in results],['PENDING','PENDING'])
+        self.assertEqual([operation for operation,_ in self.transport.log],['enrollment','enroll','start','status'])
+
+    def test_enrollment_has_fixed_status_routes_and_payload(self):
+        proof = Mock()
+        proof.reveal_for_adapter.return_value = 'synthetic-only'
+        seen = []
+        def opener(request,timeout):
+            seen.append((request.method,request.full_url,request.data))
+            code = 404 if request.method == 'GET' else 201
+            result = b'{"state":"WORKSPACE_NOT_REGISTERED"}' if code == 404 else b'{"state":"WORKSPACE_PROVISIONAL"}'
+            raise HTTPError(request.full_url,code,'fixture',{},BytesIO(result))
+        broker = WorkspaceBroker(opener)
+        self.assertEqual(broker.request('enrollment',proof)[0],404)
+        self.assertEqual(broker.request('enroll',proof)[0],201)
+        self.assertEqual(seen,[('GET',BASE+'/status?enrollment=1',None),
+                               ('POST',BASE+'/status',b'{"action":"enroll"}')])
     def test_echo_required_and_wrong_callback_not_written(self):
         self.begin(); orig=self.binding._cache()
         self.transport.status=response(None,'BOUND',appid=A,binding=grant(A,3))

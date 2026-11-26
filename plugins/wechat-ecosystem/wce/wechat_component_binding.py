@@ -14,12 +14,12 @@ import secrets
 from .contracts import WCEError
 from .openahoy_mcp_status import _NoRedirect
 from .own_bootstrap_security import path_check
-from .own_connection_policy import atomic_write, locked, read_optional, registry_path
+from .own_connection_policy import atomic_write, locked, read_optional, read_registry, registry_path
 from .own_connection_registry import container
 from .prepared_contracts import ID, strict_validate
 from .tools import schema
 from .wechat_component_identity import clean_authorizer_info, official_profile_fields
-from .wechat_workspace_proof import FORMAT as PROOF_FORMAT, WorkspaceProof
+from .wechat_workspace_proof import FORMAT as PROOF_FORMAT, WorkspaceProof, prepare_local_workspace
 
 BASE = 'https://www.readysteadysound.com/jiusera/api/oauth/wechat'
 TOOL = 'wce.ui.wechat.component_binding'
@@ -133,12 +133,16 @@ class WorkspaceBroker:
             if type(transaction) is not str or not TX.fullmatch(transaction):
                 _bad()
             payload = json.dumps({'transaction': transaction}).encode('ascii')
-        elif path != 'status':
+        elif path == 'enroll':
+            payload = b'{"action":"enroll"}'
+        elif path not in ('status', 'enrollment'):
             _bad()
         if payload is not None:
             headers['Content-Type'] = 'application/json'
-        url = BASE + '/' + path
-        if path == 'status' and transaction is not None:
+        url = BASE + '/' + ('status' if path in ('enrollment', 'enroll') else path)
+        if path == 'enrollment':
+            url += '?enrollment=1'
+        elif path == 'status' and transaction is not None:
             if type(transaction) is not str or not TX.fullmatch(transaction):
                 _bad()
             url += '?' + urlencode({'transaction': transaction})
@@ -162,15 +166,19 @@ class WorkspaceBroker:
         except OSError:
             raise WCEError('WECHAT_COMPONENT_SERVICE_UNAVAILABLE') from None
 
-        if status in (401, 403):
+        if status == 401:
             return status, {}
         if len(data) > MAX_BODY:
             _bad()
         try:
             value = json.loads(data)
         except (ValueError, RecursionError):
+            if status == 403:
+                return status, {}
             raise WCEError('WECHAT_COMPONENT_SERVICE_UNAVAILABLE') from None
         if type(value) is not dict:
+            if status == 403:
+                return status, {}
             _bad()
         return status, value
 
@@ -272,13 +280,30 @@ class ComponentBinding:
             return None
         if code == 401:
             return {'status': 'WORKSPACE_AUTHENTICATION_REQUIRED', 'http_status': code}
+        if code == 403 and value.get('state') == 'WORKSPACE_REVOKED':
+            return {'status': 'WORKSPACE_REVOKED', 'http_status': code}
         if code == 403:
             return {'status': 'WORKSPACE_NOT_REGISTERED', 'http_status': code}
+        if code == 429 and value.get('state') == 'WORKSPACE_ENROLLMENT_LIMITED':
+            return {'status': 'WORKSPACE_ENROLLMENT_RATE_LIMITED', 'http_status': code}
         if code == 409:
             return {'status': 'WORKSPACE_CONFLICT', 'http_status': code}
         if action == 'start' and code == 503 and value.get('state') == 'WECHAT_TICKET_OR_UPSTREAM_UNAVAILABLE':
             return {'status': 'TICKET_OR_COMPONENT_UNAVAILABLE', 'http_status': code}
         return {'status': 'WECHAT_COMPONENT_SERVICE_UNAVAILABLE', 'http_status': code}
+
+    def _ensure_admitted(self, proof):
+        code, value = self.transport.request('enrollment', proof)
+        if code == 404 and value.get('state') == 'WORKSPACE_NOT_REGISTERED':
+            code, value = self.transport.request('enroll', proof)
+            if code == 201 and value.get('state') == 'WORKSPACE_PROVISIONAL':
+                return None
+        if code == 200 and value.get('state') in ('WORKSPACE_ACTIVE', 'WORKSPACE_PROVISIONAL'):
+            return None
+        status = self._project_status(code, value, 'enrollment')
+        if status and status['status'] != 'WECHAT_COMPONENT_SERVICE_UNAVAILABLE':
+            return status
+        return {'status': 'WORKSPACE_ENROLLMENT_UNAVAILABLE', 'http_status': code}
 
     def _workspace_status(self, proof):
         code, value = self.transport.request('status', proof)
@@ -413,6 +438,10 @@ class ComponentBinding:
         if active and saved['transaction'] is not None:
             return self._flow_status(proof, saved, 'status')
 
+        failure = self._ensure_admitted(proof)
+        if failure is not None:
+            return failure
+
         key = saved['request_key'] if active else secrets.token_urlsafe(32)
         intent = {'request_key': key, 'transaction': None, 'state': 'START_RECOVERY_REQUIRED'}
         options = {}
@@ -456,22 +485,47 @@ class ComponentBinding:
             try:
                 if connection_id is not None and operation == 'WORKSPACE_STATUS':
                     return {'status': 'REAUTH_INTENT_CONFLICT'}
-                proof = self.proof.read(create=operation == 'BEGIN' and connection_id is None)
-                if proof is None:
+                begin = operation == 'BEGIN'
+                if begin and connection_id is None and not os.path.lexists(self.registry):
+                    if os.path.lexists(self.root) and not os.path.lexists(self.registry):
+                        return {'status': 'WORKSPACE_LOCAL_STATE_UNAVAILABLE'}
+                    try:
+                        prepare_local_workspace(self.registry)
+                    except (OSError, WCEError):
+                        return {'status': 'WORKSPACE_LOCAL_STATE_UNAVAILABLE'}
+                if not os.path.lexists(self.registry):
+                    return {'status': 'REAUTH_TARGET_UNAVAILABLE' if connection_id else 'WORKSPACE_PROOF_NOT_CONFIGURED'}
+                proof = None if begin else self.proof.read()
+                if not begin and proof is None:
                     return {'status': 'WORKSPACE_PROOF_NOT_CONFIGURED'}
-                # Scoped lock prevents two app/server processes from replacing the original.
+                # Keep a single workspace proof and original request across windows
+                # and across native MCP processes.
                 container(self.registry.parent, self.root.name)
                 with locked(self.root / 'workspace-flow.lock'):
-                    if connection_id is None:
-                        return self._action(operation, proof)
-                    resolved = self._target(connection_id)
-                    if resolved is None:
-                        return {'status': 'REAUTH_TARGET_UNAVAILABLE'}
-                    target, first_direct = resolved
+                    target, first_direct = None, False
+                    if connection_id is not None:
+                        resolved = self._target(connection_id)
+                        if resolved is None:
+                            return {'status': 'REAUTH_TARGET_UNAVAILABLE'}
+                        target, first_direct = resolved
+                    if begin:
+                        if connection_id is None:
+                            try:
+                                read_registry(self.registry)
+                            except (OSError, WCEError):
+                                return {'status': 'WORKSPACE_LOCAL_STATE_UNAVAILABLE'}
+                        proof = self.proof.read()
+                        if proof is None:
+                            if (self._load_flow() is not None or self._cache(include_removed=True) is not None
+                                    or self._removals()):
+                                return {'status': 'WORKSPACE_PROOF_RECOVERY_REQUIRED'}
+                            proof = self.proof.read(create=True)
+                        if proof is None:
+                            return {'status': 'WORKSPACE_PROOF_NOT_CONFIGURED'}
                     return self._action(operation, proof, target, connection_id, first_direct)
             except WCEError as error:
                 if error.code in {'WECHAT_COMPONENT_SERVICE_UNAVAILABLE', 'WECHAT_WORKSPACE_KEYCHAIN_UNAVAILABLE',
-                                  'WECHAT_WORKSPACE_PROOF_INVALID'}:
+                                  'WECHAT_WORKSPACE_PROOF_INVALID', 'WORKSPACE_LOCAL_STATE_UNAVAILABLE'}:
                     return {'status': error.code}
                 raise
 

@@ -24,6 +24,39 @@ def valid_proof(value):
     return urlsafe_b64encode(urlsafe_b64decode(value + '=')).decode('ascii') == value + '='
 
 
+def prepare_local_workspace(registry):
+    """Ensure a default first-run workspace has its usual empty registry and owner."""
+    from .own_connection_enrollment import exclusive
+    from .own_connection_policy import locked, read_registry, registry_path
+    from .own_connection_registry import OWNER, metadata, owner_value, prepare_default_registry, validate_owner, write
+    from .service import digest
+
+    if registry == registry_path():
+        prepare_default_registry()
+    parent = path_check(registry.parent, True)
+    with locked(registry.parent / 'connections.lock'):
+        owner_path = registry.parent / OWNER
+        if os.path.lexists(registry):
+            read_registry(registry)
+            return
+        # Never fill a registry missing from a workspace with existing account authority.
+        for name in ('accounts', 'connection-enrollments', 'connection-transactions'):
+            directory = registry.parent / name
+            if os.path.lexists(directory):
+                path_check(directory, True)
+                if any(directory.iterdir()):
+                    raise WCEError('WORKSPACE_LOCAL_STATE_UNAVAILABLE')
+        owner = metadata(owner_path)
+        if owner is None:
+            owner = owner_value(registry, {'principal_id': 'local-owner-' + secrets.token_hex(12),
+                                           'tenant_id': 'local-install-' + secrets.token_hex(12)})
+            exclusive(owner_path, owner, parent)
+        else:
+            # An interrupted initial write may leave only the local owner.
+            validate_owner(registry, owner)
+        write(registry, {'schema': 2, 'owner_digest': digest(owner), 'connections': {}, 'entries': {}}, parent)
+
+
 class WorkspaceProof:
     def __init__(self, registry, backend=None):
         self.registry = Path(registry).absolute()

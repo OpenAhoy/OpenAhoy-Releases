@@ -1272,11 +1272,10 @@ SCRIPT = r'''
  const componentLink=$('wechatComponentLink'),componentHostOpen=$('wechatComponentHostOpen');
  const componentCancel=$('wechatComponentCancel'),componentClose=$('wechatComponentClose');
  const componentActive=new Set(['STARTING','PENDING','START_UNKNOWN','EXCHANGING','EXCHANGE_UNKNOWN','START_RECOVERY_REQUIRED']);
- const componentWorkspaceIssues=new Set(['WORKSPACE_PROOF_NOT_CONFIGURED','WORKSPACE_AUTHENTICATION_REQUIRED',
-   'WORKSPACE_NOT_REGISTERED','WECHAT_WORKSPACE_PROOF_INVALID','WECHAT_WORKSPACE_KEYCHAIN_UNAVAILABLE']);
+ const componentWorkspaceIssues=new Set(['WORKSPACE_AUTHENTICATION_REQUIRED',
+   'WORKSPACE_NOT_REGISTERED','WORKSPACE_REVOKED','WORKSPACE_PROOF_RECOVERY_REQUIRED',
+   'WORKSPACE_LOCAL_STATE_UNAVAILABLE','WECHAT_WORKSPACE_PROOF_INVALID']);
  const componentMessages={
-   TARGET_READY:'此公众号可以重新授权。先准备扫码入口，再打开微信扫码。',
-   LEGACY_TARGET_READY:'此公众号可以重新授权。先准备扫码入口，再打开微信扫码。',
    STARTING:'微信正在准备扫码授权。请检查原授权结果。',
    PENDING:'扫码入口已就绪。请打开微信扫码，完成后回来检查结果。',
    EXCHANGING:'微信授权已返回，正在核对公众号资料。',
@@ -1288,7 +1287,6 @@ SCRIPT = r'''
    REJECTED:'微信授权未获同意，可以重新发起。',
    REVOKED:'公众号已撤回这次授权。',
    IDLE:'当前没有待检查的扫码。',
-   RESUME_ORIGINAL:'找到本号尚未结束的授权。请检查原授权结果。',
    REAUTH_TARGET_UNAVAILABLE:'这个公众号的绑定身份暂不可核对。请刷新账号后重试。',
    REAUTH_INTENT_CONFLICT:'本工作区已有其他扫码请求。请回到发起扫码的账号查看结果。',
    TARGET_UNVERIFIED:'此工作区尚未核实这个公众号的归属。请核对当前工作区和所选公众号后重试。',
@@ -1296,7 +1294,12 @@ SCRIPT = r'''
    TARGET_STALE:'本号授权已变化，请刷新账号后再试。',
    REAUTH_TARGET_UNCONFIRMED:'微信尚未确认目标公众号。请检查本次授权结果。',
    REAUTH_ACCOUNT_MISMATCH:'扫码结果与所选公众号不符。请使用原公众号的管理员微信重试。',
-   WORKSPACE_PROOF_NOT_CONFIGURED:'此工作区缺少扫码凭据。请联系 Jiusera 支持登记当前工作区，再重新检查。',
+   WORKSPACE_PROOF_NOT_CONFIGURED:'此工作区尚未建立扫码凭据。请点「继续微信扫码」初始化。',
+   WORKSPACE_PROOF_RECOVERY_REQUIRED:'原工作区的扫码凭据缺失。请恢复原钥匙串凭据，再继续原授权。',
+   WORKSPACE_LOCAL_STATE_UNAVAILABLE:'无法读取原工作区记录。请恢复该工作区的连接记录，再继续扫码。',
+   WORKSPACE_REVOKED:'官网已停用这个工作区的扫码资格。请联系 Jiusera 支持核对原工作区。',
+   WORKSPACE_ENROLLMENT_UNAVAILABLE:'官网暂不能为此工作区开通扫码。请稍后用同一工作区重试。',
+   WORKSPACE_ENROLLMENT_RATE_LIMITED:'扫码准备请求过多。请稍后用同一工作区重试。',
    WORKSPACE_AUTHENTICATION_REQUIRED:'官网无法验证本工作区的扫码凭据（401）。请联系 Jiusera 支持核对工作区登记。',
    WORKSPACE_NOT_REGISTERED:'官网未允许本工作区使用扫码服务（403）。请联系 Jiusera 支持核对工作区登记。',
    WORKSPACE_CONFLICT:'官网已有待处理授权或该公众号已归属另一工作区。请检查原授权。',
@@ -1307,7 +1310,7 @@ SCRIPT = r'''
  };
  let componentTarget=null,profileReturnPage='settings';
  let componentBusy=false,componentState='IDLE',componentTrigger=null,componentSession=0;
- let componentPreflight=false,componentOpening=false,componentLinkTimer=0,componentOpeningId=0;
+ let componentOpening=false,componentLinkTimer=0,componentOpeningId=0;
  const componentInfo=key=>OAUI.set($('wechatComponentStatus'),key);
  const componentOpenInfo=key=>OAUI.set($('wechatComponentOpenStatus'),key);
  function clearComponentLink(){
@@ -1321,12 +1324,11 @@ SCRIPT = r'''
    componentHostOpen.hidden=componentBusy||!hasLink||!hostCapabilities.openLinks;
    componentHostOpen.disabled=componentOpening;
    componentStart.hidden=hasLink;
-   componentStart.disabled=componentBusy||componentPreflight||componentWorkspaceIssues.has(componentState)||
+   componentStart.disabled=componentBusy||componentWorkspaceIssues.has(componentState)||
      (componentActive.has(componentState)&&componentState!=='START_RECOVERY_REQUIRED')||
-     ['REAUTH_INTENT_CONFLICT','WORKSPACE_CONFLICT','REAUTH_TARGET_UNCONFIRMED','REAUTH_TARGET_UNAVAILABLE','RESUME_ORIGINAL'].includes(componentState);
+     ['REAUTH_INTENT_CONFLICT','WORKSPACE_CONFLICT','REAUTH_TARGET_UNCONFIRMED','REAUTH_TARGET_UNAVAILABLE'].includes(componentState);
    componentCheck.hidden=false;componentCheck.disabled=componentBusy;
-   OAUI.set(componentCheck,componentPreflight||componentWorkspaceIssues.has(componentState)
-     ?'重新检查工作区':'检查授权结果');
+   OAUI.set(componentCheck,componentWorkspaceIssues.has(componentState)?'重新检查工作区':'检查授权结果');
    componentCancel.hidden=!['STARTING','PENDING','EXCHANGING'].includes(componentState);
    componentCancel.disabled=componentBusy;
  }
@@ -1348,9 +1350,9 @@ SCRIPT = r'''
      ?'若浏览器未打开，可以用 Codex 打开。完成扫码后回来检查结果。'
      :'若浏览器未打开，请允许此页面打开新窗口。完成扫码后回来检查结果。');
  };
- componentHostOpen.onclick=async()=>{
+ async function openComponentBrowser(){
    const session=componentSession,url=componentLink.getAttribute('href');
-   if(componentOpening||componentBusy||!url)return;
+   if(componentOpening||componentBusy||!url||!hostCapabilities.openLinks)return;
    const openingId=++componentOpeningId;componentOpening=true;paintComponent();
    componentOpenInfo('正在请 Codex 打开浏览器。你仍可检查授权结果或关闭此窗口。');
    const visible=()=>!closed&&componentDialog.open&&componentSession===session&&componentOpeningId===openingId&&componentLink.getAttribute('href')===url;
@@ -1362,7 +1364,8 @@ SCRIPT = r'''
        ?'Codex 打开浏览器超时。请使用「打开微信扫码」，或检查授权结果。'
        :'Codex 无法打开浏览器。请使用「打开微信扫码」，或检查授权结果。');
    }finally{if(visible()){componentOpening=false;paintComponent();}}
- };
+ }
+ componentHostOpen.onclick=openComponentBrowser;
  function closeComponent(){
    componentSession++;clearComponentLink();
    if(componentDialog.open)componentDialog.close();
@@ -1377,8 +1380,8 @@ SCRIPT = r'''
    const session=componentSession,target=componentTarget;
    const visible=()=>!closed&&componentDialog.open&&componentSession===session;
    componentBusy=true;paintComponent();
-   componentInfo(operation==='TARGET_STATUS'||operation==='WORKSPACE_STATUS'?'正在检查当前工作区的扫码资格…':
-     operation==='BEGIN'?'正在准备微信扫码入口…':operation==='CANCEL'?'正在取消本次扫码…':'正在检查原授权结果…');
+   componentInfo(operation==='WORKSPACE_STATUS'?'正在检查当前工作区的扫码资格…':
+     operation==='BEGIN'?'正在连接工作区并准备微信二维码…':operation==='CANCEL'?'正在取消本次扫码…':'正在检查原授权结果…');
    try{
      const reply=await tool('wce.ui.wechat.component_binding',{operation,
        ...(target&&operation!=='WORKSPACE_STATUS'?{connection_id:target.connection_id}:{})});
@@ -1388,14 +1391,6 @@ SCRIPT = r'''
      const preserve=componentActive.has(previous)&&(componentWorkspaceIssues.has(value.status)||
        ['WORKSPACE_CONFLICT','WECHAT_COMPONENT_SERVICE_UNAVAILABLE','WECHAT_COMPONENT_RESPONSE_INVALID','REAUTH_TARGET_UNCONFIRMED'].includes(value.status));
      componentState=preserve?previous:value.status;
-     if(operation==='TARGET_STATUS'){
-       componentPreflight=!['TARGET_READY','LEGACY_TARGET_READY','ORIGINAL_AUTHORIZATION_PENDING'].includes(value.status);
-       if(!componentPreflight&&(value.account_id!==target.account_id||value.connection_id!==target.connection_id)){
-         componentPreflight=true;componentState='REAUTH_TARGET_UNCONFIRMED';
-       }else if(!componentPreflight&&value.status==='ORIGINAL_AUTHORIZATION_PENDING')componentState='RESUME_ORIGINAL';
-       componentInfo(componentMessages[componentState]||'暂时无法检查工作区扫码资格。请重新检查。');
-       return;
-     }
      if(operation==='CANCEL'&&['CANCELLED','IDLE'].includes(value.status)){closeComponent();return;}
      clearComponentLink();
      if(value.status==='WORKSPACE_READ'){
@@ -1430,17 +1425,15 @@ SCRIPT = r'''
      componentBusy=false;
      if(componentDialog.open&&!closed){
        paintComponent();
-       if(visible()&&operation==='BEGIN'&&!componentLink.hidden)componentLink.focus({preventScroll:true});
-       if(!visible()){
-         if(componentTarget)void componentAction('TARGET_STATUS');
-         else componentInfo('请先准备管理员扫码入口。');
-       }
+       if(visible()&&operation==='BEGIN'&&!componentLink.hidden){
+         componentLink.focus({preventScroll:true});
+         void openComponentBrowser();
+       }else if(!visible())componentInfo('上一次授权请求已返回。请检查原授权结果，或继续本号扫码。');
      }
    }
  }
  componentStart.onclick=()=>void componentAction('BEGIN');
- componentCheck.onclick=()=>void componentAction(componentPreflight?'TARGET_STATUS':
-   !componentTarget&&componentWorkspaceIssues.has(componentState)?'WORKSPACE_STATUS':'STATUS');
+ componentCheck.onclick=()=>void componentAction(!componentTarget&&componentWorkspaceIssues.has(componentState)?'WORKSPACE_STATUS':'STATUS');
  componentCancel.onclick=()=>void componentAction('CANCEL');
  componentClose.onclick=closeComponent;
  componentDialog.addEventListener('cancel',event=>{event.preventDefault();closeComponent();});
@@ -1474,14 +1467,14 @@ SCRIPT = r'''
    if(!ready||refreshing||componentDialog.open)return;
    componentSession++;clearComponentLink();
    componentTarget=row?{connection_id:row.connection_id,account_id:row.account_id}:null;
-   componentTrigger=trigger;componentState='IDLE';componentPreflight=!!row;
+   componentTrigger=trigger;componentState='IDLE';
    OAUI.set($('wechatComponentTitle'),row?'重新绑定公众号':'绑定公众号');
    const target=$('wechatComponentTarget');
    target.hidden=!row;target.textContent=row?[name(row),row.account_id].filter(Boolean).join(' · '):'';
    componentInfo(componentBusy?'上一次授权操作尚未返回。你可以关闭此窗口，稍后回到原账号检查。':
-     row?'正在检查当前工作区的扫码资格…':'请先准备管理员扫码入口。');
+     '正在连接工作区并准备微信二维码…');
    componentDialog.showModal();paintComponent();componentClose.focus({preventScroll:true});
-   if(row&&!componentBusy)await componentAction('TARGET_STATUS');
+   if(!componentBusy)await componentAction('BEGIN');
  }
  async function secure(){
    if(!ready||!bindingPlatform()?.binding_supported)return;

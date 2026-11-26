@@ -1,4 +1,13 @@
 {
+  "正在连接工作区并准备微信二维码…": "Connecting this workspace and preparing the WeChat QR code\u2026",
+  "上一次授权请求已返回。请检查原授权结果，或继续本号扫码。": "The prior request returned. Check it or continue scanning for this account.",
+  "继续微信扫码": "Continue to WeChat QR",
+  "此工作区尚未建立扫码凭据。请点「继续微信扫码」初始化。": "This workspace has no QR credential yet. Select Continue to WeChat QR to set it up.",
+  "原工作区的扫码凭据缺失。请恢复原钥匙串凭据，再继续原授权。": "The original workspace credential is missing. Restore it from Keychain before continuing the authorization.",
+  "无法读取原工作区记录。请恢复该工作区的连接记录，再继续扫码。": "The original workspace records are unavailable. Restore its connection records before continuing.",
+  "官网已停用这个工作区的扫码资格。请联系 Jiusera 支持核对原工作区。": "QR authorization has been revoked for this workspace. Contact Jiusera support about the original workspace.",
+  "官网暂不能为此工作区开通扫码。请稍后用同一工作区重试。": "The authorization service cannot activate QR access for this workspace right now. Retry later from this workspace.",
+  "扫码准备请求过多。请稍后用同一工作区重试。": "There are too many authorization requests. Retry later from this workspace.",
   "找到本号尚未结束的授权。请检查原授权结果。": "This account has an unfinished authorization. Check the original request.",
   "准备扫码入口": "Prepare QR link",
   "发起结果尚未收到。再次准备扫码会按原请求恢复。": "The start response is missing. Prepare the QR link again to recover the same request.",
