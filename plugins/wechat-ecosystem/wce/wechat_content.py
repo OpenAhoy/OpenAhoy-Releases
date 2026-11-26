@@ -445,8 +445,9 @@ def _update_news(db,client,args):
 def _news_cover(db,client,handle):
     uploaded=_operation(db,client.policy,handle=handle)
     result=uploaded.get('result',{})
-    if (uploaded['kind']!='upload_image' or uploaded['state']!='UPLOADED'
-            or not reference_valid(result.get('media_id')) or result.get('purpose')=='body_image'):
+    if (uploaded['kind']!='upload_image' or uploaded['state'] not in {'MEDIA_READY','UPLOADED'}
+            or uploaded.get('intent', {}).get('purpose')!='permanent_image'
+            or not reference_valid(result.get('media_id'))):
         fail('WECHAT_DRAFT_COVER_NOT_AVAILABLE')
     return result['media_id']
 

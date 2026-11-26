@@ -1,5 +1,6 @@
 """Application-only transport for the registered project Studio."""
 from copy import deepcopy
+from functools import lru_cache
 import json
 import logging
 from pathlib import Path
@@ -7,6 +8,7 @@ import re
 import subprocess
 from threading import Lock, Thread
 
+from .bounded_file import file_state
 from .contracts import WCEError
 from .own_connection_policy import atomic_write, locked
 from .project_context import ProjectStore, exact_path
@@ -16,6 +18,7 @@ from . import studio_production as production
 from .studio_live import ACTIONS as MONITOR_ACTIONS, SCHEMA_FIELDS as MONITOR_FIELDS, LiveBus
 from .studio_projects import (AUDIO_TYPES, CATALOG, IMAGE_TYPES, StudioError, chunk, cover_media, digest,
                               normalize_catalog, preview_chunk, read_json, require, studio_directory, valid_id)
+from .studio_waveform import waveform
 from .tools import schema
 
 TOOL = 'wce.ui.studio'
@@ -35,6 +38,8 @@ ACTION_FIELDS = {
     'project_cover': ('project', 'offset'),
     'song_preview': ('project', 'song', 'version', 'asset', 'offset'),
     'media': ('project', 'song', 'version', 'asset', 'offset'),
+    'source_chunk': ('project', 'song', 'version', 'asset', 'offset', 'coding'),
+    'source_waveform': ('project', 'song', 'version', 'asset'),
 }
 ID_SCHEMA = {'type': 'string', 'pattern': '^[A-Za-z0-9_][A-Za-z0-9_-]{0,95}$', 'maxLength': 96}
 SCHEMA = schema({'action': {'type': 'string', 'enum': list(ACTION_FIELDS)}}, {
@@ -43,11 +48,31 @@ SCHEMA = schema({'action': {'type': 'string', 'enum': list(ACTION_FIELDS)}}, {
     'work_id': {'type': 'string', 'pattern': '^[a-f0-9]{32}$'},
     'project': ID_SCHEMA, 'song': ID_SCHEMA, 'version': ID_SCHEMA, 'asset': ID_SCHEMA, 'job': ID_SCHEMA, 'analysis': ID_SCHEMA,
     'offset': {'type': 'integer', 'minimum': 0}, 'revision': {'type': 'integer', 'minimum': 0},
+    'coding': {'type': 'string', 'enum': ['identity', 'deflate']},
     'rate': {'type': 'integer', 'minimum': 44100, 'maximum': 192000},
     'settings': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 12, 'maxItems': 12},
     'draft': {'type': 'object', 'additionalProperties': True},
 })
 LOG = logging.getLogger(__name__)
+
+
+def source_state(folder):
+    pins = []
+    for name in (Path(CATALOG).name, production.FILENAME):
+        try:
+            pins.append(file_state((folder / name).lstat()))
+        except FileNotFoundError:
+            pins.append(None)
+    return tuple(pins)
+
+
+@lru_cache(maxsize=32)
+def source_catalog(root, folder, project, pins):
+    manifest = read_json(root / CATALOG, {'schema': 1, 'songs': []})
+    state = production.ledger(folder)
+    songs = normalize_catalog(root, project, production.merge_catalog(manifest, state))
+    require(source_state(folder) == pins, 'studio_catalog_changed', 409)
+    return songs
 
 
 class StudioRouter:
@@ -173,6 +198,24 @@ class StudioRouter:
         require(version is not None, 'studio_version_unavailable', 404)
         return root, folder, song, version
 
+    def source(self, key, asset):
+        project, song_id, version_id = key
+        row = next((item for item in self.registered() if item['id'] == project), None)
+        require(row is not None, 'studio_project_not_registered', 404)
+        root = exact_path(row['root'])
+        folder = studio_directory(root)
+        pins = source_state(folder)
+        require(any(pin is not None for pin in pins), 'studio_song_unavailable', 404)
+        songs = source_catalog(root, folder, project, pins)
+        require(source_state(folder) == pins, 'studio_catalog_changed', 409)
+        song = next((item for item in songs if item['id'] == song_id), None)
+        require(song is not None, 'studio_song_unavailable', 404)
+        version = next((item for item in song['versions'] if item['id'] == version_id), None)
+        require(version is not None, 'studio_version_unavailable', 404)
+        track = next((item for item in version['tracks'] if item['id'] == asset), None)
+        require(track is not None, 'studio_media_invalid', 404)
+        return root, track['file'], track['sha256']
+
     def start_job(self, key, args, root, folder, version):
         require(not version.get('mastered'), 'studio_original_required')
         draft = studio_draft.read_draft(folder, key)
@@ -270,6 +313,13 @@ class StudioRouter:
             return chunk(root, cover['file'], cover['sha256'], args['offset'], IMAGE_TYPES)
         key = tuple(args[field] for field in ('project','song','version'))
         require(all(map(valid_id, key)))
+        if action in ('source_waveform', 'source_chunk'):
+            require(valid_id(args['asset']))
+            source = self.source(key, args['asset'])
+            if action == 'source_waveform':
+                return waveform(*source)
+            require(args['coding'] in ('identity', 'deflate'))
+            return chunk(*source, args['offset'], coding=args['coding'])
         root, folder, _, version = self.bound(key)
         if action == 'cover':
             cover = version.get('coverMedia')

@@ -13,6 +13,7 @@ HTML = r'''
   <section data-kind="published" aria-labelledby="wechatPublishedTitle"><h3 id="wechatPublishedTitle">已发表</h3>
    <p data-state role="status"></p><ol></ol><button data-next hidden>下一页</button></section>
   <section data-kind="drafts" aria-labelledby="wechatDraftsTitle"><h3 id="wechatDraftsTitle">草稿箱</h3>
+   <button id="wechatNewArticle" type="button" hidden>新建图文草稿</button>
    <p data-state role="status"></p><ol></ol><button data-next hidden>下一页</button></section>
  </div>
  <div id="wechatArticleDetail" hidden>
@@ -30,6 +31,7 @@ STYLE = r'''
 #wechatArticleColumns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 #wechatArticleColumns>section{min-width:0;border-radius:16px;background:var(--surface);box-shadow:var(--oh-press);padding:12px}
 #wechatArticleColumns h3{margin:0 0 10px}
+#wechatNewArticle{margin-bottom:8px}
 #wechatArticleColumns [data-state]:empty,#wechatArticlesStatus:empty{display:none}
 #wechatArticleColumns ol{list-style:none;padding:0;margin:0 0 8px;display:grid;gap:8px}
 #wechatArticleColumns .wx-article-card{width:100%;min-width:0;display:flex;justify-content:start;gap:11px;
@@ -68,16 +70,39 @@ function OAWechatArticles(call,openLink,back){
  const $=id=>document.getElementById(id),ui=globalThis.OAUI,make=tag=>document.createElement(tag);
  const page=$('wechatArticlesPage'),columns=$('wechatArticleColumns'),detail=$('wechatArticleDetail'),reader=$('wechatArticlesReader');
  const status=(text,...args)=>ui.set($('wechatArticlesStatus'),text,...args);
- const drafts=new Map();
+ const drafts=new Map(),newArticle=$('wechatNewArticle');
  const panes=Object.fromEntries([...columns.children].map(node=>[node.dataset.kind,{node,offset:0,next:null,run:0}]));
  let row=null,identity='',detailRun=0,activeState=null,focusOrigin=null;
  const makeKey=()=> 'article-'+[...crypto.getRandomValues(new Uint8Array(16))].map(v=>v.toString(16).padStart(2,'0')).join('');
- const direct=()=>row?.binding_provider!=='WECHAT_THIRD_PARTY';
+ const direct=()=>Boolean(row&&row.binding_provider!=='WECHAT_THIRD_PARTY');
  const broker=()=>row?.component_grant?.state==='ACTIVE'&&row.component_grant.permissions?.some(x=>x===11||x===100);
  const officialPublished=()=>row?.component_grant?.state==='ACTIVE'&&row.component_grant.permissions?.includes(7);
  const button=(text,click)=>{
    const item=make('button');item.type='button';ui.set(item,text);item.onclick=click;return item;
  };
+ function createReceipt(state,key){
+   const scoped='jiusera-wechat-create-news:'+state.cid;
+   if(key===undefined){
+     const saved=localStorage.getItem(scoped);
+     return /^article-[a-f0-9]{32}$/.test(saved||'')?saved:null;
+   }
+   if(key)localStorage.setItem(scoped,key);
+   else if(localStorage.getItem(scoped)===state.pending)localStorage.removeItem(scoped);
+ }
+ function clearCreateReceipt(state){
+   if(state.isNew){try{createReceipt(state,null);}catch(_){}}
+ }
+ function openNewArticle(){
+   if(newArticle.hidden||!direct())return;
+   const id=identity+':new-article';
+   const state=drafts.get(id)||{id,cid:row.connection_id,isNew:true,index:0,article:{title:'',author:'',digest:''},
+      body:'<p></p>',changes:{},coverFile:null};
+   try{state.pending??=createReceipt(state);}catch(_){}
+   drafts.set(id,state);activeState=state;focusOrigin=newArticle;
+   columns.hidden=true;detail.hidden=false;$('wechatArticleOfficial').hidden=true;
+   status(state.pending?'原保存结果尚未确认，可查询原结果。':'');
+   edit(state);
+ }
  function link(url,image=false){
    try{
      const target=new URL(url);
@@ -178,6 +203,7 @@ function OAWechatArticles(call,openLink,back){
    const following=()=>pane.run===ticket&&row?.connection_id===cid&&row?.binding_revision===account.binding_revision;
    const note=text=>ui.set(pane.node.querySelector('[data-state]'),text);
    const next=pane.node.querySelector('[data-next]');next.hidden=true;
+   if(kind==='drafts')newArticle.hidden=true;
    pane.node.querySelector('ol').replaceChildren();note('正在读取文章');
    try{
      if(kind==='published'&&officialPublished()){
@@ -225,49 +251,62 @@ function OAWechatArticles(call,openLink,back){
          }));
        }
        pane.next=items.length&&offset+items.length<value.total_count?offset+items.length:null;
-     }else if(broker()){
-       const value=await invoke('own.wechat.authorized_drafts',cid,{action:'list',offset});
-       if(!following())return;
-       if(value.state!=='OBSERVED')throw Error('UNAVAILABLE');
-       pane.next=value.next_offset;
-       for(const entry of value.items)entry.titles.forEach((title,i)=>renderListItem(pane,{
-         title,image:entry.covers?.[i],timestamp:entry.update_time,position:i,total:entry.article_count,
-         load:async valid=>{
-           const observed=await invoke('own.wechat.authorized_drafts',cid,{action:'read',draft_ref:entry.draft_ref});
-           if(!valid())return;
-           if(observed.state!=='OBSERVED'||!observed.articles[i])throw Error('UNAVAILABLE');
-           show(title,observed.articles[i].content||'',null);
-           status('扫码账号可在此阅读原草稿。编辑原稿请打开微信公众平台。');
-           reader.append(button('打开微信公众平台',()=>void openLink('https://mp.weixin.qq.com/')));
-         },
-       }));
-     }else if(direct()){
-       const value=await invoke('own.drafts.inventory',cid,offset?{cursor:offset}:{});
-       if(!following())return;
-       pane.next=value.cursor??null;
-       for(const group of value.groups||[]){
-         const selection={inventory_handle:value.inventory_handle,index:group.index,
-           expected_projection_sha256:group.projection_sha256,article_count:group.article_count};
-         group.titles.forEach((title,index)=>renderListItem(pane,{
-           title,image:group.covers?.[index],timestamp:group.update_time,position:index,total:group.article_count,
+     }else{
+       const allowDirect=direct()&&(!offset||pane.source!=='authorized');
+       let value=null;
+       if(allowDirect){
+         try{value=await invoke('own.drafts.inventory',cid,offset?{cursor:offset}:{});}
+         catch(error){if(!broker())throw error;}
+         if(!following())return;
+         if(value&&(!Array.isArray(value.groups)||typeof value.inventory_handle!=='string'))value=null;
+       }
+       if(value){
+         pane.source='direct';
+         newArticle.hidden=false;
+         pane.next=value.cursor??null;
+         for(const group of value.groups){
+           const selection={inventory_handle:value.inventory_handle,index:group.index,
+             expected_projection_sha256:group.projection_sha256,article_count:group.article_count};
+           group.titles.forEach((title,index)=>renderListItem(pane,{
+             title,image:group.covers?.[index],timestamp:group.update_time,position:index,total:group.article_count,
+             load:async valid=>{
+               const observed=await allContent('own.drafts.current.read',cid,{selection,article_index:index});
+               if(!valid())return;
+               const article=observed.articles?.[index]||{title};
+               const id=identity+':'+selection.expected_projection_sha256+':'+index;
+               const state=drafts.get(id)||{cid,id,selection,index,article,body:observed.content,changes:{},coverFile:null};
+               drafts.set(id,state);activeState=state;edit(state);
+             },
+           }));
+         }
+       }else if(broker()){
+         const authorized=await invoke('own.wechat.authorized_drafts',cid,
+            {action:'list',offset:allowDirect?0:offset});
+         if(!following())return;
+         if(authorized.state!=='OBSERVED')throw Error('UNAVAILABLE');
+         pane.source='authorized';
+         pane.next=authorized.next_offset;
+         for(const entry of authorized.items)entry.titles.forEach((title,i)=>renderListItem(pane,{
+           title,image:entry.covers?.[i],timestamp:entry.update_time,position:i,total:entry.article_count,
            load:async valid=>{
-             const observed=await allContent('own.drafts.current.read',cid,{selection,article_index:index});
+             const observed=await invoke('own.wechat.authorized_drafts',cid,{action:'read',draft_ref:entry.draft_ref});
              if(!valid())return;
-             const article=observed.articles?.[index]||{title};
-             const id=identity+':'+selection.expected_projection_sha256+':'+index;
-             const state=drafts.get(id)||{cid,id,selection,index,article,body:observed.content,changes:{},coverFile:null};
-             drafts.set(id,state);activeState=state;edit(state);
+             if(observed.state!=='OBSERVED'||!observed.articles[i])throw Error('UNAVAILABLE');
+             show(title,observed.articles[i].content||'',null);
+             status('此草稿可在这里查看。请到微信公众平台编辑原稿。');
+             reader.append(button('打开微信公众平台',()=>void openLink('https://mp.weixin.qq.com/')));
            },
          }));
-       }
-     }else{note('当前公众号的草稿读取未获授权');return;}
+       }else if(direct())throw Error('UNAVAILABLE');
+       else{note('当前公众号的草稿读取未获授权');return;}
+     }
      next.hidden=pane.next==null;
      note(pane.node.querySelector('ol').childElementCount?'':kind==='drafts'?'本号草稿箱为空':'本号暂无已发表文章');
    }catch(_){if(following())note('文章未能读取，请重试');}
  }
  function edit(state){
    const {article}=state;
-   if((article.article_type&&article.article_type!=='news')||!article.thumb_media_id){
+   if(!state.isNew&&((article.article_type&&article.article_type!=='news')||!article.thumb_media_id)){
      show(article.title,state.body,null);
      status('此草稿包含需由微信处理的内容。');
      reader.append(button('打开微信公众平台',()=>void openLink('https://mp.weixin.qq.com/')));
@@ -285,7 +324,7 @@ function OAWechatArticles(call,openLink,back){
    field('title','文章标题',64);field('author','作者署名',16);field('digest','文章摘要',120,true);
    const image=cover(article.thumb_url,'');if(image)fields.append(image);
    const chooser=make('label'),file=make('input');file.type='file';file.accept='image/jpeg,image/png';
-   chooser.append(ui.label(state.coverFile?'已选择替换封面':'更换封面'),file);fields.append(chooser);
+   chooser.append(ui.label(state.isNew?'选择封面':state.coverFile?'已选择替换封面':'更换封面'),file);fields.append(chooser);
    file.onchange=()=>{state.coverFile=file.files[0]||null;};
    const rich=make('div'),toolbar=make('div');toolbar.className='wx-article-format';
    body.append(ui.label('正文'),toolbar,rich);
@@ -331,6 +370,16 @@ function OAWechatArticles(call,openLink,back){
          await invoke('own.wechat.content',state.cid,{action:'readback',operation_handle:original.operation_handle}):original;
      }else{
        const changes={...state.changes};
+       if(state.isNew){
+         let original;
+         try{original=createReceipt(state);}catch(_){status('无法保存草稿回执，请重新打开工作台。');return;}
+         if(original){state.pending=original;status('原保存结果尚未确认，可查询原结果。');return;}
+         const template=make('template');template.innerHTML=changes.content||'';
+         if(!changes.title?.trim()||!template.content.textContent.trim()||!state.coverFile){
+           status('请为新草稿填写标题、正文并选择封面。');return;
+         }
+         changes.title=changes.title.trim();
+       }
        if(state.coverFile){
          const file=state.coverFile;
          if(!['image/jpeg','image/png'].includes(file.type)||file.size>700*1024){status('请选 700 KB 以内的 JPG 或 PNG 封面');return;}
@@ -339,25 +388,34 @@ function OAWechatArticles(call,openLink,back){
          const cover=await invoke('own.wechat.content',state.cid,{action:'upload_image',request_key:state.coverKey,
            source:{mime_type:file.type,base64:btoa(binary)}});
          if(!still())return;
-         if(cover.state!=='UPLOADED'){status('封面上传尚未确认，草稿未提交');return;}
+         if(!['MEDIA_READY','UPLOADED'].includes(cover.state)){status('封面上传尚未确认，草稿未提交');return;}
          changes.cover_handle=cover.operation_handle;
        }
        if(!Object.keys(changes).length){status('草稿没有改动');return;}
-       const request_key=makeKey();state.pending=request_key;
-       result=await invoke('own.wechat.content',state.cid,{action:'update_news',request_key,selection:state.selection,index:state.index,changes});
+       const request_key=makeKey();
+       if(state.isNew){
+         try{createReceipt(state,request_key);}catch(_){status('无法保存草稿回执，请重新打开工作台。');return;}
+       }
+       state.pending=request_key;
+       result=await invoke('own.wechat.content',state.cid,state.isNew?
+         {action:'create_news',request_key,article:changes}:
+         {action:'update_news',request_key,selection:state.selection,index:state.index,changes});
      }
      if(['VERIFIED','UNCHANGED'].includes(result.state)){
+       clearCreateReceipt(state);
        drafts.delete(state.id);
        if(still()){
          listBack();ui.set(panes.drafts.node.querySelector('[data-state]'),'草稿已保存并从微信读回');
          void loadList('drafts',0);
        }
      }else if(['SOURCE_CHANGED','REJECTED'].includes(result.state)){
+       clearCreateReceipt(state);
        state.pending=null;
        if(still())status(result.state==='SOURCE_CHANGED'?'微信草稿已改变。原填写已保留，请重新打开草稿核对。':'微信拒绝保存草稿（{0}）',result.error_code);
      }else if(still())status('原保存结果尚未确认，可查询原结果。');
    }catch(error){
      if(['WECHAT_DRAFT_EDIT_OPEN_OFFICIAL','WECHAT_DRAFT_EDIT_PRESERVE_BLOCKS','WECHAT_DRAFT_COVER_NOT_AVAILABLE','INVALID_TOOL_ARGUMENTS'].includes(error.message)){
+       clearCreateReceipt(state);
        state.pending=null;
        if(still())status('当前内容需要在微信公众平台编辑，原填写已保留。');
      }else if(still())status('原保存结果尚未确认，可查询原结果。');
@@ -366,6 +424,7 @@ function OAWechatArticles(call,openLink,back){
      if(still()){control.disabled=state.finished===true;ui.set(control,state.finished?'已保存':state.pending?'查原保存结果':'保存到微信草稿');}
    }
  }
+ newArticle.onclick=openNewArticle;
  $('wechatArticlesDrafts').onclick=()=>togglePane('drafts');
  $('wechatArticlesPublished').onclick=()=>togglePane('published');
  $('wechatArticlesBack').onclick=back;$('wechatArticlesListBack').onclick=listBack;

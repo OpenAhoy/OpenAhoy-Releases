@@ -243,7 +243,6 @@ export function mountVideoView(studio) {
     if(length>0) {
       $("playhead").style.left=100*clock.seconds/length+"%";
       $("seek").max=clock.length;$("seek").value=clock.seconds;
-      $("seek").setAttribute("aria-valuetext",clock.seconds.toFixed(2)+" 秒");
     }
     studio.frameRuler?.sync(clock);
   }
@@ -316,7 +315,7 @@ export function mountVideoView(studio) {
     if (!enabled() || event.defaultPrevented || event.isComposing || event.key !== " " ||
         event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const target=event.composedPath()[0];
-    if (target?.isContentEditable || target?.closest?.("textarea,[role=textbox],dialog[open],input:not([type=range]):not([type=button])")) return;
+    if (target?.isContentEditable || target?.closest?.("textarea,[role=textbox],dialog[open],#ruler-scales button,input:not([type=range]):not([type=button])")) return;
     event.preventDefault();
     if (!event.repeat && engine()?.state?.()?.ready) engine().toggle(event);
   });

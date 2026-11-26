@@ -35,7 +35,7 @@ def chrome(icon):
    <path d="'''+NOTCH_PATH+'''"/>
   </svg>
   <span class="wb-brand-stack" aria-hidden="true">
-   <span data-wb-brand-mark="jiusera">'''+jiusera_header(color_only=True)+'''</span>
+   <span data-wb-brand-mark="jiusera">'''+jiusera_header(trim=True)+'''</span>
    <span data-wb-brand-mark="openahoy">'''+openahoy_logo+'''</span>
    <span data-wb-brand-mark="lunify">'''+l_unify_symbol()+'''<span>L-unify</span></span>
   </span>
@@ -57,7 +57,7 @@ def chrome(icon):
  <nav class="wb-dock" aria-label="Jiusera 工作台导航">
   <button class="wb-person" data-wb-route="profile" type="button" aria-label="个人资料" title="个人资料">'''+icon('person')+'''</button>
   <div class="wb-dock-entries" id="wbDockEntries">
-  <button class="wb-dock-brand" data-wb-route="published" type="button" aria-label="Jiusera 作品首页" title="Jiusera 作品首页">'''+jiusera_header(color_only=True)+'''</button>
+  <button class="wb-dock-brand" data-wb-route="published" type="button" aria-label="Jiusera 作品首页" title="Jiusera 作品首页">'''+jiusera_header(trim=True)+'''</button>
   <div class="wb-canvas-entry">
   <button data-wb-route="jiusera-canvas" type="button" aria-label="画布" title="画布">'''+icon('settings')+'''<span>画布</span></button>
   </div>
@@ -75,7 +75,7 @@ def chrome(icon):
   <button class="wb-dock-step" type="button" aria-controls="wbDockEntries" aria-label="查看后面的入口" title="查看后面的入口">
    <svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m6 4 4 4-4 4"/></svg>
   </button>
- <button id="wbHomeUpdate" type="button" aria-label="检查更新" hidden disabled aria-describedby="wbHomeUpdateStatus">'''+icon('refresh')+'''</button>
+ <button id="wbHomeUpdate" type="button" aria-label="检查更新" hidden disabled aria-controls="wbUpdateFeedback" aria-expanded="false"><span class="wb-update-face" aria-hidden="true"></span></button>
  <button id="oaLocale" type="button" aria-label="切换到中文">
   <span lang="zh-CN" aria-hidden="true">中文</span><span lang="en" aria-hidden="true">EN</span>
  </button>
@@ -239,8 +239,6 @@ body.oa-management.oa-native[data-color-scheme=dark][data-workbench]{
 .oa-native .wb-titlebar #wbBrand:focus-visible path{
  stroke:var(--wb-focus);stroke-width:2px;vector-effect:non-scaling-stroke
 }
-.oa-native .wb-titlebar #wbBrand img{display:block}
-.oa-native[data-color-scheme=dark] .wb-titlebar #wbBrand img{filter:brightness(1.33)}
 .wb-side-notch{
  position:fixed;z-index:18;inset-inline-end:0;inset-block-start:50%;transform:translateY(-50%);
  display:grid;place-items:center;width:var(--wb-side-width);height:98px;pointer-events:none;transform-origin:right center
@@ -324,8 +322,6 @@ body.oa-management.oa-native.oa-platform-view:not(.oa-wechat-view,.oa-x-workspac
 .oa-management.oa-native[data-workbench] .wb-dock>#wbHomeUpdate[hidden]{display:none}
 .oa-management.oa-native .wb-dock .wb-dock-step{display:none}
 .oa-management .wb-dock .wb-dock-brand .oa-brand-logo{flex:none;width:61px;margin:0}
-.oa-management.oa-native .wb-dock .wb-dock-brand .oa-brand-logo img{display:block}
-.oa-native[data-color-scheme=dark] .wb-dock-brand .oa-brand-logo img{filter:brightness(1.33)}
 .oa-management .wb-dock-entries :is(.oa-icon,.wb-openahoy-mark,.wb-unify-mark){
  display:block;width:16px;height:16px;flex:0 0 16px
 }
@@ -498,71 +494,85 @@ body[data-color-scheme=dark] .wb-openahoy-mark img+img{display:block}
 .oa-management .wb-settings-heading button{min-height:34px;font-weight:600}
 .wb-about-card p{margin-block:5px;color:var(--muted)}
 .wb-settings-board{
- --wb-settings-square:clamp(158px,19vw,232px);--wb-settings-gap:12px;
+ --wb-settings-square:180px;--wb-settings-gap:12px;
  display:grid;gap:var(--wb-settings-gap);align-items:stretch;
- grid-template-columns:var(--wb-settings-square) repeat(8,minmax(0,1fr));
- grid-template-rows:repeat(2,minmax(calc((var(--wb-settings-square) - var(--wb-settings-gap))/2),auto)) auto;
- grid-template-areas:"models version version version version version check check check"
-  "models feedback feedback diagnostics diagnostics diagnostics guide guide canvas"
-  "details details details details details details details details details"
+ max-inline-size:790px;margin-inline:auto;
+ grid-template-columns:var(--wb-settings-square) repeat(3,minmax(0,1fr));
+ grid-template-rows:116px 52px auto;
+ grid-template-areas:"models version version version" "models feedback diagnostics guide"
+  "about about about about"
 }
-.oa-native #openAhoyHome :is(#softwareUpdateSlot,#wbSupportSlot,.oa-support-links,.oa-software-update){display:contents}
+.oa-native #openAhoyHome :is(#softwareUpdateSlot,#wbSupportSlot,.oa-support-links){display:contents}
+@media(min-width:651px){
+ .wb-settings-board:has(.oa-update-history:not([hidden]),.oa-update-installed-row:not([hidden])){
+  grid-template-rows:minmax(116px,auto) 52px auto
+ }
+}
 .wb-settings-board .wb-setting-version{grid-area:version}
-.wb-settings-board .oa-update-actions{grid-area:check}
 .wb-settings-board .wb-setting-feedback{grid-area:feedback}
 .wb-settings-board .wb-setting-log{grid-area:diagnostics}
 .wb-settings-board .wb-setting-guide{grid-area:guide}
-.wb-settings-board .wb-setting-canvas{grid-area:canvas}
-.wb-settings-board .wb-setting-update-details{grid-area:details}
-.oa-native #openAhoyHome :is(.wb-model-banner,.wb-setting-action,.wb-setting-version,.wb-setting-update-details,.oa-update-actions){
+.wb-settings-board .wb-setting-about{grid-area:about}
+.oa-native #openAhoyHome :is(.wb-model-banner,.wb-setting-action,.wb-setting-version,.wb-setting-about){
  border:1px solid var(--wb-line);border-radius:15px;background:var(--wb-surface);
  box-shadow:var(--wb-dock-raised);min-width:0;color:var(--wb-ink);
 }
 .oa-native #openAhoyHome .wb-model-banner{
  grid-area:models;box-sizing:border-box;aspect-ratio:1;width:100%;height:auto;min-height:0;align-self:start;
  position:relative;display:flex;align-items:center;justify-content:flex-start;white-space:normal;text-align:start;
- padding:clamp(12px,1.8vw,24px);border-color:light-dark(#d9c5bc,#64504b);
+ padding:clamp(12px,1.8vw,19px);border-color:light-dark(#d9c5bc,#64504b);
  background:linear-gradient(148deg,light-dark(#f1ede9,#362b29),var(--wb-surface) 80%);
 }
 .oa-native #openAhoyHome :is(.wb-model-banner,.wb-setting-action):not(:disabled):active{box-shadow:var(--wb-dock-inset)}
 .oa-native #openAhoyHome :is(.wb-model-banner,.wb-setting-action):focus-visible{outline:2px solid var(--wb-focus,var(--wb-dock-focus));outline-offset:3px}
 .wb-model-banner-copy{display:grid;gap:7px;min-width:0;text-align:start}
 .wb-model-banner-mark{color:light-dark(#9d332b,#f19b89);fill:none;stroke:currentColor;stroke-width:1.4}
-#wbModelBannerTitle{font-size:clamp(18px,2vw,29px);letter-spacing:-.035em;line-height:1.12;font-weight:760}
+#wbModelBannerTitle{font-size:clamp(18px,2vw,23px);letter-spacing:-.035em;line-height:1.12;font-weight:760}
 #wbModelBannerFeature{color:var(--muted);font-size:clamp(11px,1vw,13px);line-height:1.35;font-weight:550;overflow-wrap:anywhere}
 .wb-model-banner-action{position:absolute;inset:16px 16px auto auto;display:grid;place-items:center;color:var(--wb-ink)}
 .oa-native #openAhoyHome .wb-setting-action{
  display:flex;align-items:center;justify-content:space-between;gap:7px;
  min-height:52px;padding:12px clamp(10px,1.15vw,18px);white-space:normal;text-align:start;font-weight:670;line-height:1.25
 }
-.wb-setting-action:not(:disabled)::after,.oa-update-actions button:not(:disabled)::after{
+.wb-setting-action:not(:disabled)::after{
  content:"";flex:none;width:6px;height:6px;border:solid currentColor;border-width:1.5px 1.5px 0 0;rotate:45deg;opacity:.72
 }
-.wb-setting-version{display:grid;align-content:center;gap:4px;padding:13px clamp(10px,1.15vw,18px);font-size:12px;line-height:1.35}
-.wb-setting-version .oa-update-version{font-size:13px}
-.wb-setting-version .oa-update-versions{gap:2px;max-width:310px}
-.wb-setting-version .oa-update-status{margin:2px 0 0}
-.oa-native #openAhoyHome .oa-update-actions{display:grid;align-content:center;gap:1px;padding:4px}
-.oa-native #openAhoyHome .oa-update-actions button{
- width:100%;min-height:40px;display:flex;align-items:center;justify-content:space-between;
- padding:7px clamp(9px,1.15vw,16px);font-family:inherit;font-size:13px;font-weight:650;line-height:1.25
+.wb-setting-version,.wb-setting-about{padding:13px clamp(11px,1.5vw,19px);font-size:12px;line-height:1.4}
+.oa-native #openAhoyHome .wb-setting-version{
+ display:grid;align-content:center;justify-content:stretch;grid-template-columns:minmax(0,1fr);gap:3px
 }
-.wb-setting-update-details{padding:8px 14px}
-.wb-setting-update-details:not(:has(.oa-update-job:not(:empty),details:not([hidden]))){display:none}
-.wb-setting-update-details details+details{margin-top:5px}
-@media(max-width:760px){
- .wb-settings-board{--wb-settings-square:clamp(112px,34vw,156px);--wb-settings-gap:9px;
+.oa-update-version-header{display:flex;align-items:center;justify-content:space-between;gap:5px}
+.wb-setting-version .oa-update-version{font-size:14px}
+.wb-setting-version .oa-update-versions{gap:2px;max-width:300px}
+.wb-setting-version .oa-update-status{margin:1px 0 0}
+.oa-native #openAhoyHome .oa-update-check{
+ flex:none;min-height:32px;padding:4px 9px;font-size:12px;line-height:1.2;white-space:normal
+}
+.wb-setting-about h2{margin:0 0 4px;font-size:15px}
+.wb-setting-about p{margin:0;color:var(--muted)}
+.wb-about-links{display:flex;flex-wrap:wrap;gap:2px 18px;margin-top:7px}
+.wb-about-links a{display:inline-flex;align-items:center;min-height:30px;color:var(--wb-ink);text-underline-offset:3px}
+@media(max-width:650px){
+ .wb-settings-board{--wb-settings-square:clamp(100px,31vw,145px);--wb-settings-gap:9px;
   grid-template-columns:var(--wb-settings-square) minmax(0,1fr);grid-template-rows:auto;
-  grid-template-areas:"models version" "check check" "feedback diagnostics" "guide canvas" "details details"
+  grid-template-areas:"models version" "feedback diagnostics" "guide guide" "about about"
  }
- .oa-native #openAhoyHome .wb-model-banner{padding:12px}
+ .oa-native #openAhoyHome .wb-model-banner{padding:11px}
  .wb-model-banner-copy{gap:4px}
- .wb-model-banner-mark{width:23px;height:23px}
- .wb-model-banner-action{inset:11px 9px auto auto}
- .wb-model-banner-action svg{width:15px;height:15px}
+ .wb-model-banner-mark{width:22px;height:22px}
+ .wb-model-banner-action{inset:10px 8px auto auto}
+ .wb-model-banner-action svg{width:14px;height:14px}
  #wbModelBannerTitle{font-size:16px}
  #wbModelBannerFeature{font-size:11px;line-height:1.28}
  .wb-setting-version{align-self:stretch;font-size:11px}
+ .wb-setting-version .oa-update-version{font-size:12px}
+ .oa-native #openAhoyHome .oa-update-check{
+  max-inline-size:56%;padding:4px 5px;font-size:11px;white-space:normal;text-align:center
+ }
+ .wb-about-links a{min-height:38px}
+}
+@media(max-width:390px){
+ html[lang=en] #wbModelBannerTitle{font-size:14px}
 }
 .oa-native :is(#wbModels,#wbAudioWork){width:100%;min-width:0;flex:1;min-height:0;overflow:auto;
  padding:var(--wb-top) calc(var(--wb-side-width) + 12px) var(--wb-dock)}
@@ -949,12 +959,13 @@ function OAWorkbench({open, readAnalytics, readActivity, openActivity, openLink,
  let tipButton;
  function placeDockTip(){
    if(!tipButton)return;
-   const button=tipButton.getBoundingClientRect(),track=dockEntries.getBoundingClientRect();
-   dockTip.hidden=!tipButton.closest('.wb-dock-expansion[data-open]')||
-     button.right<=track.left||button.left>=track.right;
+   const statusControl=tipButton.id==='wbHomeUpdate';
+   const button=tipButton.getBoundingClientRect(),view=document.documentElement.clientWidth;
+   const track=statusControl?{left:0,right:view}:dockEntries.getBoundingClientRect();
+   dockTip.hidden=tipButton.hidden||(statusControl?tipButton.getAttribute('aria-expanded')==='true':
+     !tipButton.closest('.wb-dock-expansion[data-open]'))||button.right<=track.left||button.left>=track.right;
    if(dockTip.hidden)return;
    dockTip.textContent=tipButton.getAttribute('aria-label');
-   const view=document.documentElement.clientWidth;
    dockTip.style.left=Math.max(8,Math.min(view-dockTip.offsetWidth-8,
      (Math.max(button.left,track.left)+Math.min(button.right,track.right)-dockTip.offsetWidth)/2))+'px';
    dockTip.style.top=(button.top-dockTip.offsetHeight-9)+'px';
@@ -979,6 +990,13 @@ function OAWorkbench({open, readAnalytics, readActivity, openActivity, openLink,
  dockEntries.addEventListener('focusout',event=>{
    if(event.target===tipButton)targetDockTip(null);
  });
+ const updateControl=$('wbHomeUpdate');
+ updateControl.addEventListener('pointerenter',event=>{if(event.pointerType==='mouse')targetDockTip(updateControl);});
+ updateControl.addEventListener('pointerleave',()=>{if(tipButton===updateControl&&!updateControl.matches(':focus-visible'))targetDockTip(null);});
+ updateControl.addEventListener('focus',()=>{if(updateControl.matches(':focus-visible'))targetDockTip(updateControl);});
+ updateControl.addEventListener('blur',()=>{if(tipButton===updateControl)targetDockTip(null);});
+ new MutationObserver(()=>{if(tipButton===updateControl)placeDockTip();})
+  .observe(updateControl,{attributes:true,attributeFilter:['aria-label','hidden','aria-expanded']});
  dockEntries.addEventListener('scroll',placeDockTip,{passive:true});
  dockEntries.addEventListener('transitionend',event=>{
    if(event.propertyName!=='width'||!event.target.matches('[data-wb-disclosure][data-open]'))return;

@@ -9,6 +9,7 @@ import stat
 import re
 import subprocess
 from urllib.parse import quote
+from zlib import compress
 
 from .bounded_file import FileSource, file_state
 from .contracts import WCEError
@@ -24,6 +25,7 @@ AUDIO_TYPES = {'.wav': 'audio/wav', '.flac': 'audio/flac', '.mp3': 'audio/mpeg',
                '.m4a': 'audio/mp4', '.aiff': 'audio/aiff', '.aif': 'audio/aiff'}
 IMAGE_TYPES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp'}
 CHUNK = 384 * 1024
+SOURCE_CHUNK = 768 * 1024
 
 
 class StudioError(WCEError):
@@ -82,14 +84,22 @@ def media_pin(root, relative, wanted, types=AUDIO_TYPES):
     return path, pin
 
 
-def chunk(root, relative, wanted, offset, types=AUDIO_TYPES):
+def chunk(root, relative, wanted, offset, types=AUDIO_TYPES, *, coding=None):
     path, pin = media_pin(root, relative, wanted, types)
     size = pin[2]
     require(type(offset) is int and 0 <= offset < size, 'studio_media_offset')
+    limit = SOURCE_CHUNK if coding is not None else CHUNK
     raw = b''.join(FileSource(root).iter_html(relative, expected_state=pin, offset=offset,
-                                             length=min(CHUNK, size - offset)))
-    return {'offset': offset, 'total': size, 'sha256': wanted,
-            'mime': types[path.suffix.lower()], 'bytes': b64encode(raw).decode('ascii')}
+                                             length=min(limit, size - offset)))
+    result = {'offset': offset, 'total': size, 'sha256': wanted, 'mime': types[path.suffix.lower()]}
+    if coding is not None:
+        result.update(size=len(raw), coding='identity')
+        if coding == 'deflate' and path.suffix.lower() == '.wav':
+            packed = compress(raw, 1)
+            if len(packed) < .95 * len(raw):
+                raw = packed
+                result['coding'] = 'deflate'
+    return result | {'bytes': b64encode(raw).decode('ascii')}
 
 
 def cover_media(root, cover):
@@ -227,6 +237,12 @@ def normalize_catalog(root, project_id, contents, *, include_recent=False):
         adopted = song.get('adopted', takes[0]['id'])
         require(adopted in used, 'studio_catalog_invalid')
         item = {'id': song['id'], 'name': song['name'], 'versions': takes, 'adopted': adopted}
+        bpm, meter = song.get('bpm'), song.get('meter')
+        if type(bpm) in (int, float) and 20 <= bpm <= 400:
+            item['bpm'] = bpm
+        if (type(meter) is dict and type(meter.get('beats')) is int and 1 <= meter['beats'] <= 32
+                and type(meter.get('note')) is int and meter['note'] in (1, 2, 4, 8, 16, 32)):
+            item['meter'] = {'beats': meter['beats'], 'note': meter['note']}
         for name, limit in (('reference', 64), ('category', 64), ('credits', 280), ('note', 1200)):
             if type(song.get(name)) is str and 0 < len(song[name].strip()) <= limit:
                 item[name] = song[name]

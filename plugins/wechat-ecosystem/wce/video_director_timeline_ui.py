@@ -1106,7 +1106,7 @@ function OADirectorTimeline({read,edit,frames,exactFrame,chunk,audioChunk,master
    if((event.code!=='Space'&&event.key!==' ')||event.defaultPrevented||event.isComposing||event.keyCode===229||
       event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||!editingVideo())return;
    const el=event.composedPath()[0];
-   if(el?.isContentEditable||el?.closest?.('textarea,[role=textbox]')||
+   if(el?.isContentEditable||el?.closest?.('textarea,[role=textbox],#ruler-scales button')||
       (el?.tagName==='INPUT'&&['text','search','email','url','tel','password','file'].includes(el.type))||
       [...document.querySelectorAll('dialog[open],[role=dialog],[aria-modal=true]')].some(node=>node.getClientRects().length))return;
    const canPlayCut=s?.loaded&&!root.hidden&&!$('Play').disabled;

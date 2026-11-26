@@ -168,6 +168,24 @@ class TestPictures(unittest.TestCase):
         self.groups[(owner,'document-'+owner)] = [{'article_type':'news','title':'已有图文',
             'content':'<p>本号原文</p>','thumb_media_id':'cover-'+owner,'digest':'现有摘要'}]
 
+    def test_normal_article_create_and_edit_share_permanent_cover_contract(self):
+        cover=self.call('upload_image',request_key='news-cover',source=self.source)
+        self.assertEqual(cover['state'],'MEDIA_READY')
+        article={'title':'本号图文','content':'<p>正文一</p>','cover_handle':cover['operation_handle']}
+        with self.assertRaises(WCEError):
+            self.call('create_news',service=self.other,request_key='wrong-cover',article=article)
+        created=self.call('create_news',request_key='news-create',article=article)
+        self.assertEqual(created['state'],'VERIFIED')
+        self.assertEqual(self.call('create_news',request_key='news-create',article=article),created)
+        selection=self.selections()[0]
+        saved=self.call('update_news',request_key='news-edit',selection=selection,index=0,
+                        changes={'content':'<p>正文二</p>','cover_handle':cover['operation_handle']})
+        self.assertEqual(saved['state'],'VERIFIED')
+        self.assertEqual(next(iter(self.groups.values()))[0]['content'],'<p>正文二</p>')
+        self.assertEqual(self.requests.count(('A','/cgi-bin/draft/add')),1)
+        self.assertEqual(self.requests.count(('A','/cgi-bin/draft/update')),1)
+        self.assertFalse(any(path.startswith('/cgi-bin/freepublish/') for _,path in self.requests))
+
     def selections(self, service=None):
         service=service or self.service
         result=current_draft_inventory.execute(service,{'connection_id':service.policy.data['connection_id']},time.monotonic()+60)

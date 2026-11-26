@@ -72,7 +72,7 @@ export function mountTimelineSelection(studio) {
     }
     overlay.style.left = 100*range.start/length+"%";
     overlay.style.width = 100*(range.end-range.start)/length+"%";
-    const label = s => studio.imw.enabled() ? studio.frameRuler.label(s) : s.toFixed(3)+" s";
+    const label = s => studio.rulerLabel(s);
     caption.textContent = label(range.start)+" – "+label(range.end);
     overlay.dataset.start = range.start;
     overlay.dataset.end = range.end;

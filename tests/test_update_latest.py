@@ -202,20 +202,24 @@ class Install(unittest.TestCase):
         self.fail('The isolated worker did not reach a terminal receipt')
 
     def test_selected_version_is_rechecked_before_download(self):
-        for advertisement, code in [
+        for index, (advertisement, code) in enumerate([
             ({'state': 'CHECK_UNAVAILABLE'}, 'UPDATE_CHECK_UNAVAILABLE'),
             ({'state': 'UPDATE_AVAILABLE', 'latest_version': '0.6.83', 'advertised_revision': PIN},
              'UPDATE_ADVERTISEMENT_CHANGED'),
             ({'state': 'UPDATE_AVAILABLE', 'latest_version': '0.6.82', 'advertised_revision': 'b' * 40},
              'UPDATE_ADVERTISEMENT_CHANGED'),
-        ]:
+        ]):
             with self.subTest(code=code):
+                attempt=self.path / f'isolated-advertisement-{index}'
+                attempt.mkdir(mode=0o700)
                 worker = installation.UpdateInstaller(
-                    '0.6.76', self.path / 'connections.json', checker=Mock(return_value=advertisement),
+                    '0.6.76', attempt / 'connections.json', checker=Mock(return_value=advertisement),
                     download=Mock(), switch=Mock())
                 request_id = os.urandom(16).hex()
-                worker.start('0.6.82', PIN, request_id)
-                self.assertEqual(self.await_status(worker, request_id)['code'], code)
+                started=worker.start('0.6.82', PIN, request_id)
+                self.assertEqual(started['state'],'CHECKING')
+                terminal=self.await_status(worker, request_id)
+                self.assertEqual((terminal['state'],terminal['code']),('FAILED',code))
                 worker.download.assert_not_called()
                 worker.switch.assert_not_called()
 

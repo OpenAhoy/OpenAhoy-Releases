@@ -7,6 +7,11 @@
   border-radius:var(--clip-radius);
   box-shadow:inset 2px 3px 7px var(--relief-shadow),inset -2px -3px 6px var(--relief-light);
 }
+.clip-group[data-loading] {
+  background:color-mix(in srgb,var(--canvas) 96%,var(--ink));
+  border-radius:var(--clip-radius);
+}
+.clip:disabled:has(canvas[data-wave]) { opacity:1; }
 .clip {
   position:absolute; inset:0;
   width:100%; height:100%; padding:0; cursor:var(--clip-cursor,crosshair);

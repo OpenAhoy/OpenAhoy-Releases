@@ -43,10 +43,7 @@ export function mountFrameRuler(studio) {
   grid.setAttribute("aria-hidden", "true");
   grid.append(lines);
   ruler.append(grid);
-  const cursor = document.createElement("span");
-  cursor.className = "frame-time";
   const originalTitle = ruler.title;
-  $("ruler-unit").before(cursor);
   menu.replaceChildren(...Array.from(choices, ([value, label]) => new Option(label, value)));
   const scroll = $("scroll"), zoom = $("imw-frame-zoom");
   let savedScroll = 0, scrollFrame = 0;
@@ -61,48 +58,49 @@ export function mountFrameRuler(studio) {
       const value = Math.max(scroll.clientWidth, axis * rate.n / rate.d * 12) + "px";
       if (lane.style.getPropertyValue("--frame-zoom-width") !== value) lane.style.setProperty("--frame-zoom-width", value);
     }
+    if (studio.rulerScale() !== "timecode") {rendered = "";return;}
+    const scale = studio.imw?.enabled() ? rate : frameRate();
     const width = lane.getBoundingClientRect().width;
-    const pixelsPerFrame = width * rate.d / (axis * rate.n);
+    const pixelsPerFrame = width * scale.d / (axis * scale.n);
     if (pixelsPerFrame <= 0) return;
     const viewport = Math.max(1, scroll.clientWidth);
     const page = Math.floor(scroll.scrollLeft / viewport);
-    const signature = [width, axis, rateKey, viewport, page].join("/");
+    const signature = [width, axis, scale.n, scale.d, scale.drop, viewport, page].join("/");
     if (signature === rendered) return;
     rendered = signature;
     // Only materialize frame boundaries near the viewport. Each line is located on the rational time grid.
     const firstFrame = Math.max(0, Math.floor((page - 1) * viewport / pixelsPerFrame));
     const origin = firstFrame * pixelsPerFrame;
-    const lastFrame = Math.min(Math.ceil(axis * rate.n / rate.d), Math.ceil((page + 3) * viewport / pixelsPerFrame));
+    const lastFrame = Math.min(Math.ceil(axis * scale.n / scale.d), Math.ceil((page + 3) * viewport / pixelsPerFrame));
     grid.style.left = origin + "px";
     grid.style.width = Math.max(0, Math.min(width, lastFrame * pixelsPerFrame) - origin) + "px";
     const divisions = [];
     // Thin only subpixel marks. Every visible tick remains on the exact source frame grid.
     const stride = Math.max(1,Math.ceil(2/pixelsPerFrame));
     for (let i = Math.ceil(firstFrame/stride)*stride; i < lastFrame; i+=stride) {
-      const height = i % rate.nominal === 0 ? 14 : i % 5 === 0 ? 10 : 6;
+      const height = i % scale.nominal === 0 ? 14 : i % 5 === 0 ? 10 : 6;
       divisions.push("M"+((i-firstFrame)*pixelsPerFrame+.5).toFixed(3)+" 0v"+height);
     }
     lines.setAttribute("d", divisions.join(""));
-    let step = [1, 2, 5, 10, rate.nominal, rate.nominal * 2, rate.nominal * 5]
+    let step = [1, 2, 5, 10, scale.nominal, scale.nominal * 2, scale.nominal * 5]
       .sort((a,b) => a-b).find(frames => frames * pixelsPerFrame >= 95);
-    if (!step) step = rate.nominal * 10 * Math.ceil(95 / (rate.nominal * 10 * pixelsPerFrame));
+    if (!step) step = scale.nominal * 10 * Math.ceil(95 / (scale.nominal * 10 * pixelsPerFrame));
     const ticks = [];
     const start = Math.max(0, Math.floor((page - 1) * viewport / (step * pixelsPerFrame)) * step);
     const end = Math.min(width - 78, (page + 3) * viewport);
     for (let frame = start; frame * pixelsPerFrame < end; frame += step) {
       const tick = document.createElement("span");
-      tick.style.left = 100 * frame * rate.d / (axis * rate.n) + "%";
-      tick.textContent = frameLabel(frame, rate);
+      tick.style.left = 100 * frame * scale.d / (axis * scale.n) + "%";
+      tick.textContent = frameLabel(frame, scale);
       ticks.push(tick);
     }
     $("ticks").replaceChildren(...ticks);
     // Use only coarse time divisions across the media rows.
-    const second = rate.nominal * pixelsPerFrame;
+    const second = scale.nominal * pixelsPerFrame;
     const coarse = second >= 8 ? second : second * Math.ceil(95 / second);
     lane.style.setProperty("--major-step", coarse + "px");
     lane.removeAttribute("data-detail");
     lane.removeAttribute("data-beat");
-    $("ruler-unit").textContent = "时间";
   }
 
   function sync(next) {
@@ -118,7 +116,7 @@ export function mountFrameRuler(studio) {
     }
     const source = next.frameRate;
     const fps = selected === "auto" ? source || "30/1" : selected;
-    if (fps !== rateKey || !cursor.getAttribute("data-shown")) {
+    if (fps !== rateKey) {
       cancelGesture();
       rateKey = fps;
       rate = frameRate(fps);
@@ -126,14 +124,16 @@ export function mountFrameRuler(studio) {
       const origin = source ? (rate.n / rate.d).toFixed(3).replace(/\.?0+$/, "") : "默认 30";
       menu.options[0].text = selected === "auto" ? "跟随素材（" + origin + " fps）" : "跟随素材";
       ruler.title = "点击定位，拖动划定时间选区，← / → 逐帧";
-      cursor.setAttribute("data-shown", "true");
     }
     document.addEventListener("keydown", stepWithKeyboard);
     draw(studio.imw.displayLength(next));
-    const label = frameLabel(frameAt(next.seconds || 0, rate), rate);
-    if (cursor.textContent !== label) cursor.textContent = label;
+    updateLabel();
+  }
 
-    seek.setAttribute("aria-valuetext", label);
+  function updateLabel() {
+    if (!clock) return;
+    const label = studio.rulerLabel(clock.seconds || 0);
+    if (seek.getAttribute("aria-valuetext") !== label) seek.setAttribute("aria-valuetext", label);
   }
 
   function clampFrame(frame) {
@@ -167,7 +167,7 @@ export function mountFrameRuler(studio) {
         gesture || event.defaultPrevented || event.isComposing || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     const target = event.composedPath()[0];
-    if (target !== seek && (target.isContentEditable || target.closest?.("#regions .clip-group,.trim-handle,input,textarea,select,[role=slider],[role=spinbutton],[role=menu],[role=listbox],[role=tablist],[role=separator],dialog,[popover]:popover-open"))) return;
+    if (target !== seek && (target.isContentEditable || target.closest?.("#ruler-scales,#regions .clip-group,.trim-handle,input,textarea,select,[role=slider],[role=spinbutton],[role=menu],[role=listbox],[role=tablist],[role=separator],dialog,[popover]:popover-open"))) return;
     event.preventDefault();
     const current = globalThis.OAIMWVideo?.state?.()?.seconds ?? clock.seconds;
     seekFrame(frameAt(current, rate) + (event.key === "ArrowRight" ? 1 : -1));
@@ -178,13 +178,13 @@ export function mountFrameRuler(studio) {
     if (zoomed()) savedScroll = scroll.scrollLeft;
     studio.toggleAttribute("data-frame-zoom", zoomed());
     rendered = "";
-    draw(studio.imw.displayLength(clock));
+    studio.drawRuler();
     scroll.scrollLeft = zoomed() ? Math.max(0, clock.seconds / axis * $("lane").clientWidth - scroll.clientWidth / 2) : savedScroll;
     studio.paint();
   };
   scroll.addEventListener("scroll", () => {
-    if (!studio.imw?.enabled() || scrollFrame) return;
-    scrollFrame = requestAnimationFrame(() => {scrollFrame = 0; if (studio.imw.enabled()) draw(axis);});
+    if (studio.rulerScale() !== "timecode" || scrollFrame) return;
+    scrollFrame = requestAnimationFrame(() => {scrollFrame = 0; if (studio.rulerScale() === "timecode") draw(axis);});
   }, {passive:true});
   menu.onchange = () => {
     if (!clock || !scope) return;
@@ -231,11 +231,14 @@ export function mountFrameRuler(studio) {
     event.stopImmediatePropagation();
     if (!event.detail && event.clientX) seekFrame(pointerFrame(event));
   }, true);
-  return { draw, sync, current:seconds=>frameAt(seconds,rate)*rate.d/rate.n, snap:seconds=>Math.round(seconds*rate.n/rate.d)*rate.d/rate.n,
-    label:seconds=>frameLabel(Math.round(seconds*rate.n/rate.d),rate), audioScroll:() => zoomed() ? savedScroll : scroll.scrollLeft, reset() {
+  return { draw, sync, updateLabel, current:seconds=>frameAt(seconds,rate)*rate.d/rate.n, snap:seconds=>Math.round(seconds*rate.n/rate.d)*rate.d/rate.n,
+    label(seconds){
+      const scale = studio.imw?.enabled() ? rate : frameRate();
+      return frameLabel(frameAt(seconds,scale),scale);
+    }, audioScroll:() => zoomed() ? savedScroll : scroll.scrollLeft, reset() {
     cancelGesture();
     document.removeEventListener("keydown", stepWithKeyboard);
-    rendered = ""; ruler.title = originalTitle; cursor.removeAttribute("data-shown");
+    rendered = ""; rateKey = ""; ruler.title = originalTitle;
     lane.style.removeProperty("--frame-zoom-width");
     studio.removeAttribute("data-frame-zoom"); zoom.value = "audio";
   } };

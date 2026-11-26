@@ -25,3 +25,20 @@ export function timelineGrid({ length, width, bpm, meter }) {
   }
   return { unit: "时间", labels, major: step, beat: step / 5 * pixels >= 9 ? step / 5 : 0, detail: 0 };
 }
+
+
+export function sampleGrid({ length, width, sampleRate }) {
+  const end = length * sampleRate;
+  const minimum = Math.max(1, 86 * end / width);
+  const scale = 10 ** Math.floor(Math.log10(minimum));
+  const steps = [1, 2, 5, 10].map(n => n * scale);
+  let stride = steps.find(n => n >= minimum);
+  if (width >= 120 && stride >= end) stride = steps.reverse().find(n => n < end) ?? stride;
+  const major = stride / sampleRate;
+  const labels = [];
+  for (let sample = 0; sample < end; sample += stride) {
+    labels.push({ at: sample / sampleRate, label: String(sample) });
+  }
+  const beat = stride >= 5 && major * width / length >= 50 ? major / 5 : 0;
+  return { labels, major, beat, detail: 0 };
+}

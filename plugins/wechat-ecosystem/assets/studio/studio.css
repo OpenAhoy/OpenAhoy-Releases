@@ -120,6 +120,14 @@ button:focus-visible,summary:focus-visible,select:focus-visible,.ruler:not([data
 .track-name:hover .track-chevron,.track-name[aria-expanded=true] .track-chevron { opacity:1; }
 .track-label { min-width:0; font-size:12px; font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .track-offline { font-size:9px; color:var(--muted); white-space:nowrap; order:1; }
+#load-progress {
+  display:flex; align-items:center; gap:8px; padding:4px 10px; min-height:25px;
+  flex:none; background:var(--layer); color:var(--muted); font-size:11px;
+}
+#load-meter {
+  width:clamp(42px,15vw,126px); height:7px; margin-inline-start:auto;
+  accent-color:var(--accent);
+}
 .track-chevron {
   width:6px; height:6px; flex:none; margin-inline-start:auto; margin-inline-end:2px; order:2;
   border:solid currentColor; border-width:0 1.5px 1.5px 0;
@@ -463,14 +471,20 @@ aside {
 :host([data-imw-video]) :is(#imw-frame-rate-field,#imw-frame-zoom-field) {display:inline-flex;align-items:center;gap:5px}
 :host([data-imw-video]) {--ruler-height:40px}
 :host([data-imw-video]) .track-heading,:host([data-imw-video]) .ruler {height:var(--ruler-height)}
-.frame-time {display:none}
+:host([data-ruler-format=timecode]) {--audio-ruler-height:40px}
 :host([data-imw-video]) .ruler {overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;}
-:host([data-imw-video]) .track-heading > span:first-child {display:none}
-:host([data-imw-video]) .track-heading .frame-time {
-  display:inline; font:600 10px/1 ui-monospace,monospace; font-variant-numeric:tabular-nums;
-  color:var(--ink); white-space:nowrap
+:host([data-ruler-format=timecode]) .ruler #ticks span {top:2px;line-height:17px;white-space:nowrap}
+#ruler-scales {display:flex;align-items:center;justify-content:center;gap:5px;width:100%}
+#ruler-scales button {
+  display:grid;place-items:center;flex:0 0 24px;width:24px;height:24px;min-height:0;padding:0;
+  border:0;border-radius:50%;color:var(--ink);background:var(--canvas);box-shadow:var(--soft-raise);
 }
-:host([data-imw-video]) .ruler #ticks span {top:2px;line-height:17px;white-space:nowrap}
+#ruler-scales button[aria-pressed=true] {
+  color:var(--accent);background:var(--selected);box-shadow:var(--soft-inset);
+}
+#ruler-scales button:focus-visible {outline:2px solid var(--focus);outline-offset:1px}
+#ruler-scales button:is(:active,[data-jiu-pressed]) {box-shadow:var(--soft-inset)}
+#ruler-scales svg {width:15px;height:15px}
 
 :host([data-imw-video]) #imw-add-track:not([hidden]) {display:block;max-width:calc(100% - 8px);margin:4px;min-height:24px;font-size:10px;}
 :host([data-imw-video]) #imw-captions {display:inline-flex;margin-bottom:6px}
@@ -547,7 +561,7 @@ aside {
 
 :host([data-imw-video][data-frame-zoom]) #lane {width:var(--frame-zoom-width)!important}
 .frame-marks {display:none;position:absolute;top:20px;height:18px;overflow:hidden;pointer-events:none}
-:host([data-imw-video]) .frame-marks {display:block;border-top:1px solid var(--line)}
+:host([data-ruler-format=timecode]) .frame-marks {display:block;border-top:1px solid var(--line)}
 .frame-marks path {fill:none;stroke:var(--muted);stroke-width:1;shape-rendering:crispEdges}
 #lane {cursor:crosshair}
 :host([data-command-grab]) {

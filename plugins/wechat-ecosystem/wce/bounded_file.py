@@ -105,8 +105,9 @@ class FileSource:
     def read_wechat_video(self, relative_path):
         return self._read(relative_path, MAX_WECHAT_VIDEO_BYTES)
 
-    def iter_html(self, relative_path, *, guard=lambda: None, expected_state=None, offset=0, length=None):
-        """Normal HTML source stream; total image/page bytes are not a quota."""
+    @contextmanager
+    def open_pinned(self, relative_path, *, expected_state=None):
+        """Open a seekable regular file and recheck its identity on successful use."""
         if (type(relative_path) is not str or not relative_path or len(relative_path)>4096
                 or relative_path.startswith('/') or ':' in relative_path or "\x00" in relative_path):
             raise WCEError('INVALID_LOCAL_FILE')
@@ -123,6 +124,18 @@ class FileSource:
             if (not stat.S_ISREG(before.st_mode) or before.st_nlink!=1
                     or before.st_uid!=os.getuid() or before.st_size<=0):raise WCEError('INVALID_LOCAL_FILE')
             if expected_state is not None and tuple(expected_state)!=file_state(before):raise WCEError('LOCAL_FILE_CHANGED')
+            yield fd, before
+            after=os.fstat(fd);entry=os.stat(parts[-1],dir_fd=parent,follow_symlinks=False)
+            if file_state(before)!=file_state(after) or file_state(after)!=file_state(entry):
+                raise WCEError('LOCAL_FILE_CHANGED')
+            self._check_chain(chain)
+        except OSError:
+            raise WCEError('INVALID_LOCAL_FILE') from None
+        finally:self._close(descriptors)
+
+    def iter_html(self, relative_path, *, guard=lambda: None, expected_state=None, offset=0, length=None):
+        """Normal HTML source stream; total image/page bytes are not a quota."""
+        with self.open_pinned(relative_path, expected_state=expected_state) as (fd,before):
             if type(offset)is not int or not 0<=offset<=before.st_size:raise WCEError('INVALID_LOCAL_FILE')
             if length is not None and (type(length) is not int or not 0 <= length <= before.st_size - offset):
                 raise WCEError('LOCAL_FILE_CHANGED')
@@ -135,13 +148,9 @@ class FileSource:
                 chunk=os.read(fd,min(CHUNK_BYTES,end-total))
                 if not chunk:break
                 total+=len(chunk);yield chunk
-            after=os.fstat(fd);entry=os.stat(parts[-1],dir_fd=parent,follow_symlinks=False)
-            if file_state(before)!=file_state(after) or file_state(after)!=file_state(entry) or total!=end:
+            if total!=end:
                 raise WCEError('LOCAL_FILE_CHANGED')
-            self._check_chain(chain);guard()
-        except OSError:
-            raise WCEError('INVALID_LOCAL_FILE') from None
-        finally:self._close(descriptors)
+        guard()
 
     def _read(self, relative_path, maximum):
         if type(maximum) is not int or maximum not in (MAX_ASSET_BYTES, MAX_SOURCE_HTML_BYTES, MAX_WECHAT_VIDEO_BYTES):

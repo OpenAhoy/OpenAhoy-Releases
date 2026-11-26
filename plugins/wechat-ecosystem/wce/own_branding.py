@@ -17,10 +17,17 @@ def video_model_mark():
     return 'data:image/png;base64,' + base64.b64encode(raw).decode('ascii')
 
 
+def _dark_deer(artwork):
+    return artwork.replace(b'fill="#111111"', b'fill="#FFFFFF"', 1)
+
+
+def _svg_data(artwork):
+    return 'data:image/svg+xml;base64,' + base64.b64encode(artwork).decode('ascii')
+
+
 def jiusera_symbols():
-    return tuple('data:image/svg+xml;base64,' + base64.b64encode(
-        (_PACKAGE / f'assets/jiusera/Jiusera-symbol-{variant}.svg').read_bytes()
-    ).decode('ascii') for variant in ('color', 'white'))
+    artwork = (_ASSETS / 'Jiusera-symbol-color.svg').read_bytes()
+    return _svg_data(artwork), _svg_data(_dark_deer(artwork))
 
 
 def icons():
@@ -36,17 +43,14 @@ def host_icons():
 
 
 @cache
-def jiusera_header(color_only=False):
-    images = []
-    for variant in ('color',) if color_only else ('color', 'white'):
-        raw = (_PACKAGE / f'assets/jiusera/Jiusera-horizontal-{variant}.svg').read_bytes()
-        if color_only:
-            # Trim the official wordmark's asymmetric horizontal transparent margins in the notch.
-            raw = raw.replace(b'width="1420" height="485" viewBox="0 0 1420 485"',
-                              b'width="1196" height="485" viewBox="96 0 1196 485"', 1)
-        src = 'data:image/svg+xml;base64,' + base64.b64encode(raw).decode('ascii')
-        images.append(f'<img src="{src}" alt="">')
-    return '<span class="oa-brand-logo oa-jiusera-logo" role="img" aria-label="Jiusera">' + ''.join(images) + '</span>'
+def jiusera_header(trim=False):
+    artwork = HORIZONTAL.encode('utf-8')
+    if trim:
+        # Balance the official wordmark's asymmetric transparent margins in the notch.
+        artwork = artwork.replace(b'width="1420" height="485" viewBox="0 0 1420 485"',
+                                  b'width="1196" height="485" viewBox="96 0 1196 485"', 1)
+    images = ''.join(f'<img src="{_svg_data(svg)}" alt="">' for svg in (artwork, _dark_deer(artwork)))
+    return '<span class="oa-brand-logo oa-jiusera-logo" role="img" aria-label="Jiusera">' + images + '</span>'
 
 
 def header(artwork=HORIZONTAL):

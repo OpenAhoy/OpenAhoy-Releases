@@ -7,50 +7,90 @@ from .management_locale import FALLBACK, mark_chrome
 
 STYLE = """
 #softwareUpdateSlot:empty{display:none}
-.oa-management .oa-software-update{--update-text:#075536;--update-bg:#d9f4e5;--update-hover:#c5ecd7;display:grid;gap:8px;min-width:0;padding:10px;border:0;border-radius:10px;background:var(--soft);box-shadow:none;font-size:11px;line-height:1.45}
-body.oa-management[data-color-scheme=dark] .oa-software-update{--update-text:#b7f5d2;--update-bg:#18392b;--update-hover:#234d38}
-@media(prefers-color-scheme:dark){body.oa-management:not([data-color-scheme=light]) .oa-software-update{--update-text:#b7f5d2;--update-bg:#18392b;--update-hover:#234d38}}
 #wbHomeUpdateStatus{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;pointer-events:none}
-.oa-management[data-workbench] .wb-dock>#wbHomeUpdate[data-update=available]{color:light-dark(#08704a,#8aebba)}
-.oa-management[data-workbench] .wb-dock>#wbHomeUpdate:is([data-update=error],[data-update=recovery],[data-update=restart]){
- color:light-dark(#925311,#f1b977)
+body.oa-management.oa-native[data-workbench] .wb-dock>#wbHomeUpdate[data-update]{
+ --update-signal:light-dark(#384954,#445661);--update-halo:transparent;
+ position:relative;color:white;background:var(--update-signal);
+ box-shadow:inset 0 1px 1px #ffffff35,0 2px 4px #0003;
+ opacity:1;isolation:isolate;
 }
-.oa-update-version{font-size:12px;font-weight:700;color:var(--ink)}
-.oa-update-versions{margin:0;display:grid;gap:4px;font-variant-numeric:tabular-nums}
+body.oa-management.oa-native[data-workbench] .wb-dock>#wbHomeUpdate[data-update=available]{
+ --update-signal:#177750;--update-halo:#359d7365;
+}
+body.oa-management.oa-native[data-workbench] .wb-dock>#wbHomeUpdate[data-update=restart]{
+ --update-signal:#ac2b40;--update-halo:#d34b6365;
+}
+body.oa-management.oa-native[data-workbench] .wb-dock>#wbHomeUpdate:is([data-update=error],[data-update=recovery]){
+ --update-signal:#8a4d18;
+}
+body.oa-management.oa-native[data-workbench] .wb-dock>#wbHomeUpdate:not([aria-disabled=true]):hover{filter:brightness(1.12)}
+#wbHomeUpdate:is([data-update=available],[data-update=restart])::before{
+ content:"";position:absolute;inset:-3px;border-radius:inherit;border:2px solid var(--update-halo);
+ pointer-events:none;animation:oa-update-halo 2.8s ease-in-out infinite;
+}
+@keyframes oa-update-halo{0%,100%{opacity:.3;scale:1}50%{opacity:1;scale:1.10}}
+@keyframes oa-update-turn{to{rotate:360deg}}
+@keyframes oa-update-pulse{50%{opacity:.60;scale:.88}}
+.wb-update-face{display:grid;place-items:center;font-size:11px;font-weight:750;font-variant-numeric:tabular-nums;line-height:1}
+.wb-update-face svg{display:block;width:17px;height:17px}
+#wbHomeUpdate:is([data-update=checking],[data-update=downloading],[data-update=installing]) svg{
+ animation:oa-update-turn 1.5s linear infinite
+}
+#wbHomeUpdate:is([data-update=verifying],[data-update=staged],[data-update=waiting]) svg{
+ animation:oa-update-pulse 1.6s ease-in-out infinite
+}
+@media(prefers-reduced-motion:reduce){
+ #wbHomeUpdate::before,#wbHomeUpdate .wb-update-face svg{animation:none!important}
+}
+.oa-update-versions{margin:0;display:grid;gap:3px;font-variant-numeric:tabular-nums}
 .oa-update-versions div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1px 8px}
-.oa-update-versions dt{color:var(--muted)}.oa-update-versions dd{margin:0;font-weight:600;overflow-wrap:anywhere}
-.oa-update-status,.oa-update-job{margin:0;overflow-wrap:anywhere}
-.oa-update-status:empty,.oa-update-job:empty{display:none}
-.oa-update-status{color:var(--ink)}
-.oa-software-update[data-discovery="UPDATE_AVAILABLE"] .oa-update-status{color:var(--update-text);font-weight:650}
-.oa-update-job{color:var(--ink);border-top:1px solid var(--line);padding-top:7px}
-.oa-update-technical,.oa-update-history{margin:0;color:var(--muted);overflow-wrap:anywhere}
-.oa-update-actions{display:flex;flex-wrap:wrap;align-items:center;gap:3px 8px}
-.oa-management .oa-software-update .oa-update-actions button{min-width:0;max-width:100%;min-height:26px;padding:3px 4px;border:0;background:transparent;color:var(--ink);font-size:11px;line-height:1.35;text-align:left;white-space:normal;box-shadow:none}
-.oa-management .oa-software-update .oa-update-actions button:not(:disabled):hover{text-decoration:underline}
-.oa-management .oa-software-update .oa-update-actions button:disabled{opacity:1;color:var(--muted);cursor:default}
-.oa-management .oa-software-update .oa-update-actions button.oa-update-start{width:100%;padding:5px 8px;background:var(--update-bg)!important;color:var(--update-text)!important;font-weight:700;text-align:center;border-radius:6px}
-.oa-management .oa-software-update .oa-update-actions button.oa-update-start:not(:disabled):hover{background:var(--update-hover)!important;text-decoration:none}
-.oa-management .oa-software-update .oa-update-actions button:focus-visible{outline:2px solid var(--update-text);outline-offset:2px}
-@media(max-width:799px),(max-height:599px){.oa-management .oa-sidebar #softwareUpdateSlot{width:100%;min-width:0}}
-@media(max-width:420px){.oa-management .oa-sidebar #softwareUpdateSlot{grid-column:1/-1;grid-row:2}}
+.oa-update-versions [hidden]{display:none}
+.oa-update-versions dt{color:var(--muted)}.oa-update-versions dd{margin:0;font-weight:650;overflow-wrap:anywhere}
+.oa-update-status,.oa-update-job,.oa-update-restart-help{margin:0;overflow-wrap:anywhere}
+.oa-update-job:empty,.oa-update-check-detail:empty,.oa-update-job-detail:empty{display:none}
+.oa-software-update[data-discovery=UPDATE_AVAILABLE] .oa-update-status{color:light-dark(#096642,#a1ebc5);font-weight:650}
+#wbUpdateFeedback[hidden]{display:none}
+#wbUpdateFeedback{
+ position:absolute;z-index:2;inset:auto 0 calc(100% + 9px) auto;
+ box-sizing:border-box;width:min(320px,100%);padding:12px;border:1px solid var(--wb-line);border-radius:14px;
+ color:var(--wb-ink);background:var(--wb-panel);box-shadow:var(--wb-dock-float);font-size:13px;
+}
+.oa-update-feedback-head,.oa-update-feedback-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.oa-update-feedback-head{justify-content:space-between;margin-bottom:5px}
+.oa-update-feedback-actions{margin-top:8px}
+.oa-update-feedback-actions:has(>button[hidden] + button[hidden]){display:none}
+.oa-update-feedback-head button,.oa-update-feedback-actions button{min-height:32px;padding:4px 9px;}
+.oa-update-feedback-head .oa-update-close{min-width:32px}
+.oa-update-restart-help,.oa-update-technical,.oa-update-history{margin-top:5px;color:var(--muted)}
+.oa-update-history summary,.oa-update-technical summary{cursor:pointer}
+.oa-update-technical p{margin:3px 0;overflow-wrap:anywhere}
+#wbUpdateFeedback [hidden]{display:none}
 """
 
 UPDATE_HTML = """
-<strong class="oa-update-version">Jiusera</strong>
+<div class="oa-update-version-header">
+ <strong class="oa-update-version">当前版本</strong>
+ <button type="button" class="oa-update-check" disabled>检查更新</button>
+</div>
 <dl class="oa-update-versions">
  <div><dt>当前运行</dt><dd class="oa-update-running"></dd></div>
  <div class="oa-update-installed-row" hidden><dt>已安装</dt><dd></dd></div>
  <div><dt>最新稳定版</dt><dd class="oa-update-latest"></dd></div>
 </dl>
 <p class="oa-update-status" role="status">正在连接更新检查…</p>
-<p class="oa-update-job" role="status"></p>
-<details class="oa-update-technical" hidden><summary>技术详情</summary><p class="oa-update-check-detail"></p><p class="oa-update-job-detail"></p></details>
 <details class="oa-update-history" hidden><summary>更新历史</summary><span></span></details>
-<div class="oa-update-actions">
- <button type="button" class="oa-update-start" hidden disabled>立即升级</button>
- <button type="button" class="oa-update-check" disabled>检查更新</button>
- <button type="button" class="oa-update-receipt" hidden disabled>查看升级状态</button>
+"""
+
+FEEDBACK_HTML = """
+<div class="oa-update-feedback-head">
+ <strong class="oa-update-heading"></strong>
+ <button type="button" class="oa-update-close" aria-label="关闭更新提示">×</button>
+</div>
+<p class="oa-update-job"></p>
+<p class="oa-update-restart-help" hidden>结束当前任务后，退出并重新打开 Codex。</p>
+<details class="oa-update-technical" hidden><summary>技术详情</summary><p class="oa-update-check-detail" hidden></p><p class="oa-update-job-detail" hidden></p></details>
+<div class="oa-update-feedback-actions">
+ <button type="button" class="oa-update-operation" hidden></button>
  <button type="button" class="oa-update-help" hidden>查看升级与恢复方法</button>
 </div>
 """
@@ -64,17 +104,19 @@ window.OASoftwareUpdates={mount(rpc,installed){
  box.innerHTML=__UPDATE_HTML__;
  const slot=document.getElementById('softwareUpdateSlot');if(!slot)throw new Error('UPDATE_VIEW_UNAVAILABLE');slot.append(box);ui.scan?.(box);
  const node=suffix=>box.querySelector('.oa-update-'+suffix);
- const status=node('status'),jobStatus=node('job'),checkButton=node('check'),startButton=node('start'),receiptButton=node('receipt');
- const stable=node('latest'),installedRow=node('installed-row'),helpButton=node('help'),history=node('history');
- const home=document.getElementById('wbHomeUpdate');
- const homeStatus=document.getElementById('wbHomeUpdateStatus');
- const technical=node('technical'),checkDetail=node('check-detail'),jobDetail=node('job-detail');
- if(slot.closest('.wb-settings-board')){
-  const version=document.createElement('section');version.className='wb-setting-version';
-  const title=node('version');ui.set(title,'关于 Jiusera');version.append(title,node('versions'),status);
-  const details=document.createElement('div');details.className='wb-setting-update-details';details.append(jobStatus,technical,history);
-  box.prepend(version);box.append(details);
- }
+ const status=node('status'),checkButton=node('check');
+ const stable=node('latest'),installedRow=node('installed-row');
+ const home=document.getElementById('wbHomeUpdate'),homeStatus=document.getElementById('wbHomeUpdateStatus');
+ const face=home?.querySelector('.wb-update-face');
+ const feedback=document.createElement('section');feedback.id='wbUpdateFeedback';feedback.hidden=true;
+ ui.attr(feedback,'aria-label','设置更新详情');
+ feedback.innerHTML=__FEEDBACK_HTML__;
+ (home?.closest('.wb-dock')?.parentElement||slot).append(feedback);ui.scan?.(feedback);
+ const report=suffix=>feedback.querySelector('.oa-update-'+suffix);
+ const heading=report('heading'),jobStatus=report('job'),restartHelp=report('restart-help');
+ const operation=report('operation'),helpButton=report('help'),history=node('history'),close=report('close');
+ const technical=report('technical'),checkDetail=report('check-detail'),jobDetail=report('job-detail');
+ box.classList.add('wb-setting-version');
  ui.set(stable,'待检查');
  ui.raw(node('running'),installed);
  const pendingKey='OpenAhoy.softwareUpdate.pending.'+installed;
@@ -83,7 +125,8 @@ window.OASoftwareUpdates={mount(rpc,installed){
  const recheckAfter=30*60*1000;
  let ready=false,closed=false,checking=false,starting=false,reading=false,latest=null,job='STATUS_UNAVAILABLE',pollTimer;
  let pendingRequest=null,canOpenLinks=false,blurred=false,lastCheckAt=null,lastStable=null,automatic=false;
- let jobHelp=false,readJob=false,stableCheckedAt=0;
+ let jobHelp=false,readJob=false,stableCheckedAt=0,percent=null,manualCheck=false;
+ let feedbackAction=null,jobMessage=null,checkMessage=null;
  try{
   const stored=sessionStorage.getItem(pendingKey);
   if(requestPattern.test(stored))pendingRequest=stored;
@@ -98,44 +141,87 @@ window.OASoftwareUpdates={mount(rpc,installed){
   }catch(_){}
  }
  const compare=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<3;i++){if(x[i]!==y[i])return x[i]>y[i]?1:-1;}return 0;};
- function buttons(){
-  const busy=starting||active.has(job);
-  checkButton.disabled=!ready||closed||checking;
-  receiptButton.hidden=job==='IDLE';
-  receiptButton.disabled=!ready||closed||reading||starting;
-  startButton.hidden=!latest||busy||terminal.has(job)||Boolean(pendingRequest);
-  startButton.disabled=!ready||closed||checking||reading||startButton.hidden;
-  helpButton.hidden=!canOpenLinks||!(jobHelp||box.dataset.discovery==='CHECK_UNAVAILABLE');
-  if(!home)return;
-  let state='unknown',label='检查更新',values=[];
-  if(job==='INSTALLED_RELOAD_REQUIRED'){
-   state='restart';label='需重启';
-  }else if(busy){
-   state='updating';label='升级中';
-  }else if(checking||reading||(!readJob&&ready)){
-   state='checking';label='正在检查稳定版本…';
-  }else if(terminal.has(job)||pendingRequest){
-   state='recovery';label='查看升级状态';
-  }else if(job==='FAILED'||job==='START_REJECTED'){
-   state='error';label=latest?'重试升级 v{0}':'检查失败';values=latest?[latest.latest_version]:[];
-  }else if(latest&&!startButton.hidden){
-   state='available';label='升级 v{0}';values=[latest.latest_version];
-  }else if(box.dataset.discovery==='CHECK_UNAVAILABLE'){
-   state='error';label='检查失败';
-  }else if(['UP_TO_DATE','DEVELOPMENT_AHEAD'].includes(box.dataset.discovery)){
-   state='current';label=box.dataset.discovery==='UP_TO_DATE'?'当前已是最新版本':'当前运行的是较新的开发版本。';
-  }
-  const detail=[status.textContent,jobStatus.textContent].filter(Boolean).join(' ');
-  if(homeStatus&&homeStatus.textContent!==detail)ui.raw(homeStatus,detail);
-  const hasUpdate=Boolean(latest||pendingRequest||busy)||
-    ['INSTALLED_RELOAD_REQUIRED','INSTALL_UNKNOWN','FAILED','INTERRUPTED','DOWNLOADED_NOT_INSTALLED','BUSY'].includes(job);
-  home.hidden=!hasUpdate;
-  home.dataset.update=state;
-  home.disabled=!ready||closed||checking||reading||busy||!readJob;
-  ui.attr(home,'aria-label',label,...values);
-  ui.attr(home,'title',label,...values);
+ const jobPhases={
+  CHECKING:'checking',DOWNLOADING:'downloading',VERIFYING:'verifying',
+  STAGED:'staged',WAITING_FOR_IDLE:'waiting',INSTALLING:'installing'
+ };
+ const issueStates=new Set(['FAILED','START_REJECTED','INTERRUPTED','DOWNLOADED_NOT_INSTALLED',
+  'BUSY','START_NOT_RECORDED','START_ARCHIVED']);
+ const icons={
+  available:'<path d="M8 2v9m-3-3 3 3 3-3M3 13h10"/>',
+  restart:'<path d="M8 2v6M4.4 4.1a5.3 5.3 0 1 0 7.2 0"/>',
+  checking:'<path d="M13.5 8a5.5 5.5 0 1 1-4-5.3"/>',
+  downloading:'<path d="M13.5 8a5.5 5.5 0 1 1-4-5.3"/>',
+  verifying:'<path d="M8 2l5 2v4c0 2.2-2.1 4.5-5 6-2.9-1.5-5-3.8-5-6V4zM6 8l1.4 1.4L10 6.5"/>',
+  staged:'<path d="M2.5 6.5h11v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1zM2 6.5l2-4h8l2 4M6 9h4"/>',
+  waiting:'<path d="M4 2h8M4 14h8M5 2v2.4c0 1.2.7 1.9 3 3.6 2.3 1.7 3 2.4 3 3.6V14m0-12v2.4c0 1.2-.7 1.9-3 3.6-2.3 1.7-3 2.4-3 3.6V14"/>',
+  installing:'<path d="M8 2v2m0 8v2M2 8h2m8 0h2M3.8 3.8l1.4 1.4m5.6 5.6 1.4 1.4m0-8.4-1.4 1.4m-5.6 5.6-1.4 1.4"/><circle cx="8" cy="8" r="3"/>',
+  error:'<circle cx="8" cy="8" r="5.75"/><path d="M8 5v4m0 2h.01"/>',
+  recovery:'<path d="M3 6.2A5.5 5.5 0 1 1 2.7 10M3 2.5v4h4M8 5v3l2 1.4"/>'
+ };
+ function showFeedback(open,{focus=false}={}){
+  if(!open&&feedback.hidden)return;
+  feedback.hidden=!open;
+  home?.setAttribute('aria-expanded',String(open));
+  if(focus)(open?(operation.hidden||operation.disabled?close:operation):home)?.focus();
  }
- function sayJob(text,state,...values){ui.set(jobStatus,text,...values);box.dataset.state=state;paintAvailable();buttons();}
+ function canStart(){
+  return ready&&!closed&&!checking&&!reading&&!starting&&!active.has(job)&&
+   !terminal.has(job)&&!pendingRequest&&Boolean(latest);
+ }
+ function buttons(){
+  checkButton.disabled=!ready||closed||checking;
+  if(!home)return;
+  let state='current',label=ui.message('当前已是最新版本'),action=null;
+  if(job==='INSTALLED_RELOAD_REQUIRED'){
+   state='restart';label=ui.message('重启 Codex');
+  }else if(starting||active.has(job)){
+   state=jobPhases[job]||'checking';label=jobMessage||ui.message('正在检查…');
+  }else if(pendingRequest||job==='INSTALL_UNKNOWN'||(job==='STATUS_UNAVAILABLE'&&readJob)){
+   state='recovery';label=ui.message('查询本次结果');action='status';
+  }else if(checking&&(manualCheck||issueStates.has(job))){
+   state='checking';label=ui.message('正在检查…');
+  }else if(issueStates.has(job)||box.dataset.discovery==='CHECK_UNAVAILABLE'){
+   state='error';label=ui.message('检查失败');action=latest?'retry':'check';
+   if(issueStates.has(job))label=ui.message('升级未完成。');
+  }else if(latest){
+   state='available';label=ui.message('有更新');
+  }
+  const visible=ready&&!closed&&state!=='current';
+  const blocked=!ready||closed||!readJob||starting||active.has(job)||checking||reading;
+  home.hidden=!visible;
+  home.disabled=!ready||closed;
+  home.setAttribute('aria-disabled',String(blocked));
+  home.dataset.update=state;
+  ui.attr(home,'aria-label',label.key,...label.values);
+  const shownPercent=state==='downloading'?percent:null;
+  const drawing=shownPercent===null?state:String(shownPercent);
+  if(face.dataset.drawing!==drawing){
+   face.dataset.drawing=drawing;
+   if(shownPercent!==null)face.textContent=shownPercent+'%';
+   else face.innerHTML=icons[state]?
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">'+icons[state]+'</svg>':'';
+  }
+  const phase=visible?(state==='error'?job+':'+box.dataset.discovery:state):job==='LOADED'?'loaded':'idle';
+  if(homeStatus&&homeStatus.dataset.phase!==phase){
+   homeStatus.dataset.phase=phase;
+   const announcement=state==='downloading'?ui.message(messages.DOWNLOADING):
+    state==='recovery'||(state==='error'&&issueStates.has(job))?jobMessage||label:
+    state==='error'?checkMessage||label:phase==='loaded'?ui.message(messages.LOADED):visible?label:null;
+   ui.set(homeStatus,announcement?.key,...(announcement?.values||[]));
+  }
+  if(!visible||['available','current'].includes(state))showFeedback(false);
+  ui.set(heading,label.key,...label.values);
+  const feedbackText=issueStates.has(job)||state==='recovery'||state==='restart'?jobMessage:checkMessage;
+  ui.set(jobStatus,feedbackText?.key,...(feedbackText?.values||[]));
+  restartHelp.hidden=state!=='restart';
+  feedbackAction=action;
+  operation.hidden=!action;
+  operation.disabled=blocked;
+  if(action)ui.set(operation,{check:'检查更新',retry:'重试升级',status:'查询本次结果'}[action]);
+  helpButton.hidden=!canOpenLinks||!(jobHelp||box.dataset.discovery==='CHECK_UNAVAILABLE');
+ }
+ function sayJob(text,state,...values){jobMessage=text?ui.message(text,...values):null;box.dataset.state=state;paintAvailable();buttons();}
  function paintAvailable(){
   if(box.dataset.discovery!=='UPDATE_AVAILABLE')return;
   const awaitingRestart=job==='INSTALLED_RELOAD_REQUIRED';
@@ -173,11 +259,12 @@ window.OASoftwareUpdates={mount(rpc,installed){
   if(lastStable)ui.set(stable,'{0}（上次查到）',lastStable);
   else ui.set(stable,'暂不可获取');
   box.dataset.discovery='CHECK_UNAVAILABLE';
-  ui.set(status,known?checkErrors[code]:'暂时无法检查更新，请稍后重试。');
+  checkMessage=ui.message(known?checkErrors[code]:'暂时无法检查更新，请稍后重试。');
+  ui.set(status,'检查失败');
   detail(checkDetail,known?code:'UPDATE_CHECK_FAILED');
  }
  function showDiscovery(value){
-  lastStable=value.latest_version;ui.raw(stable,lastStable);detail(checkDetail,null);
+  checkMessage=null;lastStable=value.latest_version;ui.raw(stable,lastStable);detail(checkDetail,null);
   latest=value.state==='UPDATE_AVAILABLE'?value:null;
   box.dataset.discovery=value.state;
   if(latest)paintAvailable();
@@ -203,9 +290,9 @@ window.OASoftwareUpdates={mount(rpc,installed){
  function discoveryChanged(event){
   if(event.key===discoveryKey&&box.dataset.discovery!=='CHECK_UNAVAILABLE')restoreDiscovery(event.newValue);
  }
- async function check(){
+ async function check(showOnDock=false){
   if(!ready||closed||checking)return;
-  checking=true;lastCheckAt=Date.now();latest=null;
+  checking=true;manualCheck=showOnDock;lastCheckAt=Date.now();latest=null;
   box.dataset.discovery='CHECKING';
   ui.set(status,'正在检查稳定版本…');buttons();
   try{
@@ -215,7 +302,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
    if(lastStable&&compare(value.latest_version,lastStable)<0){checkUnavailable('RELEASE_CHANNEL_CHANGED');return;}
    showDiscovery(value);cacheDiscovery(value);
   }catch(_){if(!closed)checkUnavailable();}
-  finally{checking=false;if(!closed)buttons();}
+  finally{checking=false;manualCheck=false;if(!closed)buttons();}
  }
  const messages={
   CHECKING:'正在核对已选版本…',DOWNLOADING:'正在下载更新…',VERIFYING:'正在校验更新文件…',
@@ -237,6 +324,9 @@ window.OASoftwareUpdates={mount(rpc,installed){
   if(value.state==='INSTALLED_RELOAD_REQUIRED'&&
      (!versionPattern.test(value.version)||compare(value.version,installed)<=0))throw new Error('UPDATE_STATUS_INVALID');
   job=value.state;
+  percent=job==='DOWNLOADING'&&Number.isSafeInteger(value.total)&&value.total>0&&
+   Number.isSafeInteger(value.downloaded)&&value.downloaded>=0&&value.downloaded<=value.total?
+   Math.floor(value.downloaded*100/value.total):null;
   installedRow.hidden=job!=='INSTALLED_RELOAD_REQUIRED';
   ui.raw(installedRow.querySelector('dd'),installedRow.hidden?'':value.version);
   jobHelp=false;
@@ -270,38 +360,51 @@ window.OASoftwareUpdates={mount(rpc,installed){
    UPDATE_CACHE_ARCHIVE_SWAP:'无法交换旧版归档目录，尚未切换版本。',
    UPDATE_CACHE_ARCHIVE_VERIFY:'无法确认旧版原目录已归档，尚未切换版本。'
   };
-  const cacheFailure=job==='FAILED'&&Object.hasOwn(cacheFailures,code);
-  jobHelp=job==='INSTALL_UNKNOWN'||job==='FAILED';
+  const updateFailures={
+   UPDATE_DOWNLOAD_TIMEOUT:'下载超时。请确认网络连接后重试。',
+   UPDATE_ASSET_SIZE_MISMATCH:'下载大小与发行记录不一致。请重试。',
+   UPDATE_ASSET_HASH_MISMATCH:'下载文件校验失败。请重试。',
+   UPDATE_MANIFEST_MISMATCH:'下载包清单与发行记录不一致。请重新检查更新。',
+   UPDATE_PAYLOAD_MISMATCH:'下载包内文件校验失败。请重新检查更新。',
+   UPDATE_ARCHIVE_INVALID:'发行压缩包未通过校验。请重新检查更新。',
+   UPDATE_PLATFORM_UNSUPPORTED:'此自动升级入口仅支持 Apple 芯片 Mac。',
+   UPDATE_CODEX_CLI_UNAVAILABLE:'未找到 Codex 命令行。请从原 Codex 市场更新。',
+   UPDATE_INSTALLED_VERSION_CHANGED:'本机安装已变化。请重新打开 Codex 后再检查。',
+   UPDATE_INSTALL_REJECTED:'Codex 未接受安装请求。请查看更新指引。'
+  };
+  const blockedUpdate=job==='FAILED'&&Object.hasOwn(cacheFailures,code);
+  jobHelp=job==='INSTALL_UNKNOWN'||job==='FAILED'||job==='START_REJECTED';
   const failedPhase={
    CHECKING:'核对发行版本',DOWNLOADING:'下载更新',VERIFYING:'校验更新文件',
    STAGED:'准备安装',WAITING_FOR_IDLE:'核对业务状态',INSTALLING:'安装和回读'
   }[value.failed_phase];
   if(job==='INSTALL_UNKNOWN'&&code==='UPDATE_CACHE_OLD_LAUNCH_RESTORE'){
-   sayJob('旧会话入口尚未核实。请查看原升级状态。',job);
+   sayJob('旧会话入口尚未核实。请查询本次结果。',job);
   }else if(job==='INSTALL_UNKNOWN'&&code==='UPDATE_CLI_ACTION_TIMEOUT'){
    sayJob('Codex 安装操作超时。请先检查原安装结果。',job);
   }else if(job==='FAILED'&&code==='UPDATE_CLI_LIST_TIMEOUT'){
    sayJob('Codex 查询插件市场超时。请重试或查看升级指引。',job);
-  }else if(cacheFailure){
+  }else if(blockedUpdate){
    sayJob(cacheFailures[code],job);
+  }else if(issueStates.has(job)&&Object.hasOwn(updateFailures,code)){
+   sayJob(updateFailures[code],job);
   }else if(job==='FAILED'&&code==='CONNECTION_NOT_COMMITTED'){
    sayJob('公众号绑定校验未通过。可从原 Codex 市场升级。',job);
   }else if(job==='FAILED'&&code==='UPDATE_ACTIVITY_UNVERIFIED'){
    sayJob('暂时无法确认后台是否空闲。',job);
-  }else if(job==='DOWNLOADING'&&Number.isSafeInteger(value.total)&&value.total>0&&
-     Number.isSafeInteger(value.downloaded)&&value.downloaded>=0&&value.downloaded<=value.total){
-   sayJob('正在下载更新 {0}%',job,Math.floor(value.downloaded*100/value.total));
+  }else if(percent!==null){
+   sayJob('正在下载更新 {0}%',job,percent);
   }else if(job==='LOADED'&&historyText[old?.code]&&versionPattern.test(old?.version)&&compare(old.version,installed)>0){
    sayJob('已核对当前运行版本 {0}。',job,installed);
   }else if(job==='FAILED'&&code==='UPDATE_ADVERTISEMENT_CHANGED'){
    latest=null;
    try{localStorage.removeItem(discoveryKey);}catch(_){}
-   sayJob('稳定版已有变化。请核对最新版本后再升级。',job);
+   sayJob('稳定版已有变化。请重新检查更新。',job);
   }else if(job==='FAILED'&&code==='UPDATE_CHECK_UNAVAILABLE'){
    checkUnavailable('RELEASE_CHANNEL_UNAVAILABLE');
    sayJob('暂时无法核对安装目标。可重新检查更新。',job);
   }else if(job==='FAILED'&&failedPhase){
-   sayJob('升级停在「{0}」。请查看技术详情或升级指引。',job,ui.message(failedPhase));
+   sayJob('升级停在「{0}」。',job,ui.message(failedPhase));
   }else if(job==='FAILED'&&value.downloaded===true){
    sayJob('更新已下载，安装未完成。可查看升级指引恢复原安装。',job);
   }else{
@@ -317,7 +420,7 @@ window.OASoftwareUpdates={mount(rpc,installed){
   installedRow.hidden=true;history.hidden=true;
   jobHelp=true;
   detail(jobDetail,'UPDATE_STATUS_UNAVAILABLE');
-  sayJob(pendingRequest?'升级请求的结果尚未确认。可查看原请求状态。':'暂时无法读取升级进度。',job);
+  sayJob(pendingRequest?'本机尚未确认更新结果。请选择「查询本次结果」。':'暂时无法读取升级进度。',job);
  }
  const visible=()=>document.visibilityState!=='hidden';
  const canPoll=()=>!closed&&visible()&&!blurred;
@@ -362,7 +465,8 @@ window.OASoftwareUpdates={mount(rpc,installed){
   }finally{reading=false;readJob=true;if(!closed)buttons();}
  }
  async function start(event){
-  if(!event.isTrusted||!ready||closed||startButton.disabled||startButton.hidden||!latest)return;
+  if(!event.isTrusted||!canStart())return;
+  showFeedback(false);
   const request=Array.from(crypto.getRandomValues(new Uint8Array(16)),byte=>byte.toString(16).padStart(2,'0')).join('');
   const chosen=latest;
   starting=true;remember(request);job='CHECKING';sayJob(messages.CHECKING,job);
@@ -396,16 +500,31 @@ window.OASoftwareUpdates={mount(rpc,installed){
   [document,'visibilitychange',visibilityChanged],[window,'pageshow',resume],
   [window,'focus',focus],[window,'blur',blur],[window,'storage',discoveryChanged]
  ];
- checkButton.addEventListener('click',()=>void check());
- receiptButton.addEventListener('click',()=>void statusPoll());
- startButton.addEventListener('click',start);
+ checkButton.addEventListener('click',()=>void check(true));
  function activate(event){
-  if(!event.isTrusted||event.currentTarget.disabled)return;
-  if(terminal.has(job)||pendingRequest){void statusPoll();return;}
-  if(latest&&!startButton.hidden){void start(event);return;}
-  void check();
+  if(!event.isTrusted||home.hidden||home.getAttribute('aria-disabled')==='true')return;
+  if(home.dataset.update==='available'){void start(event);return;}
+  showFeedback(feedback.hidden,{focus:true});
+  if(!feedback.hidden&&home.dataset.update==='restart')void statusPoll();
  }
  home?.addEventListener('click',activate);
+ operation.addEventListener('click',event=>{
+  if(!event.isTrusted||!feedbackAction||operation.disabled)return;
+  if(feedbackAction==='status')void statusPoll();
+  else if(feedbackAction==='retry')void start(event);
+  else void check(true);
+ });
+ close.addEventListener('click',()=>showFeedback(false,{focus:true}));
+ feedback.addEventListener('keydown',event=>{
+  if(event.key==='Escape'){event.stopPropagation();showFeedback(false,{focus:true});}
+ });
+ document.addEventListener('pointerdown',event=>{
+  if(!feedback.hidden&&!feedback.contains(event.target)&&!home?.contains(event.target))showFeedback(false);
+ });
+ document.querySelectorAll('.wb-about-links a').forEach(link=>link.addEventListener('click',event=>{
+  if(!event.isTrusted||!canOpenLinks)return;
+  event.preventDefault();void rpc('ui/open-link',{url:link.href}).catch(()=>{});
+ }));
  helpButton.addEventListener('click',event=>{
   if(event.isTrusted&&canOpenLinks)void rpc('ui/open-link',{
    url:'https://github.com/OpenAhoy/OpenAhoy-Releases/blob/main/UPDATE_PROMPT.md'
@@ -454,6 +573,7 @@ def decorate(value, installed_version, uri):
     if text.count('<script>') != 1:
         raise WCEError('UPDATE_RESOURCE_INCOMPATIBLE')
     script = SCRIPT.replace("__UPDATE_HTML__", json.dumps(mark_chrome(UPDATE_HTML), ensure_ascii=False))
+    script = script.replace("__FEEDBACK_HTML__", json.dumps(mark_chrome(FEEDBACK_HTML), ensure_ascii=False))
     page['text'] = text.replace('<script>', '<style>'+STYLE+'</style><script>'+script, 1)
     page['uri'] = uri
     return result

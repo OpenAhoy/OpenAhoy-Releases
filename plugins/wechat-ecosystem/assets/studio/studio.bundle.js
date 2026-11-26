@@ -10,10 +10,51 @@
       headers: { "Content-Type": "application/json" }
     });
   }
+  function base64Bytes(value) {
+    if (typeof Uint8Array.fromBase64 === "function") return Uint8Array.fromBase64(value);
+    const binary = atob(value);
+    const result = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) result[i] = binary.charCodeAt(i);
+    return result;
+  }
+  async function sourceBytes(part, signal) {
+    const bytes = base64Bytes(part.bytes);
+    if (!Number.isSafeInteger(part.offset) || !Number.isSafeInteger(part.size) || part.size < 1 || part.size > 768 * 1024)
+      throw Error("\u97F3\u8F68\u5206\u7247\u5927\u5C0F\u65E0\u6548");
+    if (part.coding === "identity" && bytes.length === part.size) return bytes;
+    if (part.coding !== "deflate") throw Error("\u97F3\u8F68\u5206\u7247\u7F16\u7801\u65E0\u6548");
+    const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate")).getReader();
+    const output = new Uint8Array(part.size);
+    let offset = 0;
+    try {
+      for (; ; ) {
+        signal?.throwIfAborted();
+        const { done, value } = await reader.read();
+        if (done) break;
+        output.set(value, offset);
+        offset += value.length;
+      }
+    } finally {
+      await reader.cancel().catch(() => {
+      });
+      reader.releaseLock();
+    }
+    if (offset !== output.length) throw Error("\u97F3\u8F68\u5206\u7247\u5927\u5C0F\u65E0\u6548");
+    return output;
+  }
   function file(args, signal) {
     return mediaResponse((offset) => call({ action: "media", ...args, offset }), signal);
   }
-  async function mediaResponse(read, signal, expectedHash) {
+  function sourceFile(args, signal) {
+    const coding = typeof DecompressionStream === "function" ? "deflate" : "identity";
+    return mediaResponse(
+      (offset) => call({ action: "source_chunk", ...args, offset, coding }),
+      signal,
+      void 0,
+      sourceBytes
+    );
+  }
+  async function mediaResponse(read, signal, expectedHash, decode2 = (part) => base64Bytes(part.bytes ?? part.data)) {
     let offset = 0, total, type, hash;
     const parts = [];
     do {
@@ -26,12 +67,21 @@
         if (!Number.isSafeInteger(total) || total < 1 || total > 1024 * 1024 * 1024) throw Error("\u97F3\u9891\u6587\u4EF6\u5927\u5C0F\u65E0\u6548");
       }
       if (expectedHash && part.sha256 !== expectedHash) throw Error("\u97F3\u6E90\u5DF2\u53D8\u5316");
-      const bytes = Uint8Array.from(atob(part.bytes ?? part.data), (item) => item.charCodeAt(0));
+      const bytes = await decode2(part, signal);
+      signal?.throwIfAborted();
       if (!bytes.length || part.total !== total || part.offset !== void 0 && part.offset !== offset || hash !== part.sha256 || offset + bytes.length > total) throw Error("\u97F3\u9891\u6587\u4EF6\u5DF2\u53D8\u5316");
       offset += bytes.length;
       parts.push(bytes);
     } while (offset < total);
     return new Response(new Blob(parts, { type }));
+  }
+  async function studioWaveform(path, signal) {
+    const [, mode, project, song, version, asset, extra] = new URL(path, "https://studio.internal").pathname.split("/");
+    if (mode !== "source" || !project || !song || !version || !asset || extra) return null;
+    signal.throwIfAborted();
+    const preview = await call({ action: "source_waveform", project, song, version, asset });
+    signal.throwIfAborted();
+    return preview.available ? preview : null;
   }
   async function studioFetch(path, options = {}) {
     const url = new URL(path, "https://studio.internal");
@@ -53,8 +103,11 @@
       return file({ action: "song_preview", project, song, version, asset: first }, options.signal);
     if (!extra && mode === "monitor-file" && project && song && version && first && second)
       return file({ action: "monitor_media", project, song, version, analysis: first, asset: second }, options.signal);
-    if (!second && (mode === "source" || mode === "master-file") && project && song && version && first)
-      return file({ project, song, version, asset: first }, options.signal);
+    if (!second && project && song && version && first) {
+      const lookup = { project, song, version, asset: first };
+      if (mode === "source") return sourceFile(lookup, options.signal);
+      if (mode === "master-file") return file(lookup, options.signal);
+    }
     return response({ error: "studio_action_unavailable", status: 404 });
   }
   async function studioAction(args) {
@@ -1826,10 +1879,7 @@
     grid.setAttribute("aria-hidden", "true");
     grid.append(lines);
     ruler.append(grid);
-    const cursor = document.createElement("span");
-    cursor.className = "frame-time";
     const originalTitle = ruler.title;
-    $("ruler-unit").before(cursor);
     menu.replaceChildren(...Array.from(choices, ([value, label]) => new Option(label, value)));
     const scroll = $("scroll"), zoom = $("imw-frame-zoom");
     let savedScroll = 0, scrollFrame = 0;
@@ -1842,44 +1892,48 @@
         const value = Math.max(scroll.clientWidth, axis * rate.n / rate.d * 12) + "px";
         if (lane.style.getPropertyValue("--frame-zoom-width") !== value) lane.style.setProperty("--frame-zoom-width", value);
       }
+      if (studio.rulerScale() !== "timecode") {
+        rendered = "";
+        return;
+      }
+      const scale = studio.imw?.enabled() ? rate : frameRate();
       const width = lane.getBoundingClientRect().width;
-      const pixelsPerFrame = width * rate.d / (axis * rate.n);
+      const pixelsPerFrame = width * scale.d / (axis * scale.n);
       if (pixelsPerFrame <= 0) return;
       const viewport = Math.max(1, scroll.clientWidth);
       const page = Math.floor(scroll.scrollLeft / viewport);
-      const signature = [width, axis, rateKey, viewport, page].join("/");
+      const signature = [width, axis, scale.n, scale.d, scale.drop, viewport, page].join("/");
       if (signature === rendered) return;
       rendered = signature;
       const firstFrame = Math.max(0, Math.floor((page - 1) * viewport / pixelsPerFrame));
       const origin = firstFrame * pixelsPerFrame;
-      const lastFrame = Math.min(Math.ceil(axis * rate.n / rate.d), Math.ceil((page + 3) * viewport / pixelsPerFrame));
+      const lastFrame = Math.min(Math.ceil(axis * scale.n / scale.d), Math.ceil((page + 3) * viewport / pixelsPerFrame));
       grid.style.left = origin + "px";
       grid.style.width = Math.max(0, Math.min(width, lastFrame * pixelsPerFrame) - origin) + "px";
       const divisions = [];
       const stride = Math.max(1, Math.ceil(2 / pixelsPerFrame));
       for (let i = Math.ceil(firstFrame / stride) * stride; i < lastFrame; i += stride) {
-        const height = i % rate.nominal === 0 ? 14 : i % 5 === 0 ? 10 : 6;
+        const height = i % scale.nominal === 0 ? 14 : i % 5 === 0 ? 10 : 6;
         divisions.push("M" + ((i - firstFrame) * pixelsPerFrame + 0.5).toFixed(3) + " 0v" + height);
       }
       lines.setAttribute("d", divisions.join(""));
-      let step = [1, 2, 5, 10, rate.nominal, rate.nominal * 2, rate.nominal * 5].sort((a, b) => a - b).find((frames) => frames * pixelsPerFrame >= 95);
-      if (!step) step = rate.nominal * 10 * Math.ceil(95 / (rate.nominal * 10 * pixelsPerFrame));
+      let step = [1, 2, 5, 10, scale.nominal, scale.nominal * 2, scale.nominal * 5].sort((a, b) => a - b).find((frames) => frames * pixelsPerFrame >= 95);
+      if (!step) step = scale.nominal * 10 * Math.ceil(95 / (scale.nominal * 10 * pixelsPerFrame));
       const ticks = [];
       const start = Math.max(0, Math.floor((page - 1) * viewport / (step * pixelsPerFrame)) * step);
       const end = Math.min(width - 78, (page + 3) * viewport);
       for (let frame = start; frame * pixelsPerFrame < end; frame += step) {
         const tick = document.createElement("span");
-        tick.style.left = 100 * frame * rate.d / (axis * rate.n) + "%";
-        tick.textContent = frameLabel(frame, rate);
+        tick.style.left = 100 * frame * scale.d / (axis * scale.n) + "%";
+        tick.textContent = frameLabel(frame, scale);
         ticks.push(tick);
       }
       $("ticks").replaceChildren(...ticks);
-      const second = rate.nominal * pixelsPerFrame;
+      const second = scale.nominal * pixelsPerFrame;
       const coarse = second >= 8 ? second : second * Math.ceil(95 / second);
       lane.style.setProperty("--major-step", coarse + "px");
       lane.removeAttribute("data-detail");
       lane.removeAttribute("data-beat");
-      $("ruler-unit").textContent = "\u65F6\u95F4";
     }
     function sync(next) {
       if (!next) return;
@@ -1894,7 +1948,7 @@
       }
       const source = next.frameRate;
       const fps = selected === "auto" ? source || "30/1" : selected;
-      if (fps !== rateKey || !cursor.getAttribute("data-shown")) {
+      if (fps !== rateKey) {
         cancelGesture();
         rateKey = fps;
         rate = frameRate(fps);
@@ -1902,13 +1956,15 @@
         const origin = source ? (rate.n / rate.d).toFixed(3).replace(/\.?0+$/, "") : "\u9ED8\u8BA4 30";
         menu.options[0].text = selected === "auto" ? "\u8DDF\u968F\u7D20\u6750\uFF08" + origin + " fps\uFF09" : "\u8DDF\u968F\u7D20\u6750";
         ruler.title = "\u70B9\u51FB\u5B9A\u4F4D\uFF0C\u62D6\u52A8\u5212\u5B9A\u65F6\u95F4\u9009\u533A\uFF0C\u2190 / \u2192 \u9010\u5E27";
-        cursor.setAttribute("data-shown", "true");
       }
       document.addEventListener("keydown", stepWithKeyboard);
       draw(studio.imw.displayLength(next));
-      const label = frameLabel(frameAt(next.seconds || 0, rate), rate);
-      if (cursor.textContent !== label) cursor.textContent = label;
-      seek.setAttribute("aria-valuetext", label);
+      updateLabel();
+    }
+    function updateLabel() {
+      if (!clock) return;
+      const label = studio.rulerLabel(clock.seconds || 0);
+      if (seek.getAttribute("aria-valuetext") !== label) seek.setAttribute("aria-valuetext", label);
     }
     function clampFrame(frame) {
       const last = Math.max(0, Math.ceil(clock.length * rate.n / rate.d - 1e-8) - 1);
@@ -1936,7 +1992,7 @@
       if (!studio.isConnected || !studio.imw?.enabled() || studio.closest("[hidden]") || !clock?.ready || !clock.length || gesture || event.defaultPrevented || event.isComposing || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       const target = event.composedPath()[0];
-      if (target !== seek && (target.isContentEditable || target.closest?.("#regions .clip-group,.trim-handle,input,textarea,select,[role=slider],[role=spinbutton],[role=menu],[role=listbox],[role=tablist],[role=separator],dialog,[popover]:popover-open"))) return;
+      if (target !== seek && (target.isContentEditable || target.closest?.("#ruler-scales,#regions .clip-group,.trim-handle,input,textarea,select,[role=slider],[role=spinbutton],[role=menu],[role=listbox],[role=tablist],[role=separator],dialog,[popover]:popover-open"))) return;
       event.preventDefault();
       const current = globalThis.OAIMWVideo?.state?.()?.seconds ?? clock.seconds;
       seekFrame(frameAt(current, rate) + (event.key === "ArrowRight" ? 1 : -1));
@@ -1946,15 +2002,15 @@
       if (zoomed()) savedScroll = scroll.scrollLeft;
       studio.toggleAttribute("data-frame-zoom", zoomed());
       rendered = "";
-      draw(studio.imw.displayLength(clock));
+      studio.drawRuler();
       scroll.scrollLeft = zoomed() ? Math.max(0, clock.seconds / axis * $("lane").clientWidth - scroll.clientWidth / 2) : savedScroll;
       studio.paint();
     };
     scroll.addEventListener("scroll", () => {
-      if (!studio.imw?.enabled() || scrollFrame) return;
+      if (studio.rulerScale() !== "timecode" || scrollFrame) return;
       scrollFrame = requestAnimationFrame(() => {
         scrollFrame = 0;
-        if (studio.imw.enabled()) draw(axis);
+        if (studio.rulerScale() === "timecode") draw(axis);
       });
     }, { passive: true });
     menu.onchange = () => {
@@ -2003,16 +2059,20 @@
     return {
       draw,
       sync,
+      updateLabel,
       current: (seconds) => frameAt(seconds, rate) * rate.d / rate.n,
       snap: (seconds) => Math.round(seconds * rate.n / rate.d) * rate.d / rate.n,
-      label: (seconds) => frameLabel(Math.round(seconds * rate.n / rate.d), rate),
+      label(seconds) {
+        const scale = studio.imw?.enabled() ? rate : frameRate();
+        return frameLabel(frameAt(seconds, scale), scale);
+      },
       audioScroll: () => zoomed() ? savedScroll : scroll.scrollLeft,
       reset() {
         cancelGesture();
         document.removeEventListener("keydown", stepWithKeyboard);
         rendered = "";
+        rateKey = "";
         ruler.title = originalTitle;
-        cursor.removeAttribute("data-shown");
         lane.style.removeProperty("--frame-zoom-width");
         studio.removeAttribute("data-frame-zoom");
         zoom.value = "audio";
@@ -2606,7 +2666,7 @@
       }
       overlay.style.left = 100 * range.start / length + "%";
       overlay.style.width = 100 * (range.end - range.start) / length + "%";
-      const label = (s) => studio.imw.enabled() ? studio.frameRuler.label(s) : s.toFixed(3) + " s";
+      const label = (s) => studio.rulerLabel(s);
       caption.textContent = label(range.start) + " \u2013 " + label(range.end);
       overlay.dataset.start = range.start;
       overlay.dataset.end = range.end;
@@ -3016,7 +3076,6 @@
         $("playhead").style.left = 100 * clock.seconds / length + "%";
         $("seek").max = clock.length;
         $("seek").value = clock.seconds;
-        $("seek").setAttribute("aria-valuetext", clock.seconds.toFixed(2) + " \u79D2");
       }
       studio.frameRuler?.sync(clock);
     }
@@ -3099,7 +3158,7 @@
     studio.shadowRoot.addEventListener("keydown", (event) => {
       if (!enabled() || event.defaultPrevented || event.isComposing || event.key !== " " || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       const target = event.composedPath()[0];
-      if (target?.isContentEditable || target?.closest?.("textarea,[role=textbox],dialog[open],input:not([type=range]):not([type=button])")) return;
+      if (target?.isContentEditable || target?.closest?.("textarea,[role=textbox],dialog[open],#ruler-scales button,input:not([type=range]):not([type=button])")) return;
       event.preventDefault();
       if (!event.repeat && engine2()?.state?.()?.ready) engine2().toggle(event);
     });
@@ -3596,10 +3655,10 @@
   }
 
   // assets/studio/studio.css
-  var studio_default = '/* Neutral workbench surfaces frame the track colors and playhead. */\n:host {\n  --canvas: var(--wb-surface);\n  --panel: var(--surface);\n  --layer: var(--soft);\n  --raised: var(--oa-fill);\n  --grid-major: color-mix(in srgb,var(--ink) 16%,transparent);\n  --grid-beat: color-mix(in srgb,var(--ink) 8%,transparent);\n  --grid-detail: color-mix(in srgb,var(--ink) 4%,transparent);\n  --accent: var(--oa-selected-ink);\n  --selected: var(--oa-selection);\n  --head: var(--oa-focus);\n  --loop: color-mix(in srgb,var(--selected) 68%,transparent);\n  --focus: var(--oa-focus);\n  --clip-ink: var(--wb-ink);\n  --head-surface: var(--canvas);\n  --relief-light: var(--lus-highlight);\n  --relief-shadow: var(--lus-shade);\n  --soft-raise: var(--lus-raised);\n  --soft-inset: var(--lus-inset);\n  --depth: var(--lus-floating);\n  --wave-peak-alpha: var(--lus-wave-peak-alpha,.78);\n  --wave-rms-alpha: var(--lus-wave-rms-alpha,.96);\n  --track-height: 108px;\n  --imw-video-row-height:100px;\n  --track-action-height: 39px;\n  --audio-ruler-height: 34px;\n  --ruler-height: var(--audio-ruler-height);\n  font: 12px/1.45 system-ui, sans-serif;\n  color: var(--ink);\n}\n*, *::before, *::after { box-sizing: border-box; }\n[hidden], .mobile { display: none !important; }\n.studio { height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--canvas); }\n.toolbar, .toolbar-end, .current-take, .songs-heading, .editor-footer { display:flex; align-items:center; min-width:0; }\n.toolbar { min-height: 46px; gap: 12px; padding: 5px 12px; background: var(--panel); box-shadow:var(--soft-raise); z-index:6; }\n.toolbar-end { margin-left:auto; gap:9px; flex:none; }\n.field { display:flex; align-items:center; gap:5px; color:var(--muted); white-space:nowrap; min-width:0; }\n.current-take { gap:7px; padding-inline-start:12px; border-inline-start:1px solid var(--line); }\n#song-title { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-weight:680; }\n#version { min-width:0; max-width:min(25vw,164px); }\n#project { max-width:min(28vw,184px); }\n#tempo { color:var(--muted); font:11px ui-monospace,monospace; white-space:nowrap; }\nbutton,select {\n  color:var(--ink); font:inherit; background:var(--raised); border:1px solid transparent;\n  border-radius:7px; min-height:28px; padding:3px 8px;\n  box-shadow:var(--soft-raise);\n}\nselect { max-width:100%; min-width:0; box-shadow:var(--soft-inset); }\nbutton { cursor:pointer; }\n#cut-quiet,#undo-cut { white-space:nowrap; }\nbutton:where(:hover:not(:disabled)):not(:where(.clip,.track-name,.song,.song-cover,.trim-handle)),\nselect:where(:hover:not(:disabled)) { color:var(--accent); background:var(--oa-hover); }\n:is(button,summary,a[download]):is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true],.clip,.trim-handle) {\n  background-color:var(--lus-press-fill); box-shadow:var(--soft-inset);\n}\nbutton:disabled { opacity:.6; cursor:default; }\nbutton:focus-visible,summary:focus-visible,select:focus-visible,.ruler:not([data-pointer-seek]):has(input:focus-visible) {\n  outline:2px solid var(--focus); outline-offset:-2px;\n}\n.body { display:grid; grid-template-columns:minmax(0,1fr) clamp(230px,23%,288px); flex:1; min-height:0; position:relative; }\n.editor { position:relative; display:flex; min-width:0; min-height:0; flex-direction:column; }\n.arrangement {\n  display:grid; grid-template-columns:clamp(112px,16%,159px) minmax(0,1fr);\n  position:relative; isolation:isolate; flex:1; min-height:0; overflow:auto; scrollbar-width:thin;\n}\n.track-head,.track-row {\n  --action-space:0px;\n  height:calc(var(--track-height) + var(--action-space));\n}\n:is(.track-head,.track-row)[data-expanded] { --action-space:var(--track-action-height); }\n.track-head {\n  --head-ink:var(--ink);\n  --key-light:color-mix(in srgb,var(--canvas) 93%,white);\n  --key-shade:color-mix(in srgb,var(--canvas) 73%,black);\n  --key-up:-1px -1px 3px var(--key-light),2px 2px 4px var(--key-shade);\n  --key-down:inset 1px 1px 3px var(--key-shade),inset -1px -1px 2px var(--key-light);\n  position:relative; color:var(--head-ink);\n  display:grid; grid-template-columns:minmax(0,1fr) auto;\n  grid-template-rows:var(--track-height) auto; align-items:center;\n  padding-inline:5px; column-gap:6px;\n}\n.track-list { position:relative; z-index:2; background:var(--canvas); }\n.track-heading,.track-name { display:flex; align-items:center; width:100%; text-align:start; }\n.track-heading {\n  justify-content:space-between; height:var(--ruler-height); padding-inline:10px;\n  color:var(--muted); font-size:10px; background:var(--canvas);\n}\n.track-name {\n  grid-column:1; min-width:0; height:calc(var(--track-height) - 16px); min-height:0; gap:4px; padding-inline:7px;\n  border:0; border-radius:7px; background:var(--canvas); color:inherit;\n  box-shadow:var(--key-up); outline-offset:-2px;\n}\n.track-name[data-selected] {box-shadow:var(--key-down);color:var(--accent)}\n.track-name[data-selected] .track-label {font-weight:750}\n.track-head:not(:has(.track-monitor-controls)) .track-name {grid-column:1/-1}\n.track-monitor-controls {\n  grid-column:2; display:flex; flex-direction:column; position:relative; align-items:center; gap:5px;\n}\n.track-monitor-controls button {\n  width:27px; height:26px; min-height:24px; padding:0; border-radius:6px;\n  border:0; color:var(--ink); font:650 11px/1 system-ui,sans-serif;\n  background:var(--canvas); box-shadow:var(--key-up);\n}\n.track-monitor-controls button[aria-pressed="true"] {\n  color:var(--accent); background:var(--canvas); box-shadow:var(--key-down); font-weight:800;\n}\n.track-head :is(.track-name,.track-monitor-controls button):is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true]) {\n  background-color:var(--lus-press-fill); box-shadow:var(--key-down);\n}\n.track-monitor-controls button:focus-visible {outline:2px solid var(--focus);outline-offset:1px}\n.track-head[data-monitor-inherited] [data-track-monitor="mute"] {border:1px dashed currentColor}\n.track-monitor-status {position:absolute;inset:100% 0 auto auto;white-space:nowrap;color:var(--ink);font-size:9px}\n.track-row[data-monitor-muted] .clip canvas { opacity:.45; }\n#monitor-route {\n  flex:none; padding:3px 10px; background:var(--layer); color:var(--ink);\n  border-bottom:1px solid var(--line); font-size:11px;\n}\n.track-name:focus-visible { outline-color:var(--focus); }\n.track-name:hover .track-chevron,.track-name[aria-expanded=true] .track-chevron { opacity:1; }\n.track-label { min-width:0; font-size:12px; font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }\n.track-offline { font-size:9px; color:var(--muted); white-space:nowrap; order:1; }\n.track-chevron {\n  width:6px; height:6px; flex:none; margin-inline-start:auto; margin-inline-end:2px; order:2;\n  border:solid currentColor; border-width:0 1.5px 1.5px 0;\n  transform:rotate(45deg) translateY(-2px); opacity:.63;\n}\n.track-name[aria-expanded=true] .track-chevron { transform:rotate(225deg) translateY(-1px); }\n.timeline { position:relative; z-index:1; min-width:0; margin-inline:4px; overflow:auto hidden; scrollbar-width:thin; }\n.lane {\n  --beat-ink:transparent; --detail-ink:transparent;\n  position:relative; min-height:100%; isolation:isolate;\n  background-image:\n    linear-gradient(to right,var(--grid-major) 1px,transparent 1px),\n    linear-gradient(to right,var(--beat-ink) 1px,transparent 1px),\n    linear-gradient(to right,var(--detail-ink) 1px,transparent 1px);\n  background-size:var(--major-step,20%) 100%,var(--beat-step,100%) 100%,var(--detail-step,100%) 100%;\n}\n.lane[data-beat] { --beat-ink:var(--grid-beat); }\n.lane[data-detail] { --detail-ink:var(--grid-detail); }\n.ruler {\n  height:var(--ruler-height); position:relative; cursor:crosshair; color:var(--ink);\n  font:600 11px ui-monospace,monospace; border-bottom:1px solid var(--line);\n  background:var(--layer);\n}\n.ruler span { position:absolute; top:7px; padding-inline-start:5px; pointer-events:none; }\n.ruler input { position:absolute; width:1px; height:1px; padding:0; opacity:0; inset:0; pointer-events:none; }\n.track-row { position:relative; }\n.track-actions {\n  grid-column:1/-1; align-self:start; display:flex; flex-wrap:wrap; align-items:flex-start; gap:4px; padding-inline:12px;\n}\n.track-actions button {\n  min-height:25px; padding-inline:5px; border:0; font-size:10px;\n  color:var(--head-ink);\n}\n.track-actions button:focus-visible { outline-color:var(--focus); }\n#loop-band { position:absolute; z-index:0; inset-block:0; pointer-events:none; background:var(--loop); border-inline:1px solid color-mix(in srgb,var(--head) 55%,transparent); }\n#loop-band::before { content:""; display:block; height:2px; background:var(--head); }\n.playhead { pointer-events:none; position:absolute; z-index:4; inset-block:0; width:1px; background:var(--head); }\n:host([data-playhead-snap]) .playhead {width:2px;box-shadow:0 0 7px var(--head)}\n.playhead::before {\n  content:""; width:9px; height:8px; position:absolute; top:0; left:-4px;\n  background:var(--head); clip-path:polygon(0 0,100% 0,50% 100%);\n}\n.editor-footer {\n  position:absolute; inset:auto 0 var(--wb-dock,70px); z-index:3;\n  min-height:0; gap:7px; padding:0 9px; color:var(--muted); font-size:10px;\n  pointer-events:none;\n}\n.editor-footer slot { display:block; margin-inline-start:auto; flex:none; pointer-events:auto; }\n.editor-footer button { min-height:24px; padding-inline:5px; font-size:10px; pointer-events:auto; }\n#status { min-width:0; }\n#status:not(:empty) { background:var(--panel); padding:3px 6px; border-radius:5px; }\n#empty {\n  position:absolute; inset:0; padding:var(--ruler-height) 12px 0 100px; z-index:3; display:grid;\n  place-content:center; justify-items:center; pointer-events:none; color:var(--muted);\n}\n#empty button { pointer-events:auto; }\naside {\n  min-height:0; overflow:auto; background:var(--layer); border-inline-start:1px solid var(--line);\n  scrollbar-width:thin; padding-bottom:var(--wb-dock,70px);\n}\n.songs-heading {\n  min-height:42px; gap:7px; padding:5px 12px; position:sticky; top:0; z-index:1; background:var(--layer);\n}\n.songs-heading h2 { font-size:12px; margin:0; font-weight:720; }\n.songs-heading span { font-size:10px; color:var(--muted); }\n#songs-refresh { margin-inline-start:auto; min-width:28px; padding-inline:0; font-size:16px; line-height:1; }\n#playlist-status { margin:0 12px 8px; color:var(--muted); }\n#song-list { padding:5px 11px 12px; display:grid; gap:10px; }\n.song-card {\n  display:grid; grid-template-columns:50px minmax(0,1fr); align-items:center; gap:6px 10px;\n  padding:8px; border-radius:11px; background:var(--panel); box-shadow:var(--soft-raise);\n}\n.song-card[data-current] { background:var(--selected); box-shadow:var(--soft-inset); }\n.song { display:grid; gap:2px; text-align:start; min-width:0; padding:0; border:0; background:none; box-shadow:none; }\n.song:not([aria-pressed="true"]):hover .song-name { color:var(--accent); }\n.song-card .song:active { box-shadow:none; }\n.song[aria-pressed="true"] .song-name { color:var(--accent); }\n.song-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }\n.song-source,.song-version { display:block; color:var(--muted); font-size:10px; line-height:1.3; }\n.song-cover {\n  display:grid; place-items:center; position:relative; border:0; width:50px; height:50px;\n  border-radius:8px; padding:0; overflow:hidden;\n}\n.song-cover-art {\n  display:grid; place-items:center; position:absolute; inset:0; border-radius:inherit; pointer-events:none;\n}\n@media (any-hover:hover) and (any-pointer:fine) and (prefers-reduced-motion:no-preference) {\n  .song-cover:has(>.song-cover-art.jiu-card-motion-part) {\n    overflow:visible; background:transparent; box-shadow:none;\n  }\n  .song-cover-art.jiu-card-motion-part { overflow:hidden; background:var(--raised); box-shadow:var(--soft-raise); }\n  .song-cover:disabled .song-cover-art.jiu-card-motion-part { box-shadow:var(--soft-inset); }\n}\n.song-cover img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }\n.song-icon {\n  position:relative; display:grid; place-items:center; width:25px; height:25px; font-size:10px;\n  border-radius:50%; color:var(--ink); background:var(--raised); box-shadow:var(--soft-inset);\n}\n.song-cover:has(img) .song-icon {\n  color:var(--oa-action-ink); background:color-mix(in srgb,var(--oa-action) 92%,transparent); box-shadow:none;\n}\n.song-cover[aria-pressed="true"] .song-icon { background:var(--selected); color:var(--accent); }\n.song-cover:is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true]) .song-icon {\n  background-color:var(--lus-press-fill); color:var(--accent); box-shadow:var(--soft-inset);\n}\n.song-cover:focus-visible { outline-offset:-2px; z-index:1; }\n.song-cover:disabled { box-shadow:var(--soft-inset); }\n.adopt-take { grid-column:2; justify-self:start; font-size:10px; min-height:24px; }\n#inspector {\n  margin:1px 11px 10px; padding-top:8px; border-radius:11px; background:var(--panel); box-shadow:var(--soft-inset);\n}\n.inspector-switch { display:flex; gap:8px; margin-inline:10px; }\n.inspector-switch button { min-height:27px; padding-inline:9px; color:var(--muted); }\n.inspector-switch button[aria-pressed="true"] {\n  color:var(--accent); background:var(--selected); box-shadow:var(--soft-inset); font-weight:650;\n}\n#lyrics,#clip-details { padding:11px 12px; }\n#lyrics p { margin:0; color:var(--muted); line-height:1.8; white-space:pre-line; }\n#clip-details strong { font-size:12px; }\n#clip-details dl { margin:8px 0 0; display:grid; gap:1px; }\n#clip-details dl div { display:grid; grid-template-columns:max-content 1fr; gap:7px; border-bottom:1px solid var(--line); padding:4px 0; }\n#clip-details dt { color:var(--muted); }\n#clip-details dd { margin:0; text-align:end; font:10px ui-monospace,monospace; white-space:nowrap; }\n@media (max-width:680px) {\n  :host { --track-height:96px; --imw-video-row-height:88px; --track-action-height:65px; --audio-ruler-height:32px; }\n  .mobile { display:inline-flex!important; align-items:center; }\n  .body { display:block; }\n  .editor { height:100%; padding-block-end:calc(var(--wb-dock,70px) + 28px); }\n  .arrangement { grid-template-columns:112px minmax(0,1fr); }\n  .toolbar { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:5px; padding-inline:7px; }\n  .field { gap:3px; font-size:10px; }\n  .current-take { padding-inline-start:5px; gap:4px; flex-wrap:wrap; }\n  #song-title { font-size:10px; }\n  #project,#version,.toolbar-end select { font-size:10px; padding-inline:3px; }\n  .toolbar-end { gap:4px; }\n  .toolbar-end #tempo { display:none; }\n  .zoom span { display:none; }\n  #songs-toggle,#cut-quiet,#undo-cut { padding-inline:4px; }\n  #cut-quiet,#undo-cut { font-size:10px; }\n  .track-heading,.track-name { padding-inline:7px; gap:4px; }\n  .track-head { padding-inline:4px; column-gap:5px; }\n  .track-actions { display:grid; grid-template-columns:1fr; gap:3px; padding-inline:8px; }\n  .track-chevron { width:5px; height:5px; margin-inline-end:0; }\n  .track-label { font-size:11px; }\n  aside { position:absolute; inset:0 0 0 auto; width:min(292px,84%); z-index:5; display:none; box-shadow:var(--depth); }\n  aside.open { display:block; }\n}\n@media (max-width:380px) {\n  .current-take { border:0; padding:0; }\n  .toolbar .field:first-child { font-size:0; }\n  .toolbar-end { gap:3px; }\n}\n\n@media (prefers-reduced-motion:no-preference) {\n  :is(button,summary,a[download]):not(.clip,.trim-handle), .song-icon {\n    transition:background-color 100ms ease-out,color 100ms ease-out;\n  }\n}\n\n.clip-menu {\n  min-width:150px; position:fixed; z-index:10000; padding:5px;\n  background:var(--panel); border:1px solid var(--line); border-radius:8px;\n  box-shadow:var(--depth);\n}\n.clip-menu button {\n  display:block; width:100%; text-align:left; border:0; background:none; box-shadow:none;\n  min-height:29px; white-space:nowrap;\n}\n.clip-menu button:hover,.clip-menu button:focus-visible { box-shadow:var(--soft-inset); }\n.studio[data-track-edit] .body { grid-template-columns:minmax(0,1fr); }\n.studio[data-track-edit] #songs,.studio[data-track-edit] #songs-toggle,\n.studio[data-track-edit] #cut-quiet,.studio[data-track-edit] #undo-cut { display:none!important; }\n.arrangement.single-track { flex:0 0 auto; max-height:180px; }\n.track-editor { flex:1; min-height:0; overflow:auto; padding:8px 14px 90px; }\n.track-editor-header,.track-tools,.track-form,.vocal-result { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }\n.track-editor-header { margin-bottom:12px; padding-bottom:7px; border-bottom:1px solid var(--line); }\n.track-editor-header h2 { margin:0; font-size:15px; }\n.track-tools { margin-left:auto; }\n.track-tools [aria-pressed=true] { box-shadow:var(--soft-inset); color:var(--accent); }\n.track-pane { min-width:0; }\n.track-pane input { width:100%; min-width:0; font:inherit; color:var(--ink); background:var(--raised); border:1px solid var(--line); border-radius:7px; padding:4px 6px; box-shadow:var(--soft-inset); }\n.track-form input { display:inline-block; width:70px; }\n.track-pane a { color:var(--ink); padding:4px; }\n.track-form label { color:var(--muted); }\n#track-score-preview { overflow:auto; margin-top:10px; background:var(--layer); border:1px solid var(--line); }\n#track-note-roll { display:block; height:180px; min-width:100%; color:var(--head); border-color:var(--line); }\n#track-editor-status { color:var(--muted); min-height:18px; margin:8px 0 0; }\n.vocal-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,235px),1fr)); gap:8px; align-items:start; }\n.vocal-fields fieldset { min-width:0; border:1px solid var(--line); border-radius:6px; display:grid; grid-template-columns:1fr 1fr; gap:6px; }\n.vocal-fields label { color:var(--muted); }\n.vocal-fields button { justify-self:start; grid-column:1/-1; }\n.vocal-result { margin-top:12px; }\n.vocal-result audio { display:block; max-width:100%; height:32px; }\n.vocal-commands { grid-column:1/-1; display:flex; align-items:center; flex-wrap:wrap; gap:5px; }\n.vocal-commands:empty { display:none; }\n.vocal-commands button[aria-pressed=true],#track-solo[aria-pressed=true] { box-shadow:var(--soft-inset); color:var(--accent); }\n#track-score-preview { background:none; border:0; }\n#track-score-layout { margin-block:8px; }\n#track-roll-scroll { overflow:auto; border:1px solid var(--line); background:var(--layer); }\n#track-notation { overflow:auto; padding-bottom:6px; }\n#track-notation .score { width:max-content; min-width:100%; margin:0 0 12px; padding:18px 20px 9px; background:#fcfbf8; color:#252525; }\n#track-notation .canvas { position:relative; margin-inline:auto; }\n#track-notation .score-title { text-align:center; font-size:19px; font-weight:700; }\n#track-notation .score-head { font-size:12px; margin:8px 18px 4px; }\n#track-notation .meta-tempo { margin-left:10px; }\n#track-notation [class^="el-"],#track-notation .slur-layer { position:absolute; color:#252525; }\n#track-notation .el-num { display:grid; place-items:center; font:18px Georgia,serif; }\n#track-notation .el-ul { height:1px; background:#252525; }\n#track-notation .el-dot { background:#252525; border-radius:50%; }\n#track-notation .el-bar { width:1px; background:#252525; }\n#track-notation .el-cursor { display:none; }\n#track-notation .score-pageno { text-align:center; color:#72716f; font-size:11px; }\n\n#download-master { color:var(--accent); font:inherit; font-size:12px; white-space:nowrap; }\n\n#master-settings { position:relative; }\n#master-settings > summary { cursor:pointer; white-space:nowrap; font-size:12px; }\n.master-popover { position:absolute; top:calc(100% + 8px); right:0; width:min(340px,84vw);\n  box-sizing:border-box; padding:12px; background:var(--panel); color:var(--ink); border:1px solid var(--line);\n  border-radius:10px; box-shadow:var(--soft-raise); }\n#master-values { margin:0; padding:0; border:0; display:grid; gap:6px 12px; grid-template-columns:repeat(2,minmax(0,1fr)); }\n#master-values label { display:flex; flex-direction:column; font-size:11px; gap:3px; }\n#master-values input, #master-values select { box-sizing:border-box; min-width:0; width:100%; max-width:100%;\n  height:28px; font:inherit; color:inherit; background:var(--panel); border:1px solid var(--line); border-radius:4px; }\n#master-values input[type=checkbox] { width:18px; align-self:flex-start; }\n#master-saved { display:block; margin-top:5px; }\n@media (max-width:600px) {\n  .toolbar { position:relative; }\n  #master-settings { position:static; }\n  .master-popover { left:8px; right:8px; width:auto; top:calc(100% + 4px); }\n}\n\n#master-delivery-info {font-size:12px;line-height:1.45;margin-bottom:8px;}\n#master-aac-player {width:100%;height:32px;}\n#download-aac {color:var(--accent);font-size:12px;white-space:nowrap;}\n\n#master-audition {display:flex;align-items:center;gap:6px;flex-wrap:wrap}\n#master-audition[hidden]{display:none}\n#master-bypass[aria-pressed=true]{font-weight:700;outline:2px solid currentColor}\n\n@media (max-width:680px) {\n  .toolbar { position:relative; grid-template-columns:minmax(0,max-content) minmax(0,1fr); gap:3px 5px; padding-block:3px }\n  .toolbar-end {\n    grid-column:1/-1;justify-self:stretch;margin:0;min-width:0;flex-wrap:wrap;\n    padding-top:2px;border-top:1px solid var(--line)\n  }\n  .current-take { flex-wrap:nowrap }\n  #song-title { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }\n  #version { max-width:54% }\n  #master-settings > summary { padding:5px 1px }\n  .master-popover { max-height:calc(100dvh - 220px);overflow:auto;overscroll-behavior:contain }\n}\n@media (min-width:360px) and (max-width:680px) {\n  #songs-toggle {\n    position:absolute; inset-inline-end:0;\n    inset-block-start:calc((28px - var(--lus-heading-height)) / 2 - 28px);\n    min-inline-size:30px; justify-content:center;\n  }\n}\n@media (max-width:430px) {\n  .master-settings-name { display:none; }\n}\n\n/* Picture and sound share the same horizontal viewport and fit-to-work scale. */\n#imw-screen,#imw-lane-labels,#imw-cut-lanes,#imw-inspect,#imw-captions,\n#imw-add-track,#imw-score-settings { display:none; }\n:host([data-imw-video]) #imw-score-settings {display:inline-flex}\n/* Keep a zero-height native arrangement in the audio grid column as the video scale reference. */\n#imw-audio-fit {display:none}\n:host([data-imw-video]) #imw-audio-fit {\n  display:grid;grid-area:1/1;align-self:start;height:0;visibility:hidden;overflow:hidden;pointer-events:none\n}\n:host([data-imw-video]) .editor {grid-column:1/-1;grid-row:1}\n@media(max-width:680px) {\n  :host([data-imw-video]) .body {display:grid;grid-template-columns:minmax(0,1fr)}\n}\n:host([data-imw-video]) .editor {\n  height:100%;padding:0 0 calc(var(--wb-dock,70px) + 5px);overflow:hidden;\n}\n:host([data-imw-video]) #imw-screen {\n  display:flex;flex:1 1 0;position:relative;width:100%;min-width:0;min-height:80px;overflow:hidden;\n}\n:host([data-imw-video]) #track-scroll-panel {\n  flex:0 1 auto; min-height:1.5em;max-height:62%; overflow:auto; align-content:start;\n  grid-template-columns:var(--imw-label-width) minmax(0,1fr);\n}\n/* Keep the original track-list column and timeline gutter in both modes. */\n:host([data-imw-video]) #lane {min-height:0;overflow:hidden}\n:host([data-imw-video]) #regions {position:relative;}\n:host([data-imw-video]) :is(#loop-band,#empty,#monitor-route,\n  #cut-quiet,#undo-cut,#master-settings,#output-master,.zoom,#tempo,.editor-footer) {display:none!important}\n:host([data-imw-video]) .track-list {z-index:1;min-width:0;}\n:host([data-imw-video]) #imw-lane-labels {display:block}\n:host([data-imw-video]) #imw-cut-lanes {display:block}\n:host([data-imw-video]) #playhead{z-index:3;pointer-events:none}\n:host([data-imw-video]) [data-track-row]:not([data-imw-track]),\n:host([data-imw-video]) .track-head[data-track-row]:not([data-imw-current]) {display:none}\n:host([data-imw-video]:not([data-imw-stems])) #imw-lane-labels::before {\n  content:"";display:block;height:var(--track-height)\n}\n#imw-empty-tracks {height:var(--track-height);margin:0;padding:0 10px;align-content:center;color:var(--muted);font-size:11px}\n:host([data-imw-video][data-imw-stems]) #regions {\n  display:grid;grid-template-rows:repeat(var(--imw-parts),minmax(0,1fr));height:var(--track-height)\n}\n:host([data-imw-video]) #regions .track-row[data-imw-track] {height:100%;min-height:0}\n:host([data-imw-video]) .track-head[data-imw-current] {height:var(--track-height)}\n:host([data-imw-video]) .track-head[data-imw-current][data-expanded] {grid-template-rows:minmax(0,1fr) auto}\n:host([data-imw-video]) .track-head[data-imw-current][data-expanded] .track-name {height:calc(100% - 5px)}\n:host([data-imw-video]) .track-head[data-imw-current][data-expanded] .track-monitor-controls {grid-area:1 / 2 / span 2}\n:host([data-imw-video]) .track-head[data-imw-current][data-expanded] .track-actions {\n  display:flex;grid-column:1;grid-row:2;flex-wrap:nowrap;gap:2px;padding:0 0 3px\n}\n:host([data-imw-video]) .track-head[data-imw-current][data-expanded] .track-actions button {\n  flex:1 1 0;min-width:0;min-height:19px;padding:1px;font-size:9px\n}\n:host([data-imw-compact]) #regions .track-row {box-shadow:inset 0 -1px color-mix(in srgb,var(--line) 55%,transparent)}\n:host([data-imw-compact]) #regions .clip-group {top:min(2px,5%);height:max(1px,90%);--clip-radius:min(6px,45%)}\n:host([data-imw-compact]) #regions .clip {min-height:0}\n:host([data-imw-compact]) #regions .clip canvas {top:4%;height:92%}\n:host([data-imw-compact]) #regions .trim-handle {inset-block:0}\n:host([data-imw-compact]) #regions .trim-handle::before {height:min(80%,13px)}\n:host([data-imw-compact]) #regions .clip-group[data-tight] .trim-handle.head {inset-block:0 50%}\n:host([data-imw-compact]) #regions .clip-group[data-tight] .trim-handle.tail {inset-block:50% 0}\n:host([data-imw-compact]) #regions .clip::after {bottom:0}\n:host([data-imw-dense]) #regions .track-row {box-shadow:none}\n:host([data-imw-dense]) #regions .clip-group {\n  top:0;height:100%;--clip-radius:0;border:0;box-shadow:none\n}\n:host([data-imw-dense]) #regions .clip-group::after,\n:host([data-imw-dense]) #regions .clip canvas,\n:host([data-imw-dense]) #regions .clip::after {display:none}\n:host([data-imw-dense]) #regions .clip:not(:disabled) {\n  top:0;height:calc(100% - 1px);border:0;border-radius:0;box-shadow:none;background:var(--tone)\n}\n:host([data-imw-dense]) #regions .track-row[data-monitor-muted] .clip:not(:disabled) {opacity:.45}\n:host([data-imw-dense]) #regions .clip-group:is([data-selected],:focus-within) .clip:not(:disabled) {\n  box-shadow:inset 0 0 0 1px var(--ink)\n}\n:host([data-imw-dense]) #regions .trim-handle::before {height:100%}\n:is(#imw-frame-rate-field,#imw-frame-zoom-field) {display:none}\n:host([data-imw-video]) :is(#imw-frame-rate-field,#imw-frame-zoom-field) {display:inline-flex;align-items:center;gap:5px}\n:host([data-imw-video]) {--ruler-height:40px}\n:host([data-imw-video]) .track-heading,:host([data-imw-video]) .ruler {height:var(--ruler-height)}\n.frame-time {display:none}\n:host([data-imw-video]) .ruler {overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;}\n:host([data-imw-video]) .track-heading > span:first-child {display:none}\n:host([data-imw-video]) .track-heading .frame-time {\n  display:inline; font:600 10px/1 ui-monospace,monospace; font-variant-numeric:tabular-nums;\n  color:var(--ink); white-space:nowrap\n}\n:host([data-imw-video]) .ruler #ticks span {top:2px;line-height:17px;white-space:nowrap}\n\n:host([data-imw-video]) #imw-add-track:not([hidden]) {display:block;max-width:calc(100% - 8px);margin:4px;min-height:24px;font-size:10px;}\n:host([data-imw-video]) #imw-captions {display:inline-flex;margin-bottom:6px}\n:host([data-imw-video]) .toolbar #imw-video-toggle {background:var(--selected);color:var(--accent);box-shadow:var(--soft-inset);}\n:host([data-imw-video]) #songs {\n  display:none;position:absolute;z-index:8;inset:0 0 0 auto;width:min(300px,86%);box-shadow:var(--depth)\n}\n:host([data-imw-video]) #songs.open {display:block}\n:host([data-imw-video]) :is(#songs-toggle,#songs-close) {display:inline-flex!important}\n@media(max-width:760px) {\n  :host([data-imw-video]) #imw-inspect {display:inline-flex}\n}\n#imw-original-track {display:none}\n:host([data-imw-video]) #imw-original-track:not([hidden]) {display:block}\n#imw-original-track .clip svg {position:absolute;inset:6px 0;width:100%;height:calc(100% - 12px);color:var(--tone)}\n#imw-original-track[data-monitor-muted] .clip svg {opacity:.45}\n\n:host([data-imw-video]) .studio[data-track-edit] #track-editor:not([hidden]) {\n  position:absolute;z-index:6;inset:0 0 auto;max-height:55%;overflow:auto;background:var(--panel)\n}\n\n#imw-project {display:none}\n:host([data-imw-video]) #audio-project-field,\n:host([data-imw-video]:not([data-imw-song])) :is(.current-take,#songs-toggle,#songs) {display:none!important}\n:host([data-imw-video]) #imw-project {\n  display:block;max-width:min(45vw,300px);min-width:0;text-overflow:ellipsis;white-space:nowrap;overflow:hidden\n}\n\n/* The workstation settings live above the dock and take no row from the timeline. */\n#imw-settings {\n  position:fixed; inset:auto max(var(--wb-tool-gutter,16px),env(safe-area-inset-right)) calc(var(--wb-dock,70px) + 8px) auto;\n  margin:0; padding:14px; width:min(330px,calc(100vw - 32px)); max-height:calc(100dvh - var(--wb-dock,70px) - 54px);\n  overflow:auto; overscroll-behavior:contain; border:1px solid var(--line); border-radius:12px;\n  background:var(--panel); color:var(--ink); box-shadow:var(--depth);\n}\n#imw-settings:popover-open {display:grid;gap:12px}\n.imw-settings-heading,.imw-settings-actions {display:flex;align-items:center;gap:8px}\n.imw-settings-heading {justify-content:space-between}\n.imw-settings-heading button {width:26px;padding:0;font-size:18px}\n.imw-settings-actions {flex-wrap:wrap}\n#imw-settings .current-take {padding:0;border:0}\n#imw-settings :is(#project,#version) {max-width:100%;min-width:0}\n#imw-settings #audio-project-field select {flex:1}\n#imw-settings #songs-toggle {position:static}\n#imw-settings #master-settings {flex-basis:100%;position:static}\n#imw-settings .master-popover {position:static;width:100%;max-height:none;overflow:visible;box-shadow:none}\n@media(max-width:680px) {#imw-settings{inset-inline-end:max(8px,env(safe-area-inset-right))}}\n\n#imw-opening {display:none}\n:host([data-imw-opening]:not([data-imw-video])) #imw-screen {display:grid;place-items:center;min-height:20dvh;color:var(--muted)}\n:host([data-imw-opening]:not([data-imw-video])) #imw-opening {display:block}\n\n/* The picture lane retains its position and identity above the time ruler. */\n#imw-video-header,.track-list #imw-lane-labels {padding:0}\n:host(:not([data-imw-video])) #imw-video-header .track-head,\n#imw-folded-video {height:calc(var(--track-height) / 2);min-height:0}\n:host(:not([data-imw-video])) #imw-video-header .track-head {grid-template-rows:1fr}\n:host(:not([data-imw-video])) #imw-video-header .track-name {grid-column:1/-1;height:calc(var(--track-height) / 2 - 8px)}\n:host(:not([data-imw-video])) #imw-video-header .track-monitor-controls {display:none}\n#imw-folded-video {\n  display:block;position:relative;width:100%;border:0;border-radius:0;background:transparent;\n  color:var(--muted);font-size:10px;text-align:left;padding:0 9px;box-shadow:none\n}\n#imw-folded-video:hover,#imw-folded-video:focus-visible {background:var(--selected);color:var(--accent)}\n#imw-folded-video:is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true]) {background-color:var(--lus-press-fill)}\n:host([data-imw-video]) #imw-folded-video {display:none}\n:host([data-imw-video]) #imw-video-label {--track-height:var(--imw-video-row-height)}\n:host([data-imw-empty-video]) #imw-folded-video {display:block;height:var(--imw-video-row-height)}\n#imw-picture-lane {position:relative;}\n#imw-video-header .track-head .track-label {font-size:12px}\n\n#imw-picture-lane,#imw-video-header {height:calc(var(--track-height) / 2);overflow:clip}\n:host([data-imw-video]) :is(#imw-picture-lane,#imw-video-header) {height:var(--imw-video-row-height,var(--track-height))}\n\n:host([data-imw-video][data-frame-zoom]) #lane {width:var(--frame-zoom-width)!important}\n.frame-marks {display:none;position:absolute;top:20px;height:18px;overflow:hidden;pointer-events:none}\n:host([data-imw-video]) .frame-marks {display:block;border-top:1px solid var(--line)}\n.frame-marks path {fill:none;stroke:var(--muted);stroke-width:1;shape-rendering:crispEdges}\n#lane {cursor:crosshair}\n:host([data-command-grab]) {\n  --clip-cursor:grab; --clip-active-cursor:grabbing; --clip-edge-cursor:ew-resize;\n}\n#timeline-selection {position:absolute;z-index:4;pointer-events:none;overflow:hidden;white-space:nowrap;\n  box-sizing:border-box;border-inline:1px solid var(--focus);border-block:1px solid color-mix(in srgb,var(--focus) 55%,transparent);\n  background:color-mix(in srgb,var(--focus) 22%,transparent);color:var(--ink);padding-inline:3px;\n  font:600 10px/16px ui-monospace,monospace}\n@supports (backdrop-filter:hue-rotate(120deg)) {\n  #timeline-selection {\n    background:color-mix(in srgb,var(--focus) 16%,transparent);\n    backdrop-filter:hue-rotate(120deg) saturate(1.45) contrast(1.08);\n  }\n}\n#timeline-selection[data-video-range]::before {\n  content:"";position:absolute;inset-inline:0;top:var(--selection-video-y);\n  height:calc(var(--selection-video-height) - 2px);box-sizing:border-box;\n  border:1px solid #ffdc91;border-inline-width:3px;\n  box-shadow:inset 0 0 0 1px #241a14;\n  background:linear-gradient(180deg,#20150836,transparent 32%,transparent 68%,#20150836),#ffd47b27;\n}\n#timeline-selection[data-video-range] > span {\n  position:relative;color:#fff8e7;text-shadow:0 1px 2px #17110b,0 0 3px #17110b;\n}\n#timeline-selection[hidden] {display:none}\n\n/* Until the shared disclosure animation settles, fading heads occupy their own original track positions. */\n:host([data-imw-track-motion]) .track-head[data-imw-track]:not([data-imw-current]),\n:host([data-imw-track-motion]) .track-head[data-imw-track] {display:grid;overflow:clip;min-height:0}\n\n/* Blend compact insets into the audio layout on the same timeline as the panel. */\n:host([data-imw-track-motion][data-imw-compact]) #regions .clip-group {\n  --compact-top:min(2px,5%); --compact-height:max(1px,90%);\n  top:calc(var(--compact-top) * (1 - var(--lus-imw-fold)) + 6px * var(--lus-imw-fold));\n  height:calc(var(--compact-height) * (1 - var(--lus-imw-fold)) + (var(--track-height) - 12px) * var(--lus-imw-fold));\n}\n:host([data-imw-track-motion][data-imw-dense]) #regions .clip-group {\n  --compact-top:0px; --compact-height:100%;\n}\n:host([data-imw-track-motion][data-imw-compact]) #regions .clip canvas {\n  top:calc(4% * (1 - var(--lus-imw-fold)) + 8px * var(--lus-imw-fold));\n  height:calc(92% * (1 - var(--lus-imw-fold)) + (100% - 16px) * var(--lus-imw-fold));\n}\n:host([data-imw-track-motion][data-imw-dense]) #regions .clip canvas {display:block}\n\n#detached-lanes {position:relative}\n.detached-wave,.detached-wave svg {position:absolute;inset:7% 0;width:100%;height:86%;pointer-events:none;color:var(--tone)}\n.detached-wave svg {inset:0;height:100%}\n.detached-row[data-monitor-muted] .detached-wave {opacity:.45}\n.detached-head .track-actions {padding-inline:4px}\n.detached-head .track-actions label {display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;font-size:10px}\n.detached-head .track-actions input {width:60px;max-width:100%;accent-color:var(--tone)}\n:host([data-detached-audio]) :is(#empty,#imw-empty-tracks) {display:none!important}\n:host([data-detached-audio][data-imw-video]:not([data-imw-stems])) #imw-lane-labels::before {display:none}\n:host([data-detached-audio]) .arrangement.single-track {max-height:none;flex:1}\n';
+  var studio_default = '/* Neutral workbench surfaces frame the track colors and playhead. */\n:host {\n  --canvas: var(--wb-surface);\n  --panel: var(--surface);\n  --layer: var(--soft);\n  --raised: var(--oa-fill);\n  --grid-major: color-mix(in srgb,var(--ink) 16%,transparent);\n  --grid-beat: color-mix(in srgb,var(--ink) 8%,transparent);\n  --grid-detail: color-mix(in srgb,var(--ink) 4%,transparent);\n  --accent: var(--oa-selected-ink);\n  --selected: var(--oa-selection);\n  --head: var(--oa-focus);\n  --loop: color-mix(in srgb,var(--selected) 68%,transparent);\n  --focus: var(--oa-focus);\n  --clip-ink: var(--wb-ink);\n  --head-surface: var(--canvas);\n  --relief-light: var(--lus-highlight);\n  --relief-shadow: var(--lus-shade);\n  --soft-raise: var(--lus-raised);\n  --soft-inset: var(--lus-inset);\n  --depth: var(--lus-floating);\n  --wave-peak-alpha: var(--lus-wave-peak-alpha,.78);\n  --wave-rms-alpha: var(--lus-wave-rms-alpha,.96);\n  --track-height: 108px;\n  --imw-video-row-height:100px;\n  --track-action-height: 39px;\n  --audio-ruler-height: 34px;\n  --ruler-height: var(--audio-ruler-height);\n  font: 12px/1.45 system-ui, sans-serif;\n  color: var(--ink);\n}\n*, *::before, *::after { box-sizing: border-box; }\n[hidden], .mobile { display: none !important; }\n.studio { height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--canvas); }\n.toolbar, .toolbar-end, .current-take, .songs-heading, .editor-footer { display:flex; align-items:center; min-width:0; }\n.toolbar { min-height: 46px; gap: 12px; padding: 5px 12px; background: var(--panel); box-shadow:var(--soft-raise); z-index:6; }\n.toolbar-end { margin-left:auto; gap:9px; flex:none; }\n.field { display:flex; align-items:center; gap:5px; color:var(--muted); white-space:nowrap; min-width:0; }\n.current-take { gap:7px; padding-inline-start:12px; border-inline-start:1px solid var(--line); }\n#song-title { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-weight:680; }\n#version { min-width:0; max-width:min(25vw,164px); }\n#project { max-width:min(28vw,184px); }\n#tempo { color:var(--muted); font:11px ui-monospace,monospace; white-space:nowrap; }\nbutton,select {\n  color:var(--ink); font:inherit; background:var(--raised); border:1px solid transparent;\n  border-radius:7px; min-height:28px; padding:3px 8px;\n  box-shadow:var(--soft-raise);\n}\nselect { max-width:100%; min-width:0; box-shadow:var(--soft-inset); }\nbutton { cursor:pointer; }\n#cut-quiet,#undo-cut { white-space:nowrap; }\nbutton:where(:hover:not(:disabled)):not(:where(.clip,.track-name,.song,.song-cover,.trim-handle)),\nselect:where(:hover:not(:disabled)) { color:var(--accent); background:var(--oa-hover); }\n:is(button,summary,a[download]):is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true],.clip,.trim-handle) {\n  background-color:var(--lus-press-fill); box-shadow:var(--soft-inset);\n}\nbutton:disabled { opacity:.6; cursor:default; }\nbutton:focus-visible,summary:focus-visible,select:focus-visible,.ruler:not([data-pointer-seek]):has(input:focus-visible) {\n  outline:2px solid var(--focus); outline-offset:-2px;\n}\n.body { display:grid; grid-template-columns:minmax(0,1fr) clamp(230px,23%,288px); flex:1; min-height:0; position:relative; }\n.editor { position:relative; display:flex; min-width:0; min-height:0; flex-direction:column; }\n.arrangement {\n  display:grid; grid-template-columns:clamp(112px,16%,159px) minmax(0,1fr);\n  position:relative; isolation:isolate; flex:1; min-height:0; overflow:auto; scrollbar-width:thin;\n}\n.track-head,.track-row {\n  --action-space:0px;\n  height:calc(var(--track-height) + var(--action-space));\n}\n:is(.track-head,.track-row)[data-expanded] { --action-space:var(--track-action-height); }\n.track-head {\n  --head-ink:var(--ink);\n  --key-light:color-mix(in srgb,var(--canvas) 93%,white);\n  --key-shade:color-mix(in srgb,var(--canvas) 73%,black);\n  --key-up:-1px -1px 3px var(--key-light),2px 2px 4px var(--key-shade);\n  --key-down:inset 1px 1px 3px var(--key-shade),inset -1px -1px 2px var(--key-light);\n  position:relative; color:var(--head-ink);\n  display:grid; grid-template-columns:minmax(0,1fr) auto;\n  grid-template-rows:var(--track-height) auto; align-items:center;\n  padding-inline:5px; column-gap:6px;\n}\n.track-list { position:relative; z-index:2; background:var(--canvas); }\n.track-heading,.track-name { display:flex; align-items:center; width:100%; text-align:start; }\n.track-heading {\n  justify-content:space-between; height:var(--ruler-height); padding-inline:10px;\n  color:var(--muted); font-size:10px; background:var(--canvas);\n}\n.track-name {\n  grid-column:1; min-width:0; height:calc(var(--track-height) - 16px); min-height:0; gap:4px; padding-inline:7px;\n  border:0; border-radius:7px; background:var(--canvas); color:inherit;\n  box-shadow:var(--key-up); outline-offset:-2px;\n}\n.track-name[data-selected] {box-shadow:var(--key-down);color:var(--accent)}\n.track-name[data-selected] .track-label {font-weight:750}\n.track-head:not(:has(.track-monitor-controls)) .track-name {grid-column:1/-1}\n.track-monitor-controls {\n  grid-column:2; display:flex; flex-direction:column; position:relative; align-items:center; gap:5px;\n}\n.track-monitor-controls button {\n  width:27px; height:26px; min-height:24px; padding:0; border-radius:6px;\n  border:0; color:var(--ink); font:650 11px/1 system-ui,sans-serif;\n  background:var(--canvas); box-shadow:var(--key-up);\n}\n.track-monitor-controls button[aria-pressed="true"] {\n  color:var(--accent); background:var(--canvas); box-shadow:var(--key-down); font-weight:800;\n}\n.track-head :is(.track-name,.track-monitor-controls button):is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true]) {\n  background-color:var(--lus-press-fill); box-shadow:var(--key-down);\n}\n.track-monitor-controls button:focus-visible {outline:2px solid var(--focus);outline-offset:1px}\n.track-head[data-monitor-inherited] [data-track-monitor="mute"] {border:1px dashed currentColor}\n.track-monitor-status {position:absolute;inset:100% 0 auto auto;white-space:nowrap;color:var(--ink);font-size:9px}\n.track-row[data-monitor-muted] .clip canvas { opacity:.45; }\n#monitor-route {\n  flex:none; padding:3px 10px; background:var(--layer); color:var(--ink);\n  border-bottom:1px solid var(--line); font-size:11px;\n}\n.track-name:focus-visible { outline-color:var(--focus); }\n.track-name:hover .track-chevron,.track-name[aria-expanded=true] .track-chevron { opacity:1; }\n.track-label { min-width:0; font-size:12px; font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }\n.track-offline { font-size:9px; color:var(--muted); white-space:nowrap; order:1; }\n#load-progress {\n  display:flex; align-items:center; gap:8px; padding:4px 10px; min-height:25px;\n  flex:none; background:var(--layer); color:var(--muted); font-size:11px;\n}\n#load-meter {\n  width:clamp(42px,15vw,126px); height:7px; margin-inline-start:auto;\n  accent-color:var(--accent);\n}\n.track-chevron {\n  width:6px; height:6px; flex:none; margin-inline-start:auto; margin-inline-end:2px; order:2;\n  border:solid currentColor; border-width:0 1.5px 1.5px 0;\n  transform:rotate(45deg) translateY(-2px); opacity:.63;\n}\n.track-name[aria-expanded=true] .track-chevron { transform:rotate(225deg) translateY(-1px); }\n.timeline { position:relative; z-index:1; min-width:0; margin-inline:4px; overflow:auto hidden; scrollbar-width:thin; }\n.lane {\n  --beat-ink:transparent; --detail-ink:transparent;\n  position:relative; min-height:100%; isolation:isolate;\n  background-image:\n    linear-gradient(to right,var(--grid-major) 1px,transparent 1px),\n    linear-gradient(to right,var(--beat-ink) 1px,transparent 1px),\n    linear-gradient(to right,var(--detail-ink) 1px,transparent 1px);\n  background-size:var(--major-step,20%) 100%,var(--beat-step,100%) 100%,var(--detail-step,100%) 100%;\n}\n.lane[data-beat] { --beat-ink:var(--grid-beat); }\n.lane[data-detail] { --detail-ink:var(--grid-detail); }\n.ruler {\n  height:var(--ruler-height); position:relative; cursor:crosshair; color:var(--ink);\n  font:600 11px ui-monospace,monospace; border-bottom:1px solid var(--line);\n  background:var(--layer);\n}\n.ruler span { position:absolute; top:7px; padding-inline-start:5px; pointer-events:none; }\n.ruler input { position:absolute; width:1px; height:1px; padding:0; opacity:0; inset:0; pointer-events:none; }\n.track-row { position:relative; }\n.track-actions {\n  grid-column:1/-1; align-self:start; display:flex; flex-wrap:wrap; align-items:flex-start; gap:4px; padding-inline:12px;\n}\n.track-actions button {\n  min-height:25px; padding-inline:5px; border:0; font-size:10px;\n  color:var(--head-ink);\n}\n.track-actions button:focus-visible { outline-color:var(--focus); }\n#loop-band { position:absolute; z-index:0; inset-block:0; pointer-events:none; background:var(--loop); border-inline:1px solid color-mix(in srgb,var(--head) 55%,transparent); }\n#loop-band::before { content:""; display:block; height:2px; background:var(--head); }\n.playhead { pointer-events:none; position:absolute; z-index:4; inset-block:0; width:1px; background:var(--head); }\n:host([data-playhead-snap]) .playhead {width:2px;box-shadow:0 0 7px var(--head)}\n.playhead::before {\n  content:""; width:9px; height:8px; position:absolute; top:0; left:-4px;\n  background:var(--head); clip-path:polygon(0 0,100% 0,50% 100%);\n}\n.editor-footer {\n  position:absolute; inset:auto 0 var(--wb-dock,70px); z-index:3;\n  min-height:0; gap:7px; padding:0 9px; color:var(--muted); font-size:10px;\n  pointer-events:none;\n}\n.editor-footer slot { display:block; margin-inline-start:auto; flex:none; pointer-events:auto; }\n.editor-footer button { min-height:24px; padding-inline:5px; font-size:10px; pointer-events:auto; }\n#status { min-width:0; }\n#status:not(:empty) { background:var(--panel); padding:3px 6px; border-radius:5px; }\n#empty {\n  position:absolute; inset:0; padding:var(--ruler-height) 12px 0 100px; z-index:3; display:grid;\n  place-content:center; justify-items:center; pointer-events:none; color:var(--muted);\n}\n#empty button { pointer-events:auto; }\naside {\n  min-height:0; overflow:auto; background:var(--layer); border-inline-start:1px solid var(--line);\n  scrollbar-width:thin; padding-bottom:var(--wb-dock,70px);\n}\n.songs-heading {\n  min-height:42px; gap:7px; padding:5px 12px; position:sticky; top:0; z-index:1; background:var(--layer);\n}\n.songs-heading h2 { font-size:12px; margin:0; font-weight:720; }\n.songs-heading span { font-size:10px; color:var(--muted); }\n#songs-refresh { margin-inline-start:auto; min-width:28px; padding-inline:0; font-size:16px; line-height:1; }\n#playlist-status { margin:0 12px 8px; color:var(--muted); }\n#song-list { padding:5px 11px 12px; display:grid; gap:10px; }\n.song-card {\n  display:grid; grid-template-columns:50px minmax(0,1fr); align-items:center; gap:6px 10px;\n  padding:8px; border-radius:11px; background:var(--panel); box-shadow:var(--soft-raise);\n}\n.song-card[data-current] { background:var(--selected); box-shadow:var(--soft-inset); }\n.song { display:grid; gap:2px; text-align:start; min-width:0; padding:0; border:0; background:none; box-shadow:none; }\n.song:not([aria-pressed="true"]):hover .song-name { color:var(--accent); }\n.song-card .song:active { box-shadow:none; }\n.song[aria-pressed="true"] .song-name { color:var(--accent); }\n.song-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }\n.song-source,.song-version { display:block; color:var(--muted); font-size:10px; line-height:1.3; }\n.song-cover {\n  display:grid; place-items:center; position:relative; border:0; width:50px; height:50px;\n  border-radius:8px; padding:0; overflow:hidden;\n}\n.song-cover-art {\n  display:grid; place-items:center; position:absolute; inset:0; border-radius:inherit; pointer-events:none;\n}\n@media (any-hover:hover) and (any-pointer:fine) and (prefers-reduced-motion:no-preference) {\n  .song-cover:has(>.song-cover-art.jiu-card-motion-part) {\n    overflow:visible; background:transparent; box-shadow:none;\n  }\n  .song-cover-art.jiu-card-motion-part { overflow:hidden; background:var(--raised); box-shadow:var(--soft-raise); }\n  .song-cover:disabled .song-cover-art.jiu-card-motion-part { box-shadow:var(--soft-inset); }\n}\n.song-cover img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }\n.song-icon {\n  position:relative; display:grid; place-items:center; width:25px; height:25px; font-size:10px;\n  border-radius:50%; color:var(--ink); background:var(--raised); box-shadow:var(--soft-inset);\n}\n.song-cover:has(img) .song-icon {\n  color:var(--oa-action-ink); background:color-mix(in srgb,var(--oa-action) 92%,transparent); box-shadow:none;\n}\n.song-cover[aria-pressed="true"] .song-icon { background:var(--selected); color:var(--accent); }\n.song-cover:is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true]) .song-icon {\n  background-color:var(--lus-press-fill); color:var(--accent); box-shadow:var(--soft-inset);\n}\n.song-cover:focus-visible { outline-offset:-2px; z-index:1; }\n.song-cover:disabled { box-shadow:var(--soft-inset); }\n.adopt-take { grid-column:2; justify-self:start; font-size:10px; min-height:24px; }\n#inspector {\n  margin:1px 11px 10px; padding-top:8px; border-radius:11px; background:var(--panel); box-shadow:var(--soft-inset);\n}\n.inspector-switch { display:flex; gap:8px; margin-inline:10px; }\n.inspector-switch button { min-height:27px; padding-inline:9px; color:var(--muted); }\n.inspector-switch button[aria-pressed="true"] {\n  color:var(--accent); background:var(--selected); box-shadow:var(--soft-inset); font-weight:650;\n}\n#lyrics,#clip-details { padding:11px 12px; }\n#lyrics p { margin:0; color:var(--muted); line-height:1.8; white-space:pre-line; }\n#clip-details strong { font-size:12px; }\n#clip-details dl { margin:8px 0 0; display:grid; gap:1px; }\n#clip-details dl div { display:grid; grid-template-columns:max-content 1fr; gap:7px; border-bottom:1px solid var(--line); padding:4px 0; }\n#clip-details dt { color:var(--muted); }\n#clip-details dd { margin:0; text-align:end; font:10px ui-monospace,monospace; white-space:nowrap; }\n@media (max-width:680px) {\n  :host { --track-height:96px; --imw-video-row-height:88px; --track-action-height:65px; --audio-ruler-height:32px; }\n  .mobile { display:inline-flex!important; align-items:center; }\n  .body { display:block; }\n  .editor { height:100%; padding-block-end:calc(var(--wb-dock,70px) + 28px); }\n  .arrangement { grid-template-columns:112px minmax(0,1fr); }\n  .toolbar { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:5px; padding-inline:7px; }\n  .field { gap:3px; font-size:10px; }\n  .current-take { padding-inline-start:5px; gap:4px; flex-wrap:wrap; }\n  #song-title { font-size:10px; }\n  #project,#version,.toolbar-end select { font-size:10px; padding-inline:3px; }\n  .toolbar-end { gap:4px; }\n  .toolbar-end #tempo { display:none; }\n  .zoom span { display:none; }\n  #songs-toggle,#cut-quiet,#undo-cut { padding-inline:4px; }\n  #cut-quiet,#undo-cut { font-size:10px; }\n  .track-heading,.track-name { padding-inline:7px; gap:4px; }\n  .track-head { padding-inline:4px; column-gap:5px; }\n  .track-actions { display:grid; grid-template-columns:1fr; gap:3px; padding-inline:8px; }\n  .track-chevron { width:5px; height:5px; margin-inline-end:0; }\n  .track-label { font-size:11px; }\n  aside { position:absolute; inset:0 0 0 auto; width:min(292px,84%); z-index:5; display:none; box-shadow:var(--depth); }\n  aside.open { display:block; }\n}\n@media (max-width:380px) {\n  .current-take { border:0; padding:0; }\n  .toolbar .field:first-child { font-size:0; }\n  .toolbar-end { gap:3px; }\n}\n\n@media (prefers-reduced-motion:no-preference) {\n  :is(button,summary,a[download]):not(.clip,.trim-handle), .song-icon {\n    transition:background-color 100ms ease-out,color 100ms ease-out;\n  }\n}\n\n.clip-menu {\n  min-width:150px; position:fixed; z-index:10000; padding:5px;\n  background:var(--panel); border:1px solid var(--line); border-radius:8px;\n  box-shadow:var(--depth);\n}\n.clip-menu button {\n  display:block; width:100%; text-align:left; border:0; background:none; box-shadow:none;\n  min-height:29px; white-space:nowrap;\n}\n.clip-menu button:hover,.clip-menu button:focus-visible { box-shadow:var(--soft-inset); }\n.studio[data-track-edit] .body { grid-template-columns:minmax(0,1fr); }\n.studio[data-track-edit] #songs,.studio[data-track-edit] #songs-toggle,\n.studio[data-track-edit] #cut-quiet,.studio[data-track-edit] #undo-cut { display:none!important; }\n.arrangement.single-track { flex:0 0 auto; max-height:180px; }\n.track-editor { flex:1; min-height:0; overflow:auto; padding:8px 14px 90px; }\n.track-editor-header,.track-tools,.track-form,.vocal-result { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }\n.track-editor-header { margin-bottom:12px; padding-bottom:7px; border-bottom:1px solid var(--line); }\n.track-editor-header h2 { margin:0; font-size:15px; }\n.track-tools { margin-left:auto; }\n.track-tools [aria-pressed=true] { box-shadow:var(--soft-inset); color:var(--accent); }\n.track-pane { min-width:0; }\n.track-pane input { width:100%; min-width:0; font:inherit; color:var(--ink); background:var(--raised); border:1px solid var(--line); border-radius:7px; padding:4px 6px; box-shadow:var(--soft-inset); }\n.track-form input { display:inline-block; width:70px; }\n.track-pane a { color:var(--ink); padding:4px; }\n.track-form label { color:var(--muted); }\n#track-score-preview { overflow:auto; margin-top:10px; background:var(--layer); border:1px solid var(--line); }\n#track-note-roll { display:block; height:180px; min-width:100%; color:var(--head); border-color:var(--line); }\n#track-editor-status { color:var(--muted); min-height:18px; margin:8px 0 0; }\n.vocal-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,235px),1fr)); gap:8px; align-items:start; }\n.vocal-fields fieldset { min-width:0; border:1px solid var(--line); border-radius:6px; display:grid; grid-template-columns:1fr 1fr; gap:6px; }\n.vocal-fields label { color:var(--muted); }\n.vocal-fields button { justify-self:start; grid-column:1/-1; }\n.vocal-result { margin-top:12px; }\n.vocal-result audio { display:block; max-width:100%; height:32px; }\n.vocal-commands { grid-column:1/-1; display:flex; align-items:center; flex-wrap:wrap; gap:5px; }\n.vocal-commands:empty { display:none; }\n.vocal-commands button[aria-pressed=true],#track-solo[aria-pressed=true] { box-shadow:var(--soft-inset); color:var(--accent); }\n#track-score-preview { background:none; border:0; }\n#track-score-layout { margin-block:8px; }\n#track-roll-scroll { overflow:auto; border:1px solid var(--line); background:var(--layer); }\n#track-notation { overflow:auto; padding-bottom:6px; }\n#track-notation .score { width:max-content; min-width:100%; margin:0 0 12px; padding:18px 20px 9px; background:#fcfbf8; color:#252525; }\n#track-notation .canvas { position:relative; margin-inline:auto; }\n#track-notation .score-title { text-align:center; font-size:19px; font-weight:700; }\n#track-notation .score-head { font-size:12px; margin:8px 18px 4px; }\n#track-notation .meta-tempo { margin-left:10px; }\n#track-notation [class^="el-"],#track-notation .slur-layer { position:absolute; color:#252525; }\n#track-notation .el-num { display:grid; place-items:center; font:18px Georgia,serif; }\n#track-notation .el-ul { height:1px; background:#252525; }\n#track-notation .el-dot { background:#252525; border-radius:50%; }\n#track-notation .el-bar { width:1px; background:#252525; }\n#track-notation .el-cursor { display:none; }\n#track-notation .score-pageno { text-align:center; color:#72716f; font-size:11px; }\n\n#download-master { color:var(--accent); font:inherit; font-size:12px; white-space:nowrap; }\n\n#master-settings { position:relative; }\n#master-settings > summary { cursor:pointer; white-space:nowrap; font-size:12px; }\n.master-popover { position:absolute; top:calc(100% + 8px); right:0; width:min(340px,84vw);\n  box-sizing:border-box; padding:12px; background:var(--panel); color:var(--ink); border:1px solid var(--line);\n  border-radius:10px; box-shadow:var(--soft-raise); }\n#master-values { margin:0; padding:0; border:0; display:grid; gap:6px 12px; grid-template-columns:repeat(2,minmax(0,1fr)); }\n#master-values label { display:flex; flex-direction:column; font-size:11px; gap:3px; }\n#master-values input, #master-values select { box-sizing:border-box; min-width:0; width:100%; max-width:100%;\n  height:28px; font:inherit; color:inherit; background:var(--panel); border:1px solid var(--line); border-radius:4px; }\n#master-values input[type=checkbox] { width:18px; align-self:flex-start; }\n#master-saved { display:block; margin-top:5px; }\n@media (max-width:600px) {\n  .toolbar { position:relative; }\n  #master-settings { position:static; }\n  .master-popover { left:8px; right:8px; width:auto; top:calc(100% + 4px); }\n}\n\n#master-delivery-info {font-size:12px;line-height:1.45;margin-bottom:8px;}\n#master-aac-player {width:100%;height:32px;}\n#download-aac {color:var(--accent);font-size:12px;white-space:nowrap;}\n\n#master-audition {display:flex;align-items:center;gap:6px;flex-wrap:wrap}\n#master-audition[hidden]{display:none}\n#master-bypass[aria-pressed=true]{font-weight:700;outline:2px solid currentColor}\n\n@media (max-width:680px) {\n  .toolbar { position:relative; grid-template-columns:minmax(0,max-content) minmax(0,1fr); gap:3px 5px; padding-block:3px }\n  .toolbar-end {\n    grid-column:1/-1;justify-self:stretch;margin:0;min-width:0;flex-wrap:wrap;\n    padding-top:2px;border-top:1px solid var(--line)\n  }\n  .current-take { flex-wrap:nowrap }\n  #song-title { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }\n  #version { max-width:54% }\n  #master-settings > summary { padding:5px 1px }\n  .master-popover { max-height:calc(100dvh - 220px);overflow:auto;overscroll-behavior:contain }\n}\n@media (min-width:360px) and (max-width:680px) {\n  #songs-toggle {\n    position:absolute; inset-inline-end:0;\n    inset-block-start:calc((28px - var(--lus-heading-height)) / 2 - 28px);\n    min-inline-size:30px; justify-content:center;\n  }\n}\n@media (max-width:430px) {\n  .master-settings-name { display:none; }\n}\n\n/* Picture and sound share the same horizontal viewport and fit-to-work scale. */\n#imw-screen,#imw-lane-labels,#imw-cut-lanes,#imw-inspect,#imw-captions,\n#imw-add-track,#imw-score-settings { display:none; }\n:host([data-imw-video]) #imw-score-settings {display:inline-flex}\n/* Keep a zero-height native arrangement in the audio grid column as the video scale reference. */\n#imw-audio-fit {display:none}\n:host([data-imw-video]) #imw-audio-fit {\n  display:grid;grid-area:1/1;align-self:start;height:0;visibility:hidden;overflow:hidden;pointer-events:none\n}\n:host([data-imw-video]) .editor {grid-column:1/-1;grid-row:1}\n@media(max-width:680px) {\n  :host([data-imw-video]) .body {display:grid;grid-template-columns:minmax(0,1fr)}\n}\n:host([data-imw-video]) .editor {\n  height:100%;padding:0 0 calc(var(--wb-dock,70px) + 5px);overflow:hidden;\n}\n:host([data-imw-video]) #imw-screen {\n  display:flex;flex:1 1 0;position:relative;width:100%;min-width:0;min-height:80px;overflow:hidden;\n}\n:host([data-imw-video]) #track-scroll-panel {\n  flex:0 1 auto; min-height:1.5em;max-height:62%; overflow:auto; align-content:start;\n  grid-template-columns:var(--imw-label-width) minmax(0,1fr);\n}\n/* Keep the original track-list column and timeline gutter in both modes. */\n:host([data-imw-video]) #lane {min-height:0;overflow:hidden}\n:host([data-imw-video]) #regions {position:relative;}\n:host([data-imw-video]) :is(#loop-band,#empty,#monitor-route,\n  #cut-quiet,#undo-cut,#master-settings,#output-master,.zoom,#tempo,.editor-footer) {display:none!important}\n:host([data-imw-video]) .track-list {z-index:1;min-width:0;}\n:host([data-imw-video]) #imw-lane-labels {display:block}\n:host([data-imw-video]) #imw-cut-lanes {display:block}\n:host([data-imw-video]) #playhead{z-index:3;pointer-events:none}\n:host([data-imw-video]) [data-track-row]:not([data-imw-track]),\n:host([data-imw-video]) .track-head[data-track-row]:not([data-imw-current]) {display:none}\n:host([data-imw-video]:not([data-imw-stems])) #imw-lane-labels::before {\n  content:"";display:block;height:var(--track-height)\n}\n#imw-empty-tracks {height:var(--track-height);margin:0;padding:0 10px;align-content:center;color:var(--muted);font-size:11px}\n:host([data-imw-video][data-imw-stems]) #regions {\n  display:grid;grid-template-rows:repeat(var(--imw-parts),minmax(0,1fr));height:var(--track-height)\n}\n:host([data-imw-video]) #regions .track-row[data-imw-track] {height:100%;min-height:0}\n:host([data-imw-video]) .track-head[data-imw-current] {height:var(--track-height)}\n:host([data-imw-video]) .track-head[data-imw-current][data-expanded] {grid-template-rows:minmax(0,1fr) auto}\n:host([data-imw-video]) .track-head[data-imw-current][data-expanded] .track-name {height:calc(100% - 5px)}\n:host([data-imw-video]) .track-head[data-imw-current][data-expanded] .track-monitor-controls {grid-area:1 / 2 / span 2}\n:host([data-imw-video]) .track-head[data-imw-current][data-expanded] .track-actions {\n  display:flex;grid-column:1;grid-row:2;flex-wrap:nowrap;gap:2px;padding:0 0 3px\n}\n:host([data-imw-video]) .track-head[data-imw-current][data-expanded] .track-actions button {\n  flex:1 1 0;min-width:0;min-height:19px;padding:1px;font-size:9px\n}\n:host([data-imw-compact]) #regions .track-row {box-shadow:inset 0 -1px color-mix(in srgb,var(--line) 55%,transparent)}\n:host([data-imw-compact]) #regions .clip-group {top:min(2px,5%);height:max(1px,90%);--clip-radius:min(6px,45%)}\n:host([data-imw-compact]) #regions .clip {min-height:0}\n:host([data-imw-compact]) #regions .clip canvas {top:4%;height:92%}\n:host([data-imw-compact]) #regions .trim-handle {inset-block:0}\n:host([data-imw-compact]) #regions .trim-handle::before {height:min(80%,13px)}\n:host([data-imw-compact]) #regions .clip-group[data-tight] .trim-handle.head {inset-block:0 50%}\n:host([data-imw-compact]) #regions .clip-group[data-tight] .trim-handle.tail {inset-block:50% 0}\n:host([data-imw-compact]) #regions .clip::after {bottom:0}\n:host([data-imw-dense]) #regions .track-row {box-shadow:none}\n:host([data-imw-dense]) #regions .clip-group {\n  top:0;height:100%;--clip-radius:0;border:0;box-shadow:none\n}\n:host([data-imw-dense]) #regions .clip-group::after,\n:host([data-imw-dense]) #regions .clip canvas,\n:host([data-imw-dense]) #regions .clip::after {display:none}\n:host([data-imw-dense]) #regions .clip:not(:disabled) {\n  top:0;height:calc(100% - 1px);border:0;border-radius:0;box-shadow:none;background:var(--tone)\n}\n:host([data-imw-dense]) #regions .track-row[data-monitor-muted] .clip:not(:disabled) {opacity:.45}\n:host([data-imw-dense]) #regions .clip-group:is([data-selected],:focus-within) .clip:not(:disabled) {\n  box-shadow:inset 0 0 0 1px var(--ink)\n}\n:host([data-imw-dense]) #regions .trim-handle::before {height:100%}\n:is(#imw-frame-rate-field,#imw-frame-zoom-field) {display:none}\n:host([data-imw-video]) :is(#imw-frame-rate-field,#imw-frame-zoom-field) {display:inline-flex;align-items:center;gap:5px}\n:host([data-imw-video]) {--ruler-height:40px}\n:host([data-imw-video]) .track-heading,:host([data-imw-video]) .ruler {height:var(--ruler-height)}\n:host([data-ruler-format=timecode]) {--audio-ruler-height:40px}\n:host([data-imw-video]) .ruler {overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;}\n:host([data-ruler-format=timecode]) .ruler #ticks span {top:2px;line-height:17px;white-space:nowrap}\n#ruler-scales {display:flex;align-items:center;justify-content:center;gap:5px;width:100%}\n#ruler-scales button {\n  display:grid;place-items:center;flex:0 0 24px;width:24px;height:24px;min-height:0;padding:0;\n  border:0;border-radius:50%;color:var(--ink);background:var(--canvas);box-shadow:var(--soft-raise);\n}\n#ruler-scales button[aria-pressed=true] {\n  color:var(--accent);background:var(--selected);box-shadow:var(--soft-inset);\n}\n#ruler-scales button:focus-visible {outline:2px solid var(--focus);outline-offset:1px}\n#ruler-scales button:is(:active,[data-jiu-pressed]) {box-shadow:var(--soft-inset)}\n#ruler-scales svg {width:15px;height:15px}\n\n:host([data-imw-video]) #imw-add-track:not([hidden]) {display:block;max-width:calc(100% - 8px);margin:4px;min-height:24px;font-size:10px;}\n:host([data-imw-video]) #imw-captions {display:inline-flex;margin-bottom:6px}\n:host([data-imw-video]) .toolbar #imw-video-toggle {background:var(--selected);color:var(--accent);box-shadow:var(--soft-inset);}\n:host([data-imw-video]) #songs {\n  display:none;position:absolute;z-index:8;inset:0 0 0 auto;width:min(300px,86%);box-shadow:var(--depth)\n}\n:host([data-imw-video]) #songs.open {display:block}\n:host([data-imw-video]) :is(#songs-toggle,#songs-close) {display:inline-flex!important}\n@media(max-width:760px) {\n  :host([data-imw-video]) #imw-inspect {display:inline-flex}\n}\n#imw-original-track {display:none}\n:host([data-imw-video]) #imw-original-track:not([hidden]) {display:block}\n#imw-original-track .clip svg {position:absolute;inset:6px 0;width:100%;height:calc(100% - 12px);color:var(--tone)}\n#imw-original-track[data-monitor-muted] .clip svg {opacity:.45}\n\n:host([data-imw-video]) .studio[data-track-edit] #track-editor:not([hidden]) {\n  position:absolute;z-index:6;inset:0 0 auto;max-height:55%;overflow:auto;background:var(--panel)\n}\n\n#imw-project {display:none}\n:host([data-imw-video]) #audio-project-field,\n:host([data-imw-video]:not([data-imw-song])) :is(.current-take,#songs-toggle,#songs) {display:none!important}\n:host([data-imw-video]) #imw-project {\n  display:block;max-width:min(45vw,300px);min-width:0;text-overflow:ellipsis;white-space:nowrap;overflow:hidden\n}\n\n/* The workstation settings live above the dock and take no row from the timeline. */\n#imw-settings {\n  position:fixed; inset:auto max(var(--wb-tool-gutter,16px),env(safe-area-inset-right)) calc(var(--wb-dock,70px) + 8px) auto;\n  margin:0; padding:14px; width:min(330px,calc(100vw - 32px)); max-height:calc(100dvh - var(--wb-dock,70px) - 54px);\n  overflow:auto; overscroll-behavior:contain; border:1px solid var(--line); border-radius:12px;\n  background:var(--panel); color:var(--ink); box-shadow:var(--depth);\n}\n#imw-settings:popover-open {display:grid;gap:12px}\n.imw-settings-heading,.imw-settings-actions {display:flex;align-items:center;gap:8px}\n.imw-settings-heading {justify-content:space-between}\n.imw-settings-heading button {width:26px;padding:0;font-size:18px}\n.imw-settings-actions {flex-wrap:wrap}\n#imw-settings .current-take {padding:0;border:0}\n#imw-settings :is(#project,#version) {max-width:100%;min-width:0}\n#imw-settings #audio-project-field select {flex:1}\n#imw-settings #songs-toggle {position:static}\n#imw-settings #master-settings {flex-basis:100%;position:static}\n#imw-settings .master-popover {position:static;width:100%;max-height:none;overflow:visible;box-shadow:none}\n@media(max-width:680px) {#imw-settings{inset-inline-end:max(8px,env(safe-area-inset-right))}}\n\n#imw-opening {display:none}\n:host([data-imw-opening]:not([data-imw-video])) #imw-screen {display:grid;place-items:center;min-height:20dvh;color:var(--muted)}\n:host([data-imw-opening]:not([data-imw-video])) #imw-opening {display:block}\n\n/* The picture lane retains its position and identity above the time ruler. */\n#imw-video-header,.track-list #imw-lane-labels {padding:0}\n:host(:not([data-imw-video])) #imw-video-header .track-head,\n#imw-folded-video {height:calc(var(--track-height) / 2);min-height:0}\n:host(:not([data-imw-video])) #imw-video-header .track-head {grid-template-rows:1fr}\n:host(:not([data-imw-video])) #imw-video-header .track-name {grid-column:1/-1;height:calc(var(--track-height) / 2 - 8px)}\n:host(:not([data-imw-video])) #imw-video-header .track-monitor-controls {display:none}\n#imw-folded-video {\n  display:block;position:relative;width:100%;border:0;border-radius:0;background:transparent;\n  color:var(--muted);font-size:10px;text-align:left;padding:0 9px;box-shadow:none\n}\n#imw-folded-video:hover,#imw-folded-video:focus-visible {background:var(--selected);color:var(--accent)}\n#imw-folded-video:is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true]) {background-color:var(--lus-press-fill)}\n:host([data-imw-video]) #imw-folded-video {display:none}\n:host([data-imw-video]) #imw-video-label {--track-height:var(--imw-video-row-height)}\n:host([data-imw-empty-video]) #imw-folded-video {display:block;height:var(--imw-video-row-height)}\n#imw-picture-lane {position:relative;}\n#imw-video-header .track-head .track-label {font-size:12px}\n\n#imw-picture-lane,#imw-video-header {height:calc(var(--track-height) / 2);overflow:clip}\n:host([data-imw-video]) :is(#imw-picture-lane,#imw-video-header) {height:var(--imw-video-row-height,var(--track-height))}\n\n:host([data-imw-video][data-frame-zoom]) #lane {width:var(--frame-zoom-width)!important}\n.frame-marks {display:none;position:absolute;top:20px;height:18px;overflow:hidden;pointer-events:none}\n:host([data-ruler-format=timecode]) .frame-marks {display:block;border-top:1px solid var(--line)}\n.frame-marks path {fill:none;stroke:var(--muted);stroke-width:1;shape-rendering:crispEdges}\n#lane {cursor:crosshair}\n:host([data-command-grab]) {\n  --clip-cursor:grab; --clip-active-cursor:grabbing; --clip-edge-cursor:ew-resize;\n}\n#timeline-selection {position:absolute;z-index:4;pointer-events:none;overflow:hidden;white-space:nowrap;\n  box-sizing:border-box;border-inline:1px solid var(--focus);border-block:1px solid color-mix(in srgb,var(--focus) 55%,transparent);\n  background:color-mix(in srgb,var(--focus) 22%,transparent);color:var(--ink);padding-inline:3px;\n  font:600 10px/16px ui-monospace,monospace}\n@supports (backdrop-filter:hue-rotate(120deg)) {\n  #timeline-selection {\n    background:color-mix(in srgb,var(--focus) 16%,transparent);\n    backdrop-filter:hue-rotate(120deg) saturate(1.45) contrast(1.08);\n  }\n}\n#timeline-selection[data-video-range]::before {\n  content:"";position:absolute;inset-inline:0;top:var(--selection-video-y);\n  height:calc(var(--selection-video-height) - 2px);box-sizing:border-box;\n  border:1px solid #ffdc91;border-inline-width:3px;\n  box-shadow:inset 0 0 0 1px #241a14;\n  background:linear-gradient(180deg,#20150836,transparent 32%,transparent 68%,#20150836),#ffd47b27;\n}\n#timeline-selection[data-video-range] > span {\n  position:relative;color:#fff8e7;text-shadow:0 1px 2px #17110b,0 0 3px #17110b;\n}\n#timeline-selection[hidden] {display:none}\n\n/* Until the shared disclosure animation settles, fading heads occupy their own original track positions. */\n:host([data-imw-track-motion]) .track-head[data-imw-track]:not([data-imw-current]),\n:host([data-imw-track-motion]) .track-head[data-imw-track] {display:grid;overflow:clip;min-height:0}\n\n/* Blend compact insets into the audio layout on the same timeline as the panel. */\n:host([data-imw-track-motion][data-imw-compact]) #regions .clip-group {\n  --compact-top:min(2px,5%); --compact-height:max(1px,90%);\n  top:calc(var(--compact-top) * (1 - var(--lus-imw-fold)) + 6px * var(--lus-imw-fold));\n  height:calc(var(--compact-height) * (1 - var(--lus-imw-fold)) + (var(--track-height) - 12px) * var(--lus-imw-fold));\n}\n:host([data-imw-track-motion][data-imw-dense]) #regions .clip-group {\n  --compact-top:0px; --compact-height:100%;\n}\n:host([data-imw-track-motion][data-imw-compact]) #regions .clip canvas {\n  top:calc(4% * (1 - var(--lus-imw-fold)) + 8px * var(--lus-imw-fold));\n  height:calc(92% * (1 - var(--lus-imw-fold)) + (100% - 16px) * var(--lus-imw-fold));\n}\n:host([data-imw-track-motion][data-imw-dense]) #regions .clip canvas {display:block}\n\n#detached-lanes {position:relative}\n.detached-wave,.detached-wave svg {position:absolute;inset:7% 0;width:100%;height:86%;pointer-events:none;color:var(--tone)}\n.detached-wave svg {inset:0;height:100%}\n.detached-row[data-monitor-muted] .detached-wave {opacity:.45}\n.detached-head .track-actions {padding-inline:4px}\n.detached-head .track-actions label {display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;font-size:10px}\n.detached-head .track-actions input {width:60px;max-width:100%;accent-color:var(--tone)}\n:host([data-detached-audio]) :is(#empty,#imw-empty-tracks) {display:none!important}\n:host([data-detached-audio][data-imw-video]:not([data-imw-stems])) #imw-lane-labels::before {display:none}\n:host([data-detached-audio]) .arrangement.single-track {max-height:none;flex:1}\n';
 
   // assets/studio/studio-clips.css
-  var studio_clips_default = '.clip-group {\n  position:absolute; top:6px; height:calc(var(--track-height) - 12px); z-index:1;\n  --clip-radius:min(10px,50%);\n}\n.clip-group:not(.offline)::after {\n  content:""; position:absolute; inset:0; pointer-events:none;\n  border-radius:var(--clip-radius);\n  box-shadow:inset 2px 3px 7px var(--relief-shadow),inset -2px -3px 6px var(--relief-light);\n}\n.clip {\n  position:absolute; inset:0;\n  width:100%; height:100%; padding:0; cursor:var(--clip-cursor,crosshair);\n  color:var(--clip-ink); background:transparent; box-shadow:none;\n  border:0; border-radius:var(--clip-radius); overflow:hidden; touch-action:none;\n}\n:host([data-paint-only]) .clip:disabled { opacity:1; cursor:default; }\n.clip-silence { position:absolute; inset-block:0; pointer-events:none; }\n.clip-silence.head { left:0; width:var(--silence-head,0%); }\n.clip-silence.tail { right:0; width:var(--silence-tail,0%); }\n.clip:active { cursor:var(--clip-active-cursor,crosshair); }\n.clip:is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true]) {\n  box-shadow:inset 0 0 0 1px var(--focus,var(--oa-focus));\n}\n.clip canvas {\n  position:absolute; top:8px; left:var(--silence-head,0%);\n  width:calc(100% - var(--silence-head,0%) - var(--silence-tail,0%));\n  height:calc(100% - 16px); color:var(--tone); background:transparent; pointer-events:none;\n}\n.clip-group[data-selected] { z-index:2; }\n.clip-group[data-tight] .clip { min-width:1px; }\n.clip-group[data-tight] .trim-handle.head { inset-block:2px 50%; }\n.clip-group[data-tight] .trim-handle.tail { inset-block:50% 2px; }\n.clip:focus-visible { outline:none; }\n.clip-group[data-selected] > .clip::after,.clip:focus-visible::after {\n  content:""; position:absolute; inset-inline:0; bottom:4px; margin-inline:auto;\n  width:min(16px,36%); height:2px; background:var(--focus); border-radius:1px;\n}\n.clip:focus-visible::after { height:3px; }\n.clip-group.offline .clip {\n  color:var(--muted); opacity:1; border:1px dashed var(--muted);\n  background:repeating-linear-gradient(135deg,var(--panel) 0 6px,var(--layer) 6px 10px);\n}\n.trim-handle {\n  position:absolute; inset-block:2px; z-index:1; min-height:0; width:14px; padding:0;\n  border:0; background:transparent; border-radius:3px; touch-action:none; cursor:var(--clip-edge-cursor,crosshair); color:var(--clip-ink);\n  box-shadow:none!important;\n}\n.trim-handle.head { left:-7px; }\n.trim-handle.tail { right:-7px; }\n.trim-handle::before {\n  content:""; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);\n  height:13px; width:2px; background:currentColor; border-radius:1px; opacity:0;\n}\n.clip-group:is(:hover,:focus-within,[data-selected]) .trim-handle::before { opacity:1; }\n.trim-handle:disabled { visibility:hidden; }\n.trim-handle:focus-visible { outline:none; }\n.trim-handle:focus-visible::before { width:3px; height:17px; }\n.trim-handle:is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true])::before {\n  width:3px; height:17px; opacity:1;\n}\n@media (hover:none) {\n  .trim-handle::before { opacity:.42; }\n}\n';
+  var studio_clips_default = '.clip-group {\n  position:absolute; top:6px; height:calc(var(--track-height) - 12px); z-index:1;\n  --clip-radius:min(10px,50%);\n}\n.clip-group:not(.offline)::after {\n  content:""; position:absolute; inset:0; pointer-events:none;\n  border-radius:var(--clip-radius);\n  box-shadow:inset 2px 3px 7px var(--relief-shadow),inset -2px -3px 6px var(--relief-light);\n}\n.clip-group[data-loading] {\n  background:color-mix(in srgb,var(--canvas) 96%,var(--ink));\n  border-radius:var(--clip-radius);\n}\n.clip:disabled:has(canvas[data-wave]) { opacity:1; }\n.clip {\n  position:absolute; inset:0;\n  width:100%; height:100%; padding:0; cursor:var(--clip-cursor,crosshair);\n  color:var(--clip-ink); background:transparent; box-shadow:none;\n  border:0; border-radius:var(--clip-radius); overflow:hidden; touch-action:none;\n}\n:host([data-paint-only]) .clip:disabled { opacity:1; cursor:default; }\n.clip-silence { position:absolute; inset-block:0; pointer-events:none; }\n.clip-silence.head { left:0; width:var(--silence-head,0%); }\n.clip-silence.tail { right:0; width:var(--silence-tail,0%); }\n.clip:active { cursor:var(--clip-active-cursor,crosshair); }\n.clip:is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true]) {\n  box-shadow:inset 0 0 0 1px var(--focus,var(--oa-focus));\n}\n.clip canvas {\n  position:absolute; top:8px; left:var(--silence-head,0%);\n  width:calc(100% - var(--silence-head,0%) - var(--silence-tail,0%));\n  height:calc(100% - 16px); color:var(--tone); background:transparent; pointer-events:none;\n}\n.clip-group[data-selected] { z-index:2; }\n.clip-group[data-tight] .clip { min-width:1px; }\n.clip-group[data-tight] .trim-handle.head { inset-block:2px 50%; }\n.clip-group[data-tight] .trim-handle.tail { inset-block:50% 2px; }\n.clip:focus-visible { outline:none; }\n.clip-group[data-selected] > .clip::after,.clip:focus-visible::after {\n  content:""; position:absolute; inset-inline:0; bottom:4px; margin-inline:auto;\n  width:min(16px,36%); height:2px; background:var(--focus); border-radius:1px;\n}\n.clip:focus-visible::after { height:3px; }\n.clip-group.offline .clip {\n  color:var(--muted); opacity:1; border:1px dashed var(--muted);\n  background:repeating-linear-gradient(135deg,var(--panel) 0 6px,var(--layer) 6px 10px);\n}\n.trim-handle {\n  position:absolute; inset-block:2px; z-index:1; min-height:0; width:14px; padding:0;\n  border:0; background:transparent; border-radius:3px; touch-action:none; cursor:var(--clip-edge-cursor,crosshair); color:var(--clip-ink);\n  box-shadow:none!important;\n}\n.trim-handle.head { left:-7px; }\n.trim-handle.tail { right:-7px; }\n.trim-handle::before {\n  content:""; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);\n  height:13px; width:2px; background:currentColor; border-radius:1px; opacity:0;\n}\n.clip-group:is(:hover,:focus-within,[data-selected]) .trim-handle::before { opacity:1; }\n.trim-handle:disabled { visibility:hidden; }\n.trim-handle:focus-visible { outline:none; }\n.trim-handle:focus-visible::before { width:3px; height:17px; }\n.trim-handle:is(:active,[data-jiu-pressed]):not(:disabled,[aria-disabled=true])::before {\n  width:3px; height:17px; opacity:1;\n}\n@media (hover:none) {\n  .trim-handle::before { opacity:.42; }\n}\n';
 
   // assets/studio/imw-disclosure.mjs
   function mountVideoDisclosure(studio) {
@@ -4231,6 +4290,21 @@
       labels.push({ at: second, label: minute + ":" + String(second % 60).padStart(2, "0") });
     }
     return { unit: "\u65F6\u95F4", labels, major: step, beat: step / 5 * pixels >= 9 ? step / 5 : 0, detail: 0 };
+  }
+  function sampleGrid({ length, width, sampleRate }) {
+    const end = length * sampleRate;
+    const minimum = Math.max(1, 86 * end / width);
+    const scale = 10 ** Math.floor(Math.log10(minimum));
+    const steps = [1, 2, 5, 10].map((n) => n * scale);
+    let stride = steps.find((n) => n >= minimum);
+    if (width >= 120 && stride >= end) stride = steps.reverse().find((n) => n < end) ?? stride;
+    const major = stride / sampleRate;
+    const labels = [];
+    for (let sample = 0; sample < end; sample += stride) {
+      labels.push({ at: sample / sampleRate, label: String(sample) });
+    }
+    const beat = stride >= 5 && major * width / length >= 50 ? major / 5 : 0;
+    return { labels, major, beat, detail: 0 };
   }
 
   // assets/studio/audio-start.mjs
@@ -6005,6 +6079,14 @@
   }
 
   // assets/studio/studio.mjs
+  var rulerScales = [
+    ["bars", "\u5C0F\u8282\u6807\u5C3A", '<path d="M4 5v14m6-14v14m5-10v6m5-10v14M2 12h20"/>'],
+    ["samples", "\u91C7\u6837\u70B9\u6807\u5C3A", '<path d="M2 12h3l2-6 4 12 3-11 2 5h6"/>'],
+    ["timecode", "\u89C6\u9891\u65F6\u95F4\u7801\u6807\u5C3A", '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14m10-14v14M3 10h4m-4 4h4m10-4h4m-4 4h4"/>']
+  ];
+  var rulerButtons = rulerScales.map(
+    ([key, name, icon2]) => `<button type="button" data-ruler-scale="${key}" aria-label="${name}" title="${name}" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icon2}</svg></button>`
+  ).join("");
   var markup = `
 <style>${studio_default}
 ${studio_clips_default}</style>
@@ -6048,9 +6130,12 @@ ${studio_clips_default}</style>
     <main class="editor" aria-label="\u97F3\u4E50\u65F6\u95F4\u8F74">
       <div id="imw-screen" role="region" aria-label="\u89C6\u9891\u76D1\u770B"><span id="imw-opening" role="status">\u6B63\u5728\u6253\u5F00\u89C6\u9891\u2026</span><slot name="imw-video"></slot></div>
       <div id="monitor-route" role="status" hidden></div>
+      <div id="load-progress" role="status" hidden>
+        <span id="load-label"></span><progress id="load-meter" aria-label="\u97F3\u8F68\u64AD\u653E\u51C6\u5907\u8FDB\u5EA6"></progress>
+      </div>
       <div id="track-scroll-panel" class="arrangement">
         <div class="track-list">
-          <div id="tracks"><div id="imw-video-header"></div><div class="track-heading"><span>\u8F68\u9053</span><span id="ruler-unit"></span></div><div id="imw-lane-labels"></div></div><div id="detached-heads"></div><select id="imw-add-track" aria-label="\u663E\u793A\u5DE5\u7A0B\u5206\u8F68" hidden></select>
+          <div id="tracks"><div id="imw-video-header"></div><div class="track-heading"><div id="ruler-scales" role="group" aria-label="\u65F6\u95F4\u7EBF\u6807\u5C3A">${rulerButtons}</div></div><div id="imw-lane-labels"></div></div><div id="detached-heads"></div><select id="imw-add-track" aria-label="\u663E\u793A\u5DE5\u7A0B\u5206\u8F68" hidden></select>
         </div>
         <div id="scroll" class="timeline">
           <div id="lane" class="lane">
@@ -6158,6 +6243,17 @@ ${studio_clips_default}</style>
         root.getElementById("songs").addEventListener("scroll", this.songCardMotion.clear, { passive: true });
       }
       this.$ = (id) => root.getElementById(id);
+      const savedScale = readPreference("timeline-scale", null);
+      this.selectedRulerScale = rulerScales.some(([key]) => key === savedScale) ? savedScale : null;
+      this.rulerButtons = Array.from(this.$("ruler-scales").querySelectorAll("button"));
+      for (const button3 of this.rulerButtons) {
+        button3.onclick = () => {
+          this.selectedRulerScale = button3.dataset.rulerScale;
+          rememberPreference("timeline-scale", this.selectedRulerScale);
+          this.drawRuler();
+          this.position();
+        };
+      }
       this.frameRuler = mountFrameRuler(this);
       this.length = 30;
       this.fitLength = this.length;
@@ -6305,6 +6401,7 @@ ${studio_clips_default}</style>
     }
     disconnectedCallback() {
       this.songCardMotion?.dispose();
+      this.load?.abort();
       this.timelineSelection.dispose();
       this.detachedTracks.dispose();
       this.stop();
@@ -6444,8 +6541,11 @@ ${studio_clips_default}</style>
       this.volume(this.level);
       this.toggleAttribute("data-paint-only", this.version?.paintOnly === true);
       this.buffers = /* @__PURE__ */ new Map();
+      this.sourcePreviews = /* @__PURE__ */ new Map();
+      this.loadingBuffers = /* @__PURE__ */ new Map();
+      this.failedTracks = /* @__PURE__ */ new Set();
       this.audioReady = false;
-      this.loadingTracks = !this.version?.mastered;
+      this.loadingTracks = !!this.version && !this.version.mastered && !this.version.pending && !this.version.paintOnly;
       syncMasterControls(this);
       this.startPoint = null;
       this.selected = null;
@@ -6464,6 +6564,7 @@ ${studio_clips_default}</style>
       this.$("retry").hidden = true;
       this.selectors();
       this.tracks();
+      this.updateLoadProgress();
       this.syncTrackMonitorControls?.();
       rememberPreference("recent-project", projectId);
       if (this.song) rememberPreference("song-" + projectId, this.song.id);
@@ -6489,27 +6590,11 @@ ${studio_clips_default}</style>
         this.status(this.version.tracks.length + " \u8F68\u7ED8\u5236\u6837\u4EF6");
         return;
       }
-      this.status("\u6B63\u5728\u8BFB\u53D6\u6240\u9009\u7248\u672C\u7684\u97F3\u8F68\u2026");
+      this.status(this.loadingTracks ? "" : "\u6B63\u5728\u8BFB\u53D6\u6240\u9009\u7248\u672C\u2026");
       const { signal } = load;
       const version = this.version;
       const endpoint = this.endpoint();
       const stored = json(endpoint, { signal }).catch(() => null);
-      const decodeTrack = async (track) => {
-        const response2 = await studioFetch(track.url, { signal });
-        if (!response2.ok) throw Error("\u97F3\u8F68\u4E0D\u53EF\u7528");
-        this.decoder ??= new OfflineAudioContext(1, 1, Number(this.dataset.decodeRate));
-        const buffer = await this.decoder.decodeAudioData(await response2.arrayBuffer());
-        if (track.sourceIn + track.duration > buffer.duration + 0.01) throw Error("\u97F3\u8F68\u957F\u5EA6\u4E0D\u5339\u914D");
-        return [track.id, buffer];
-      };
-      const decodeTracks = async () => {
-        const results = [];
-        const batch = version.localImport ? 2 : version.tracks.length;
-        for (let start = 0; start < version.tracks.length && !signal.aborted; start += batch) {
-          results.push(...await Promise.allSettled(version.tracks.slice(start, start + batch).map(decodeTrack)));
-        }
-        return results;
-      };
       const disk = await stored;
       if (signal.aborted) return;
       const pending = readPreference(endpoint, null);
@@ -6534,18 +6619,87 @@ ${studio_clips_default}</style>
       this.seconds = disk ? this.draft.seconds : 0;
       this.tracks();
       this.$("scroll").scrollLeft = this.draft?.scroll ?? 0;
-      const media = version.mastered ? [] : await decodeTracks();
+      if (!version.mastered) await this.loadSources(version, signal);
       if (signal.aborted) return;
-      this.buffers = new Map(media.filter((item) => item.status === "fulfilled").map((item) => item.value));
+      this.buffers = this.loadingBuffers;
+      this.loadingBuffers = null;
       this.audioReady = !version.mastered && this.buffers.size > 0;
       this.loadingTracks = false;
+      this.updateLoadProgress();
       this.tracks();
       if (this.imw.enabled()) globalThis.OAIMWVideo?.refreshMix?.();
       this.showHomeFeature();
       this.transport.sync();
-      this.status(!disk ? "\u8349\u7A3F\u8BFB\u53D6\u5931\u8D25\u3002\u53EF\u8BD5\u542C\uFF0C\u7F16\u8F91\u9700\u91CD\u65B0\u6253\u5F00\u5DE5\u7A0B\u3002" : this.recoveryConflict ? "\u78C1\u76D8\u8349\u7A3F\u5DF2\u66F4\u65B0\u3002\u5F85\u6062\u590D\u7F16\u8F91\u4FDD\u7559\u5728\u672C\u673A\uFF0C\u5F53\u524D\u7248\u672C\u6682\u4E3A\u53EA\u8BFB\u3002" : !version.mastered && this.buffers.size < version.tracks.length ? "\u6709\u97F3\u8F68\u7F3A\u5931\uFF0C\u8BD5\u542C\u4EC5\u4F7F\u7528\u53EF\u7528\u97F3\u8F68\u3002" : this.dirty ? "\u5DF2\u6062\u590D\u672A\u4FDD\u5B58\u7684\u8349\u7A3F\u3002" : version.localImport ? "\u5DF2\u8F7D\u5165 " + version.tracks.length + " \u6761\u672C\u673A\u5206\u8F68" : version.mastered ? "Output Master \xB7 \u7ACB\u4F53\u58F0\u6BCD\u5E26" : version.archive ? "\u672C\u673A\u5F52\u6863 \xB7 " + version.source : "\u672C\u673A\u5408\u6210\u6837\u4EF6");
+      this.status(!disk ? "\u8349\u7A3F\u8BFB\u53D6\u5931\u8D25\u3002\u53EF\u8BD5\u542C\uFF0C\u7F16\u8F91\u9700\u91CD\u65B0\u6253\u5F00\u5DE5\u7A0B\u3002" : this.recoveryConflict ? "\u78C1\u76D8\u8349\u7A3F\u5DF2\u66F4\u65B0\u3002\u5F85\u6062\u590D\u7F16\u8F91\u4FDD\u7559\u5728\u672C\u673A\uFF0C\u5F53\u524D\u7248\u672C\u6682\u4E3A\u53EA\u8BFB\u3002" : this.failedTracks.size ? this.audioReady ? "\u5DF2\u51C6\u5907 " + this.buffers.size + "/" + version.tracks.length + " \u8F68\uFF0C\u8BD5\u542C\u4EC5\u4F7F\u7528\u53EF\u7528\u97F3\u8F68\u3002" : "\u6CA1\u6709\u53EF\u64AD\u653E\u7684\u97F3\u8F68\u3002\u8BF7\u68C0\u67E5\u5206\u8F68\u6587\u4EF6\u3002" : this.dirty ? "\u5DF2\u6062\u590D\u672A\u4FDD\u5B58\u7684\u8349\u7A3F\u3002" : version.localImport ? "\u5DF2\u8F7D\u5165 " + version.tracks.length + " \u6761\u672C\u673A\u5206\u8F68" : version.mastered ? "Output Master \xB7 \u7ACB\u4F53\u58F0\u6BCD\u5E26" : version.archive ? "\u672C\u673A\u5F52\u6863 \xB7 " + version.source : "\u672C\u673A\u5408\u6210\u6837\u4EF6");
       if (this.dirty) void this.save();
       return load;
+    }
+    updateLoadProgress() {
+      this.$("load-progress").hidden = !this.loadingTracks;
+      if (!this.loadingTracks) return;
+      const total = this.version.tracks.length;
+      const ready = this.loadingBuffers.size, failed = this.failedTracks.size;
+      const meter = this.$("load-meter");
+      meter.max = total;
+      meter.value = ready + failed;
+      this.$("load-label").textContent = "\u6B63\u5728\u8BFB\u53D6\u97F3\u8F68 \xB7 " + ready + "/" + total + " \u8F68\u5C31\u7EEA" + (failed ? " \xB7 " + failed + " \u8F68\u4E0D\u53EF\u7528" : "");
+    }
+    async loadSources(version, signal) {
+      const walk = async (first, count, visit) => {
+        for (let index = first; index < version.tracks.length && !signal.aborted; index += count)
+          await visit(version.tracks[index]);
+      };
+      const preview = async (track) => {
+        let wave;
+        try {
+          wave = await studioWaveform(track.url, signal);
+        } catch {
+          return;
+        }
+        if (!wave || signal.aborted || !this.loadingTracks || this.loadingBuffers.has(track.id) || this.failedTracks.has(track.id)) return;
+        if (!Number.isSafeInteger(wave.rate) || wave.rate < 1 || !Number.isSafeInteger(wave.frames) || wave.frames < 1 || track.sourceIn + track.duration > wave.frames / wave.rate + 0.01 || !Array.isArray(wave.peaks) || !wave.peaks.length || wave.peaks.length > 3072 || wave.peaks.length % 3) return;
+        this.sourcePreviews.set(track.id, wave);
+        this.refreshSourceWave(track);
+      };
+      const decode2 = async (track) => {
+        try {
+          const response2 = await studioFetch(track.url, { signal });
+          if (!response2.ok) throw Error("\u97F3\u8F68\u4E0D\u53EF\u7528");
+          const source = await response2.arrayBuffer();
+          signal.throwIfAborted();
+          this.decoder ??= new OfflineAudioContext(1, 1, Number(this.dataset.decodeRate));
+          const buffer = await this.decoder.decodeAudioData(source);
+          signal.throwIfAborted();
+          if (track.sourceIn + track.duration > buffer.duration + 0.01) throw Error("\u97F3\u8F68\u957F\u5EA6\u4E0D\u5339\u914D");
+          this.loadingBuffers.set(track.id, buffer);
+        } catch {
+          if (signal.aborted) return;
+          this.failedTracks.add(track.id);
+        }
+        this.sourcePreviews.delete(track.id);
+        this.refreshSourceWave(track);
+        this.updateLoadProgress();
+      };
+      if (version.localImport) void walk(0, 1, preview);
+      await Promise.all([walk(0, 2, decode2), walk(1, 2, decode2)]);
+    }
+    refreshSourceWave(track) {
+      const failed = this.failedTracks.has(track.id);
+      if (failed) {
+        const head = this.trackHeads.get(track.id);
+        head?.classList.add("offline");
+        head?.querySelector(".track-offline")?.removeAttribute("hidden");
+      }
+      const waiting = !failed && !this.sourcePreviews.has(track.id) && !this.loadingBuffers.has(track.id);
+      for (const [part, group] of (this.groups.get(track.id) ?? []).entries()) {
+        group.classList.toggle("offline", failed);
+        group.toggleAttribute("data-loading", waiting);
+        if (failed) {
+          const canvas = group.querySelector("canvas");
+          delete canvas.dataset.wave;
+          canvas.width = 0;
+        } else this.paintClip(track, this.clip(track, part), group);
+      }
     }
     endpoint() {
       return "/draft?" + new URLSearchParams({
@@ -6756,7 +6910,7 @@ ${studio_clips_default}</style>
       const target = this.change(project, song, version, true);
       void this.toggle(target);
     }
-    makeTrackHead({ id, name, row, available = true, missing = "", monitor, shortcuts, expanded, select, expand }) {
+    makeTrackHead({ id, name, row, available = true, missing = "", loading = false, monitor, shortcuts, expanded, select, expand }) {
       const head = document.createElement("div");
       head.className = "track-head";
       const label = document.createElement("button");
@@ -6765,9 +6919,13 @@ ${studio_clips_default}</style>
       label.dataset.head = id;
       label.setAttribute("aria-label", "\u67E5\u770B\u8F68\u9053 " + name);
       label.append(Object.assign(document.createElement("span"), { className: "track-label", textContent: name }));
-      if (missing) {
-        label.classList.add("offline");
-        label.append(Object.assign(document.createElement("span"), { className: "track-offline", textContent: missing }));
+      if (missing || loading) {
+        label.classList.toggle("offline", Boolean(missing));
+        label.append(Object.assign(document.createElement("span"), {
+          className: "track-offline",
+          textContent: missing || "\u7F3A\u8F68",
+          hidden: !missing
+        }));
       }
       const arrow = document.createElement("span");
       arrow.className = "track-chevron";
@@ -6843,7 +7001,8 @@ ${studio_clips_default}</style>
       for (const track of tracks) {
         const tone = trackColor(colors.get(track.id));
         const available = this.buffers.has(track.id);
-        const offline = !!this.draft && !available && !this.version.mastered;
+        const offline = this.failedTracks?.has(track.id) === true;
+        const waiting = this.loadingTracks && !offline && !this.loadingBuffers?.has(track.id) && !this.sourcePreviews?.has(track.id);
         const row = document.createElement("div");
         row.className = "track-row";
         row.dataset.trackRow = track.id;
@@ -6853,7 +7012,8 @@ ${studio_clips_default}</style>
           name: track.name,
           row,
           available,
-          missing: offline ? this.loadingTracks ? "\u8F7D\u5165\u4E2D" : "\u7F3A\u8F68" : "",
+          missing: offline ? "\u7F3A\u8F68" : "",
+          loading: this.loadingTracks,
           monitor: !this.version.mastered && !this.version.pending ? (action) => {
             if (action === "solo") this.toggleTrackSolo(track.id);
             else this.toggleTrackMute(track.id);
@@ -6882,6 +7042,7 @@ ${studio_clips_default}</style>
         this.trackEditor.bind(label, track, 0);
         tracksNode.append(head);
         const groups = this.clips(track).map((_, part) => this.makeClipGroup(track, part, tone, available, offline));
+        for (const group of groups) group.toggleAttribute("data-loading", waiting);
         this.groups.set(track.id, groups);
         row.append(...groups);
         this.$("regions").append(row);
@@ -7224,29 +7385,59 @@ ${studio_clips_default}</style>
       this.transport.sync();
       this.paint();
     }
+    rulerScale() {
+      return this.selectedRulerScale ?? (this.imw?.enabled() ? "timecode" : "bars");
+    }
+    rulerSampleRate() {
+      return Number(this.dataset.decodeRate);
+    }
+    rulerMeter() {
+      const song = this.imw?.enabled() && !this.imw.trackSelection() ? null : this.song;
+      const { bpm, meter } = song ?? {};
+      return {
+        bpm: bpm > 0 ? bpm : 120,
+        meter: meter?.beats > 0 && meter?.note > 0 ? meter : { beats: 4, note: 4 }
+      };
+    }
+    rulerLabel(seconds) {
+      const mode = this.rulerScale();
+      if (mode === "timecode") return this.frameRuler.label(seconds);
+      if (mode === "samples") return String(Math.round(seconds * this.rulerSampleRate())) + " \u6837\u672C";
+      const { bpm, meter } = this.rulerMeter();
+      const beat = seconds * bpm / 60 * meter.note / 4;
+      const ticks = Math.max(0, Math.round(beat * 960));
+      const measure = Math.floor(ticks / (960 * meter.beats)) + 1;
+      const beatOfBar = Math.floor(ticks / 960) % meter.beats + 1;
+      return measure + "." + beatOfBar + "." + String(ticks % 960).padStart(3, "0");
+    }
     drawRuler(length = this.rulerLength) {
-      this.timelineSelection?.paint();
+      const mode = this.rulerScale();
+      this.dataset.rulerFormat = mode;
+      for (const button3 of this.rulerButtons) {
+        button3.setAttribute("aria-pressed", String(button3.dataset.rulerScale === mode));
+      }
+      const sampling = this.rulerButtons.find((button3) => button3.dataset.rulerScale === "samples");
+      sampling.title = "\u91C7\u6837\u70B9 \xB7 " + this.rulerSampleRate() / 1e3 + " kHz";
       const lane = this.$("lane");
       if (!lane.clientWidth) return;
-      if (this.imw?.enabled()) return this.frameRuler.draw(this.imw.displayLength() || 1);
-      const { labels, unit, major, beat, detail } = timelineGrid({
-        length,
-        width: lane.clientWidth,
-        bpm: this.song?.bpm,
-        meter: this.song?.meter
-      });
+      const video = this.imw?.enabled();
+      if (video) length = this.imw.displayLength() || 1;
+      this.frameRuler.draw(length);
+      this.timelineSelection?.paint();
+      if (video) this.frameRuler.updateLabel();
+      if (mode === "timecode") return;
+      const width = lane.clientWidth;
+      const { labels, major, beat, detail } = mode === "samples" ? sampleGrid({ length, width, sampleRate: this.rulerSampleRate() }) : timelineGrid({ length, width, ...this.rulerMeter() });
       this.$("ticks").replaceChildren(...labels.map(({ at, label }) => {
         const tick = document.createElement("span");
         tick.style.left = 100 * at / length + "%";
         tick.textContent = label;
         return tick;
       }));
-      for (const [level, seconds] of Object.entries({ major, beat, detail })) {
+      for (const [level, seconds] of Object.entries({ major, beat: video ? 0 : beat, detail: video ? 0 : detail })) {
         lane.style.setProperty("--" + level + "-step", seconds ? 100 * seconds / length + "%" : "100%");
         lane.toggleAttribute("data-" + level, seconds > 0);
       }
-      const name = this.$("ruler-unit");
-      if (name) name.textContent = unit;
     }
     showInspector(tab) {
       const showingClip = tab === "clip" && !!this.selected && !!this.clip(this.selected, this.selectedPart);
@@ -7314,27 +7505,31 @@ ${studio_clips_default}</style>
     }
     paintClip(track, clip, group, waveHeight) {
       const drawingOnly = this.version.paintOnly;
-      const buffer = this.buffers.get(track.id);
-      if (!buffer && !drawingOnly) return;
+      const buffer = this.buffers.get(track.id) ?? this.loadingBuffers?.get(track.id);
+      const preview = !buffer && this.sourcePreviews?.get(track.id);
+      if (!buffer && !drawingOnly && !preview) return;
       const fixtureSamples = drawingOnly ? this.fixtureSamples ??= makeFixtureSamples() : null;
       const canvas = group.querySelector("canvas");
       const width = Math.min(this.hasAttribute("data-frame-zoom") ? 8192 : Infinity, Math.floor(canvas.clientWidth * devicePixelRatio));
       const height = Math.floor((waveHeight ?? canvas.clientHeight) * devicePixelRatio);
-      const rate = drawingOnly ? fixtureSampleRate : buffer.sampleRate;
-      const { first, last } = sourceFrames(clip, rate, drawingOnly ? fixtureSamples.length : buffer.length);
+      const rate = drawingOnly ? fixtureSampleRate : buffer?.sampleRate ?? preview.rate;
+      const frames = drawingOnly ? fixtureSamples.length : buffer?.length ?? preview.frames;
+      const { first, last } = sourceFrames(clip, rate, frames);
       const style = getComputedStyle(canvas);
       const color = style.color;
       const peakAlpha = Number(style.getPropertyValue("--wave-peak-alpha"));
       const rmsAlpha = Number(style.getPropertyValue("--wave-rms-alpha"));
-      const stamp = [width, height, first, last - first, color, peakAlpha, rmsAlpha].join("/");
+      const stamp = [width, height, first, last - first, color, peakAlpha, rmsAlpha, preview ? "sampled" : ""].join("/");
       if (!width || !height || canvas.dataset.wave === stamp) return;
       canvas.width = width;
       canvas.height = height;
       canvas.dataset.wave = stamp;
-      const channels = drawingOnly ? [fixtureSamples] : Array.from({ length: buffer.numberOfChannels }, (_, channel) => buffer.getChannelData(channel));
       const rms = new Float32Array(width);
       if (last <= first) return;
-      const data = wavePeaks(channels, first, last - first, width, rms, this.waveIndex(buffer, channels));
+      const data = preview ? this.previewPeaks(preview, first, last, rms) : (() => {
+        const channels = drawingOnly ? [fixtureSamples] : Array.from({ length: buffer.numberOfChannels }, (_, channel) => buffer.getChannelData(channel));
+        return wavePeaks(channels, first, last - first, width, rms, this.waveIndex(buffer, channels));
+      })();
       const context = canvas.getContext("2d");
       context.fillStyle = color;
       for (let x = 0; x < width; x++) {
@@ -7357,11 +7552,29 @@ ${studio_clips_default}</style>
       }
       context.globalAlpha = 1;
     }
+    previewPeaks({ peaks, frames }, first, last, rms) {
+      const bins = peaks.length / 3, width = rms.length;
+      const output = new Float32Array(2 * width);
+      for (let x = 0; x < width; x++) {
+        const start = Math.floor((first + (last - first) * x / width) * bins / frames);
+        const end = Math.min(bins, Math.ceil((first + (last - first) * (x + 1) / width) * bins / frames));
+        let low = 32767, high = -32767, power = 0;
+        for (let bin = start; bin < end; bin++) {
+          low = Math.min(low, peaks[3 * bin]);
+          high = Math.max(high, peaks[3 * bin + 1]);
+          power += peaks[3 * bin + 2] ** 2;
+        }
+        output[2 * x] = low / 32767;
+        output[2 * x + 1] = high / 32767;
+        rms[x] = Math.sqrt(power / (end - start)) / 32767;
+      }
+      return output;
+    }
     position() {
       this.transport.time(format(this.seconds));
       if (!this.imw?.enabled()) {
         this.$("seek").value = this.seconds;
-        this.$("seek").setAttribute("aria-valuetext", format(this.seconds));
+        this.$("seek").setAttribute("aria-valuetext", this.rulerLabel(this.seconds));
       }
       for (const track of this.version?.tracks ?? []) {
         let trackSounding = false;

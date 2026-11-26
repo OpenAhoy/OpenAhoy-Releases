@@ -146,7 +146,15 @@ def native_page_body(logo, platform_settings):
  <div id="softwareUpdateSlot"></div>
  <div id="wbSupportSlot"></div>
  <button id="openWorkflowGuide" class="wb-setting-guide wb-setting-action" type="button" aria-expanded="false" aria-controls="workflowGuide">指导模式</button>
- <button class="wb-setting-canvas wb-setting-action" data-wb-route="jiusera-canvas" type="button" aria-label="返回工作画布">返回画布</button>
+ <section class="wb-setting-about" aria-labelledby="wbSettingsAboutTitle">
+  <h2 id="wbSettingsAboutTitle">关于 Jiusera</h2>
+  <p>Jiusera 是 Codex 的创作工作台。你可以在画布、L-unify 和 OpenAhoy 中制作音视频、整理项目资产和管理内容。</p>
+  <div class="wb-about-links">
+   <a href="https://github.com/OpenAhoy/OpenAhoy-Releases/blob/main/README.md" target="_blank" rel="noopener noreferrer">使用说明</a>
+   <a href="https://github.com/OpenAhoy/OpenAhoy-Releases/blob/main/LICENSE.md" target="_blank" rel="noopener noreferrer">软件许可</a>
+   <a href="https://github.com/OpenAhoy/OpenAhoy-Releases/blob/main/README.md#%E5%8F%91%E8%A1%8C%E4%B8%8E%E9%9A%90%E7%A7%81" target="_blank" rel="noopener noreferrer">隐私说明</a>
+  </div>
+ </section>
 </div>
 <section id="homeRecommendations" aria-labelledby="homeRecommendationsTitle" hidden>
 <h2 id="homeRecommendationsTitle">推荐插件</h2><div class="oa-home-grid"></div>

@@ -6,7 +6,7 @@ import { mountTimelineSelection } from "./timeline-selection.mjs";
 import { mountVideoView } from "./imw-view.mjs";
 import { TrackMonitor, MonitorGains } from "./track-monitor.mjs";
 import { audibleState, playStudioBus } from "./studio-live-transport.mjs";
-import { connectStudio, studioCover, studioFetch as fetch } from "./bridge.mjs";
+import { connectStudio, studioCover, studioFetch as fetch, studioWaveform } from "./bridge.mjs";
 import { closeHome, homeSelection, openHome, openSongs, readPreference as read,
   rememberPreference as remember } from "./home.mjs";
 import stylesheet from "./studio.css";
@@ -15,10 +15,20 @@ import { mountVideoDisclosure } from "./imw-disclosure.mjs";
 import { clearAnalysis, mountMasterControls, renderStudioMaster, syncMasterControls } from "./output-master.mjs";
 import { buildWaveIndex, cutQuietRanges, wavePeaks } from "./wave-peaks.mjs";
 import { mountTransport } from "./transport.mjs";
-import { timelineGrid } from "./timeline-grid.mjs";
+import { sampleGrid, timelineGrid } from "./timeline-grid.mjs";
 import { confirmOutput } from "./audio-start.mjs";
 import { trackColor, trackColorSlots } from "./track-colors.mjs";
 import { mountTrackEditor, trackEditorMarkup } from "./track-editor.mjs";
+
+const rulerScales = [
+  ["bars", "小节标尺", '<path d="M4 5v14m6-14v14m5-10v6m5-10v14M2 12h20"/>'],
+  ["samples", "采样点标尺", '<path d="M2 12h3l2-6 4 12 3-11 2 5h6"/>'],
+  ["timecode", "视频时间码标尺", '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14m10-14v14M3 10h4m-4 4h4m10-4h4m-4 4h4"/>'],
+];
+
+const rulerButtons = rulerScales.map(([key, name, icon]) =>
+  `<button type="button" data-ruler-scale="${key}" aria-label="${name}" title="${name}" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icon}</svg></button>`
+).join("");
 
 const markup = `
 <style>${stylesheet}
@@ -63,9 +73,12 @@ ${clipStyles}</style>
     <main class="editor" aria-label="音乐时间轴">
       <div id="imw-screen" role="region" aria-label="视频监看"><span id="imw-opening" role="status">正在打开视频…</span><slot name="imw-video"></slot></div>
       <div id="monitor-route" role="status" hidden></div>
+      <div id="load-progress" role="status" hidden>
+        <span id="load-label"></span><progress id="load-meter" aria-label="音轨播放准备进度"></progress>
+      </div>
       <div id="track-scroll-panel" class="arrangement">
         <div class="track-list">
-          <div id="tracks"><div id="imw-video-header"></div><div class="track-heading"><span>轨道</span><span id="ruler-unit"></span></div><div id="imw-lane-labels"></div></div><div id="detached-heads"></div><select id="imw-add-track" aria-label="显示工程分轨" hidden></select>
+          <div id="tracks"><div id="imw-video-header"></div><div class="track-heading"><div id="ruler-scales" role="group" aria-label="时间线标尺">${rulerButtons}</div></div><div id="imw-lane-labels"></div></div><div id="detached-heads"></div><select id="imw-add-track" aria-label="显示工程分轨" hidden></select>
         </div>
         <div id="scroll" class="timeline">
           <div id="lane" class="lane">
@@ -179,6 +192,17 @@ class Studio extends HTMLElement {
       root.getElementById("songs").addEventListener("scroll", this.songCardMotion.clear, { passive: true });
     }
     this.$ = id => root.getElementById(id);
+    const savedScale = read("timeline-scale", null);
+    this.selectedRulerScale = rulerScales.some(([key]) => key === savedScale) ? savedScale : null;
+    this.rulerButtons = Array.from(this.$("ruler-scales").querySelectorAll("button"));
+    for (const button of this.rulerButtons) {
+      button.onclick = () => {
+        this.selectedRulerScale = button.dataset.rulerScale;
+        remember("timeline-scale", this.selectedRulerScale);
+        this.drawRuler();
+        this.position();
+      };
+    }
     this.frameRuler = mountFrameRuler(this);
     this.length = 30;
     this.fitLength = this.length;
@@ -326,6 +350,7 @@ class Studio extends HTMLElement {
 
   disconnectedCallback() {
     this.songCardMotion?.dispose();
+    this.load?.abort();
     this.timelineSelection.dispose();
     this.detachedTracks.dispose();
     this.stop();
@@ -477,8 +502,11 @@ class Studio extends HTMLElement {
     this.volume(this.level);
     this.toggleAttribute("data-paint-only", this.version?.paintOnly === true);
     this.buffers = new Map();
+    this.sourcePreviews = new Map();
+    this.loadingBuffers = new Map();
+    this.failedTracks = new Set();
     this.audioReady = false;
-    this.loadingTracks = !this.version?.mastered;
+    this.loadingTracks = !!this.version && !this.version.mastered && !this.version.pending && !this.version.paintOnly;
     syncMasterControls(this);
     this.startPoint = null;
     this.selected = null;
@@ -497,6 +525,7 @@ class Studio extends HTMLElement {
     this.$("retry").hidden = true;
     this.selectors();
     this.tracks();
+    this.updateLoadProgress();
     this.syncTrackMonitorControls?.();
     remember("recent-project", projectId);
     if (this.song) remember("song-" + projectId, this.song.id);
@@ -526,28 +555,11 @@ class Studio extends HTMLElement {
       return;
     }
 
-    this.status("正在读取所选版本的音轨…");
+    this.status(this.loadingTracks ? "" : "正在读取所选版本…");
     const { signal } = load;
     const version = this.version;
     const endpoint = this.endpoint();
     const stored = json(endpoint, { signal }).catch(() => null);
-    const decodeTrack = async track => {
-      const response = await fetch(track.url, { signal });
-      if (!response.ok) throw Error("音轨不可用");
-      this.decoder ??= new OfflineAudioContext(1, 1, Number(this.dataset.decodeRate));
-      const buffer = await this.decoder.decodeAudioData(await response.arrayBuffer());
-      if (track.sourceIn + track.duration > buffer.duration + .01) throw Error("音轨长度不匹配");
-      return [track.id, buffer];
-    };
-    const decodeTracks = async () => {
-      const results = [];
-      // Limit simultaneous WAV fetches and decodes for full-length local stems.
-      const batch = version.localImport ? 2 : version.tracks.length;
-      for (let start = 0; start < version.tracks.length && !signal.aborted; start += batch) {
-        results.push(...await Promise.allSettled(version.tracks.slice(start, start + batch).map(decodeTrack)));
-      }
-      return results;
-    };
     const disk = await stored;
     if (signal.aborted) return;
     const pending = read(endpoint, null);
@@ -572,24 +584,100 @@ class Studio extends HTMLElement {
     this.seconds = disk ? this.draft.seconds : 0;
     this.tracks();
     this.$("scroll").scrollLeft = this.draft?.scroll ?? 0;
-    const media = version.mastered ? [] : await decodeTracks();
+    if (!version.mastered) await this.loadSources(version, signal);
     if (signal.aborted) return;
-    this.buffers = new Map(media.filter(item => item.status === "fulfilled").map(item => item.value));
+    this.buffers = this.loadingBuffers;
+    this.loadingBuffers = null;
     this.audioReady = !version.mastered && this.buffers.size > 0;
     this.loadingTracks = false;
+    this.updateLoadProgress();
     this.tracks();
     if (this.imw.enabled()) globalThis.OAIMWVideo?.refreshMix?.();
     this.showHomeFeature();
     this.transport.sync();
     this.status(!disk ? "草稿读取失败。可试听，编辑需重新打开工程。"
       : this.recoveryConflict ? "磁盘草稿已更新。待恢复编辑保留在本机，当前版本暂为只读。"
-      : !version.mastered && this.buffers.size < version.tracks.length ? "有音轨缺失，试听仅使用可用音轨。"
+      : this.failedTracks.size ? (this.audioReady
+        ? "已准备 " + this.buffers.size + "/" + version.tracks.length + " 轨，试听仅使用可用音轨。"
+        : "没有可播放的音轨。请检查分轨文件。")
       : this.dirty ? "已恢复未保存的草稿。"
       : version.localImport ? "已载入 " + version.tracks.length + " 条本机分轨"
       : version.mastered ? "Output Master · 立体声母带"
       : version.archive ? "本机归档 · " + version.source : "本机合成样件");
     if (this.dirty) void this.save();
     return load;
+  }
+
+  updateLoadProgress() {
+    this.$("load-progress").hidden = !this.loadingTracks;
+    if (!this.loadingTracks) return;
+    const total = this.version.tracks.length;
+    const ready = this.loadingBuffers.size, failed = this.failedTracks.size;
+    const meter = this.$("load-meter");
+    meter.max = total;
+    meter.value = ready + failed;
+    this.$("load-label").textContent = "正在读取音轨 · " + ready + "/" + total + " 轨就绪" +
+      (failed ? " · " + failed + " 轨不可用" : "");
+  }
+
+  async loadSources(version, signal) {
+    const walk = async (first, count, visit) => {
+      for (let index = first; index < version.tracks.length && !signal.aborted; index += count)
+        await visit(version.tracks[index]);
+    };
+    const preview = async track => {
+      let wave;
+      try { wave = await studioWaveform(track.url, signal); }
+      catch { return; }
+      if (!wave || signal.aborted || !this.loadingTracks || this.loadingBuffers.has(track.id) ||
+          this.failedTracks.has(track.id)) return;
+      if (!Number.isSafeInteger(wave.rate) || wave.rate < 1 || !Number.isSafeInteger(wave.frames) ||
+          wave.frames < 1 || track.sourceIn + track.duration > wave.frames / wave.rate + .01 ||
+          !Array.isArray(wave.peaks) || !wave.peaks.length || wave.peaks.length > 3072 ||
+          wave.peaks.length % 3) return;
+      this.sourcePreviews.set(track.id, wave);
+      this.refreshSourceWave(track);
+    };
+    const decode = async track => {
+      try {
+        const response = await fetch(track.url, { signal });
+        if (!response.ok) throw Error("音轨不可用");
+        const source = await response.arrayBuffer();
+        signal.throwIfAborted();
+        this.decoder ??= new OfflineAudioContext(1, 1, Number(this.dataset.decodeRate));
+        const buffer = await this.decoder.decodeAudioData(source);
+        signal.throwIfAborted();
+        if (track.sourceIn + track.duration > buffer.duration + .01) throw Error("音轨长度不匹配");
+        this.loadingBuffers.set(track.id, buffer);
+      } catch {
+        if (signal.aborted) return;
+        this.failedTracks.add(track.id);
+      }
+      this.sourcePreviews.delete(track.id);
+      this.refreshSourceWave(track);
+      this.updateLoadProgress();
+    };
+    if (version.localImport) void walk(0, 1, preview);
+    await Promise.all([walk(0, 2, decode), walk(1, 2, decode)]);
+  }
+
+  refreshSourceWave(track) {
+    const failed = this.failedTracks.has(track.id);
+    if (failed) {
+      const head = this.trackHeads.get(track.id);
+      head?.classList.add("offline");
+      head?.querySelector(".track-offline")?.removeAttribute("hidden");
+    }
+    const waiting = !failed && !this.sourcePreviews.has(track.id) && !this.loadingBuffers.has(track.id);
+    for (const [part, group] of (this.groups.get(track.id) ?? []).entries()) {
+      group.classList.toggle("offline", failed);
+      group.toggleAttribute("data-loading", waiting);
+      if (failed) {
+        const canvas = group.querySelector("canvas");
+        delete canvas.dataset.wave;
+        canvas.width = 0;
+      } else this.paintClip(track, this.clip(track, part), group);
+    }
   }
 
   endpoint() {
@@ -816,7 +904,7 @@ class Studio extends HTMLElement {
     void this.toggle(target);
   }
 
-  makeTrackHead({ id, name, row, available = true, missing = "", monitor, shortcuts, expanded, select, expand }) {
+  makeTrackHead({ id, name, row, available = true, missing = "", loading = false, monitor, shortcuts, expanded, select, expand }) {
     const head = document.createElement("div");
     head.className = "track-head";
     const label = document.createElement("button");
@@ -825,9 +913,11 @@ class Studio extends HTMLElement {
     label.dataset.head = id;
     label.setAttribute("aria-label", "查看轨道 " + name);
     label.append(Object.assign(document.createElement("span"), { className: "track-label", textContent: name }));
-    if (missing) {
-      label.classList.add("offline");
-      label.append(Object.assign(document.createElement("span"), { className: "track-offline", textContent: missing }));
+    if (missing || loading) {
+      label.classList.toggle("offline", Boolean(missing));
+      label.append(Object.assign(document.createElement("span"), {
+        className: "track-offline", textContent: missing || "缺轨", hidden: !missing,
+      }));
     }
     const arrow = document.createElement("span");
     arrow.className = "track-chevron"; arrow.setAttribute("aria-hidden", "true");
@@ -886,13 +976,16 @@ class Studio extends HTMLElement {
     for (const track of tracks) {
       const tone = trackColor(colors.get(track.id));
       const available = this.buffers.has(track.id);
-      const offline = !!this.draft && !available && !this.version.mastered;
+      const offline = this.failedTracks?.has(track.id) === true;
+      const waiting = this.loadingTracks && !offline && !this.loadingBuffers?.has(track.id)
+        && !this.sourcePreviews?.has(track.id);
       const row = document.createElement("div");
       row.className = "track-row"; row.dataset.trackRow = track.id;
       const noClip = (!available && !this.version.paintOnly) || !this.clips(track).length;
       const controls = this.makeTrackHead({
         id:track.id, name:track.name, row, available,
-        missing: offline ? (this.loadingTracks ? "载入中" : "缺轨") : "",
+        missing: offline ? "缺轨" : "",
+        loading: this.loadingTracks,
         monitor: !this.version.mastered && !this.version.pending ? action => {
           if (action === "solo") this.toggleTrackSolo(track.id);
           else this.toggleTrackMute(track.id);
@@ -912,6 +1005,7 @@ class Studio extends HTMLElement {
       if (controls.solo) this.trackMonitorControls.set(track.id,controls);
       this.trackEditor.bind(label,track,0); tracksNode.append(head);
       const groups = this.clips(track).map((_, part) => this.makeClipGroup(track, part, tone, available, offline));
+      for (const group of groups) group.toggleAttribute("data-loading", waiting);
       this.groups.set(track.id, groups);
       row.append(...groups);
       this.$("regions").append(row);
@@ -1268,26 +1362,65 @@ class Studio extends HTMLElement {
     this.paint();
   }
 
+  rulerScale() {
+    return this.selectedRulerScale ?? (this.imw?.enabled() ? "timecode" : "bars");
+  }
+
+  rulerSampleRate() {
+    return Number(this.dataset.decodeRate);
+  }
+
+  rulerMeter() {
+    const song = this.imw?.enabled() && !this.imw.trackSelection() ? null : this.song;
+    const { bpm, meter } = song ?? {};
+    return {
+      bpm: bpm > 0 ? bpm : 120,
+      meter: meter?.beats > 0 && meter?.note > 0 ? meter : { beats: 4, note: 4 },
+    };
+  }
+
+  rulerLabel(seconds) {
+    const mode = this.rulerScale();
+    if (mode === "timecode") return this.frameRuler.label(seconds);
+    if (mode === "samples") return String(Math.round(seconds * this.rulerSampleRate())) + " 样本";
+    const { bpm, meter } = this.rulerMeter();
+    const beat = seconds * bpm / 60 * meter.note / 4;
+    const ticks = Math.max(0, Math.round(beat * 960));
+    const measure = Math.floor(ticks / (960 * meter.beats)) + 1;
+    const beatOfBar = Math.floor(ticks / 960) % meter.beats + 1;
+    return measure + "." + beatOfBar + "." + String(ticks % 960).padStart(3, "0");
+  }
+
   drawRuler(length = this.rulerLength) {
-    this.timelineSelection?.paint();
+    const mode = this.rulerScale();
+    this.dataset.rulerFormat = mode;
+    for (const button of this.rulerButtons) {
+      button.setAttribute("aria-pressed", String(button.dataset.rulerScale === mode));
+    }
+    const sampling = this.rulerButtons.find(button => button.dataset.rulerScale === "samples");
+    sampling.title = "采样点 · " + this.rulerSampleRate() / 1000 + " kHz";
     const lane = this.$("lane");
     if (!lane.clientWidth) return;
-    if (this.imw?.enabled()) return this.frameRuler.draw(this.imw.displayLength() || 1);
-    const { labels, unit, major, beat, detail } = timelineGrid({
-      length, width: lane.clientWidth, bpm: this.song?.bpm, meter: this.song?.meter,
-    });
+    const video = this.imw?.enabled();
+    if (video) length = this.imw.displayLength() || 1;
+    this.frameRuler.draw(length);
+    this.timelineSelection?.paint();
+    if (video) this.frameRuler.updateLabel();
+    if (mode === "timecode") return;
+    const width = lane.clientWidth;
+    const { labels, major, beat, detail } = mode === "samples"
+      ? sampleGrid({ length, width, sampleRate: this.rulerSampleRate() })
+      : timelineGrid({ length, width, ...this.rulerMeter() });
     this.$("ticks").replaceChildren(...labels.map(({ at, label }) => {
       const tick = document.createElement("span");
       tick.style.left = 100 * at / length + "%";
       tick.textContent = label;
       return tick;
     }));
-    for (const [level, seconds] of Object.entries({ major, beat, detail })) {
+    for (const [level, seconds] of Object.entries({ major, beat: video ? 0 : beat, detail: video ? 0 : detail })) {
       lane.style.setProperty("--" + level + "-step", seconds ? 100 * seconds / length + "%" : "100%");
       lane.toggleAttribute("data-" + level, seconds > 0);
     }
-    const name = this.$("ruler-unit");
-    if (name) name.textContent = unit;
   }
 
   showInspector(tab) {
@@ -1368,28 +1501,32 @@ class Studio extends HTMLElement {
 
   paintClip(track, clip, group, waveHeight) {
     const drawingOnly = this.version.paintOnly;
-    const buffer = this.buffers.get(track.id);
-    if (!buffer && !drawingOnly) return;
+    const buffer = this.buffers.get(track.id) ?? this.loadingBuffers?.get(track.id);
+    const preview = !buffer && this.sourcePreviews?.get(track.id);
+    if (!buffer && !drawingOnly && !preview) return;
     const fixtureSamples = drawingOnly ? this.fixtureSamples ??= makeFixtureSamples() : null;
     const canvas = group.querySelector("canvas");
     const width = Math.min(this.hasAttribute("data-frame-zoom") ? 8192 : Infinity, Math.floor(canvas.clientWidth * devicePixelRatio));
     const height = Math.floor((waveHeight ?? canvas.clientHeight) * devicePixelRatio);
-    const rate = drawingOnly ? fixtureSampleRate : buffer.sampleRate;
-    const { first, last } = sourceFrames(clip, rate, drawingOnly ? fixtureSamples.length : buffer.length);
+    const rate = drawingOnly ? fixtureSampleRate : (buffer?.sampleRate ?? preview.rate);
+    const frames = drawingOnly ? fixtureSamples.length : (buffer?.length ?? preview.frames);
+    const { first, last } = sourceFrames(clip, rate, frames);
     const style = getComputedStyle(canvas);
     const color = style.color;
     const peakAlpha = Number(style.getPropertyValue("--wave-peak-alpha"));
     const rmsAlpha = Number(style.getPropertyValue("--wave-rms-alpha"));
-    const stamp = [width, height, first, last - first, color, peakAlpha, rmsAlpha].join("/");
+    const stamp = [width, height, first, last - first, color, peakAlpha, rmsAlpha, preview ? "sampled" : ""].join("/");
     if (!width || !height || canvas.dataset.wave === stamp) return;
     canvas.width = width;
     canvas.height = height;
     canvas.dataset.wave = stamp;
-    const channels = drawingOnly ? [fixtureSamples] :
-      Array.from({ length: buffer.numberOfChannels }, (_, channel) => buffer.getChannelData(channel));
     const rms = new Float32Array(width);
     if (last <= first) return;
-    const data = wavePeaks(channels, first, last - first, width, rms, this.waveIndex(buffer, channels));
+    const data = preview ? this.previewPeaks(preview, first, last, rms) : (() => {
+      const channels = drawingOnly ? [fixtureSamples] :
+        Array.from({ length: buffer.numberOfChannels }, (_, channel) => buffer.getChannelData(channel));
+      return wavePeaks(channels, first, last - first, width, rms, this.waveIndex(buffer, channels));
+    })();
     const context = canvas.getContext("2d");
     context.fillStyle = color;
     for (let x = 0; x < width; x++) {
@@ -1409,11 +1546,30 @@ class Studio extends HTMLElement {
     context.globalAlpha = 1;
   }
 
+  previewPeaks({ peaks, frames }, first, last, rms) {
+    const bins = peaks.length / 3, width = rms.length;
+    const output = new Float32Array(2 * width);
+    for (let x = 0; x < width; x++) {
+      const start = Math.floor((first + (last - first) * x / width) * bins / frames);
+      const end = Math.min(bins, Math.ceil((first + (last - first) * (x + 1) / width) * bins / frames));
+      let low = 32767, high = -32767, power = 0;
+      for (let bin = start; bin < end; bin++) {
+        low = Math.min(low, peaks[3 * bin]);
+        high = Math.max(high, peaks[3 * bin + 1]);
+        power += peaks[3 * bin + 2] ** 2;
+      }
+      output[2 * x] = low / 32767;
+      output[2 * x + 1] = high / 32767;
+      rms[x] = Math.sqrt(power / (end - start)) / 32767;
+    }
+    return output;
+  }
+
   position() {
     this.transport.time(format(this.seconds));
     if (!this.imw?.enabled()) {
       this.$("seek").value = this.seconds;
-      this.$("seek").setAttribute("aria-valuetext", format(this.seconds));
+      this.$("seek").setAttribute("aria-valuetext", this.rulerLabel(this.seconds));
     }
     for (const track of this.version?.tracks ?? []) {
       let trackSounding = false;
