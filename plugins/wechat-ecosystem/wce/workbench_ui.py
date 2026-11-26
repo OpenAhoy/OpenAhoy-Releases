@@ -578,20 +578,44 @@ body[data-color-scheme=dark] .wb-openahoy-mark img+img{display:block}
  grid-template-columns:repeat(auto-fill,min(var(--wb-model-card-edge),100%));
  max-width:1140px;align-content:start;gap:12px}
 .wb-model-card{display:grid;grid-template-rows:minmax(0,1fr) auto;min-width:0;min-height:0;aspect-ratio:1;
- background:var(--wb-surface);border-radius:14px;box-shadow:var(--wb-dock-raised)}
+ position:relative;isolation:isolate;border-radius:14px}
+.wb-model-face{
+ position:absolute;inset:0;z-index:-1;pointer-events:none;border-radius:inherit;
+ border:2px solid transparent;background:var(--wb-surface) border-box;box-shadow:var(--wb-dock-raised)
+}
 .wb-model-card .wb-model-link{display:flex;align-items:center;justify-content:space-between;
- gap:5px;margin:0 5px 5px;padding:4px 7px;min-height:36px;min-width:0;border-radius:8px;
+ gap:5px;padding:4px 12px 9px;min-height:41px;min-width:0;border-radius:0 0 14px 14px;
  color:var(--wb-ink);font-size:12px;font-weight:650;line-height:1.2;text-decoration:none}
-.wb-model-link svg{flex:none}
+.wb-model-link-mark{display:flex;align-items:center;flex:none}
 .wb-model-link:is(:hover,:active){box-shadow:var(--wb-dock-inset)}
-@media(pointer:coarse){.wb-model-card .wb-model-link{min-height:44px}}
+@media(pointer:coarse){.wb-model-card .wb-model-link{min-height:49px}}
 .oa-native #wbModelGrid .wb-model-tile{
  display:grid;grid-template-rows:auto 1fr auto;align-items:start;gap:3px;justify-content:stretch;
  width:100%;min-width:0;min-height:0;padding:8px 12px 4px;text-align:start;white-space:normal;
- color:var(--wb-ink);background:transparent;border:0;border-radius:14px;box-shadow:none
+ color:var(--wb-ink);background:transparent;border:0;border-radius:14px 14px 0 0;box-shadow:none
 }
-.oa-native #wbModelGrid .wb-model-tile:active{box-shadow:var(--wb-dock-inset)}
-#wbModels :is(.wb-model-tile,.wb-model-link,.wb-model-external,[data-promo-provider]):focus-visible,
+.oa-native #wbModelGrid .wb-model-tile:is(:focus,[data-jiu-pressed]){outline:none}
+/* The shared press marker stays on the button. Only its feedback moves to the card. */
+.oa-native #wbModelGrid .wb-model-tile[data-jiu-pressed]{box-shadow:none!important}
+#wbModelGrid .wb-model-card::after{
+ content:"";position:absolute;inset:0;z-index:1;border-radius:inherit;pointer-events:none;
+ transition:box-shadow 110ms ease-out
+}
+#wbModelGrid .wb-model-card:has(>.wb-model-tile[data-jiu-pressed])::after{box-shadow:var(--jiu-pressure)}
+#wbModelGrid .wb-model-card:has(>.wb-model-link[data-jiu-pressed])::after{transition:none}
+#wbModels .wb-model-card>.wb-model-link:focus{outline:none}
+html:not([data-jiu-card-pointer]) #wbModelGrid :is(.wb-model-tile:focus-visible [data-model-name],.wb-model-link:focus-visible>span[id]){
+ text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px
+}
+@media(prefers-reduced-motion:reduce){
+ #wbModelGrid .wb-model-card::after{transition:none}
+}
+@media(forced-colors:active){
+ #wbModelGrid .wb-model-card:has(>.wb-model-tile[data-jiu-pressed])::after{
+  outline:2px dashed Highlight;outline-offset:-3px
+ }
+}
+#wbModels :is(.wb-model-external,[data-promo-provider]):focus-visible,
 #wbModelDialog>header button:focus-visible{
  outline:2px solid var(--wb-focus,var(--wb-dock-focus));outline-offset:2px
 }

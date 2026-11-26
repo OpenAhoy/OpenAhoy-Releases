@@ -54,6 +54,11 @@ CROP = object_schema({'source_version_id': ID} | {
     for key in ('x', 'y', 'width', 'height')
 })
 PINNED_CROP = object_schema(CROP['properties'] | {'source_sha256': DIGEST})
+PORTRAIT_FRAME_UNITS = 10000
+PORTRAIT_FRAME = object_schema({
+    part: {'type': 'integer', 'minimum': int(part in ('width', 'height')), 'maximum': PORTRAIT_FRAME_UNITS}
+    for part in ('x', 'y', 'width', 'height')
+})
 APPEARANCE_GROUPS = ('base', 'features', 'hair', 'wardrobe', 'accessories')
 GEAR_GROUPS = ('hair', 'wardrobe', 'accessories')
 GROUP = {'type': 'string', 'enum': list(APPEARANCE_GROUPS)}
@@ -97,7 +102,7 @@ ENTRY = object_schema({
     }, {'profile': PROFILE}),
     'use': USE, 'initial_status': STATUS, 'label': NAME, 'description': NOTE,
     'source': NOTE, 'path': PATH, 'sha256': DIGEST,
-}, LAYOUT)
+}, LAYOUT | {'portrait_frame': PORTRAIT_FRAME})
 ORIGIN = object_schema({'project_id': ID, 'version_id': ID, 'sha256': DIGEST})
 SELECTOR = {'version_id': ID}
 SOURCE = object_schema({'path': PATH, 'sha256': DIGEST})
@@ -547,6 +552,28 @@ def needs_appearance(record):
     return 'appearance' in record or 'profile' in record['character']
 
 
+def roster_head(record):
+    look = record.get('appearance', {})
+    return (record['use'] == 'face' and record.get('face_visible', True)
+            and 'work_id' not in record and 'crop' not in record
+            and record.get('category', 'standard') == 'standard'
+            and (look.get('group'), look.get('view'), look.get('format')) == ('base', 'head_front', 'individual'))
+
+
+def portrait_framing(record):
+    if not roster_head(record):
+        return None
+    frame = record.get('portrait_frame')
+    return {'mode': 'reviewed', 'frame': frame} if frame else {'mode': 'full_image'}
+
+
+def portrait_frame_valid(record):
+    frame = record.get('portrait_frame')
+    return (frame is None or roster_head(record)
+            and frame['x'] + frame['width'] <= PORTRAIT_FRAME_UNITS
+            and frame['y'] + frame['height'] <= PORTRAIT_FRAME_UNITS)
+
+
 def form_of(record):
     return record.get('form', NORMAL_FORM)
 
@@ -598,6 +625,7 @@ def layouts(assets):
     profiles = {}
     for row in assets.values():
         validate_scope(row)
+        require(portrait_frame_valid(row), 'DIRECTOR_CHARACTER_PORTRAIT_FRAME_INVALID')
         character = row['character']
         profile = profiles.setdefault(character['id'], {})
         for field, value in character.get('profile', {}).items():
@@ -696,7 +724,7 @@ def appearance_snapshot(project_id, directory, base):
 
 
 def compatible_row(row):
-    plain = {key: value for key, value in row.items() if key != 'appearance'}
+    plain = {key: value for key, value in row.items() if key not in {'appearance', 'portrait_frame'}}
     plain['character'] = {key: value for key, value in row['character'].items() if key != 'profile'}
     if 'appearance' in row and row['initial_status'] == 'current':
         # Several rich slots can map to one old slot. Only its projected
@@ -716,7 +744,7 @@ def connect_appearance(base, snapshot):
     for version, row in base['assets'].items():
         detail = snapshot['details'].get(version)
         if detail and detail['identity'] == detail_identity(row):
-            row = row | ({'appearance': detail['appearance']} if 'appearance' in detail else {})
+            row = row | {key: detail[key] for key in ('appearance', 'portrait_frame') if key in detail}
             if 'profile' in detail:
                 row['character'] = row['character'] | {'profile': detail['profile']}
             if 'initial_status' in detail:
@@ -748,7 +776,8 @@ def write_index(directory, index, prior, directory_pin):
     details = {}
     for version, row in index['assets'].items():
         optional = {key: value for key, value in
-                    (('appearance', row.get('appearance')), ('profile', row['character'].get('profile')))
+                    (('appearance', row.get('appearance')), ('profile', row['character'].get('profile')),
+                     ('portrait_frame', row.get('portrait_frame')))
                     if value is not None}
         if assets[version]['initial_status'] != row['initial_status']:
             optional['initial_status'] = row['initial_status']
@@ -993,6 +1022,7 @@ class CharacterLibrary:
                                    'file': descriptor(row, project['id']), 'form': form_of(row),
                                    'category': row.get('category', 'standard'), 'primary': primary == row['id'],
                                    'primary_version_id': primary}
+                                | ({'portrait_framing': framing} if (framing := portrait_framing(row)) else {})
                                 | ({'origin_status': origin_status(row['origin'])} if 'origin' in row else {})
                                 | ({'work_title': works.get(row['work_id'], {}).get('title')}
                                    if 'work_id' in row else {}))
@@ -1061,6 +1091,8 @@ class CharacterLibrary:
                 field = 'schema'
             if field:
                 manifest_error(field, position)
+            if not portrait_frame_valid(row):
+                manifest_error('portrait_frame', position, 'DIRECTOR_CHARACTER_PORTRAIT_FRAME_INVALID')
             if row['id'] in seen:
                 manifest_error('id', position, 'DIRECTOR_CHARACTER_DUPLICATE')
             seen.add(row['id'])
@@ -1093,7 +1125,8 @@ class CharacterLibrary:
             results.append({'id': row['id'], 'name': row['character']['name'],
                             'status': status_of(index, existing) if existing else row['initial_status'],
                             'availability': readable, 'entry': entry}
-                           | ({'availability_reason': reason} if reason else {}))
+                           | ({'availability_reason': reason} if reason else {})
+                           | ({'portrait_framing': framing} if (framing := portrait_framing(row)) else {}))
         require(self.director.project(project_id) == (root, pin), 'DIRECTOR_PROJECT_CHANGED')
         return {'revision': index['revision'], 'assets': results}
 

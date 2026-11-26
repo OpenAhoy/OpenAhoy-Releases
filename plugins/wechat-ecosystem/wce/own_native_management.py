@@ -1509,6 +1509,7 @@ SCRIPT = r'''
    const group=modelTiles.get(selected)?.dataset.modelGroup;
    $('wbModels').hidden=!showing;
    if(showing)modelLayout.paint(modelDetailTrigger?undefined:selected);
+   else modelLayout.clearHover();
    $('wbAudioWork').hidden=view!=='audio-workspace';
    video.setPage(showing);
    video.selectProvider(selected);
@@ -2247,6 +2248,7 @@ def resource():
     from .video_director_ui import STYLE as director_style, SCRIPT as director_script
     from .video_vidmuse_ui import SCRIPT as vidmuse_script
     from .model_overview_layout import STYLE as model_layout_style, SCRIPT as model_layout_script
+    from .card_motion import STYLE as card_motion_style, SCRIPT as card_motion_script
     from .video_director_monitor_ui import STYLE as review_style, SCRIPT as review_script
     review_style = review_style.replace('#videoDirectorDesk', ':is(#videoDirectorDesk,#wbMusic lus-studio[data-imw-video])')
     from .character_library_ui import STYLE as characters_style, SCRIPT as characters_script
@@ -2267,10 +2269,10 @@ def resource():
     html = ('<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>Jiusera · Workspace</title><style>' + STYLE + management_style + project_style + template_style + schedule_style + operating_style + '</style>'
-        + '<style>' + studio_resource('css') + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + review_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + wechat_setup_style + wechat_setup_preview_style + wechat_articles_style + PLATFORM_ACCOUNT_NAV_STYLE + guide_style + workbench_style + openahoy_board_style + assets_style + sources_style + trend_resource('css') + relief_style() + model_layout_style + '</style>'
+        + '<style>' + studio_resource('css') + font_style() + NATIVE_FINISH_STYLE + video_style + provider_style + audio_style + stats_style + gif_style + HOME_STYLE + frame_style + monitor_style + director_style + review_style + characters_style + canvas_style + interaction_style + wechat_workspace_style + wechat_setup_style + wechat_setup_preview_style + wechat_articles_style + PLATFORM_ACCOUNT_NAV_STYLE + guide_style + workbench_style + openahoy_board_style + assets_style + sources_style + trend_resource('css') + relief_style() + model_layout_style + card_motion_style + '</style>'
         + mark_chrome(native_page_body(LOGO, settings_html(templates=True) + x_html + xhs_html + project_html))
         + '<style>' + wechat_desk_style + pressure_style + '</style>'
-        + '<script>' + pressure_script + WORKSPACE_THEME + locale_script() + platform_branding_script() + settings_script(compact=True) + wechat_articles_script + wechat_desk_script + video_script + frame_script + provider_script + vidmuse_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + character_turntable_script + characters_script + assets_script + sources_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + guide_script + trend_resource('js') + workbench_script + openahoy_board_script + writing_rules_script + studio_resource('js') + model_layout_script + SCRIPT + '</script></body></html>')
+        + '<script>' + pressure_script + WORKSPACE_THEME + locale_script() + platform_branding_script() + settings_script(compact=True) + wechat_articles_script + wechat_desk_script + video_script + frame_script + provider_script + vidmuse_script + audio_script + stats_script + monitor_script + canvas_script + review_script + director_script + character_turntable_script + characters_script + assets_script + sources_script + x_script + xhs_script + schedule_script + operating_script + project_script + interaction_script + guide_script + trend_resource('js') + workbench_script + openahoy_board_script + writing_rules_script + card_motion_script + studio_resource('js') + model_layout_script + SCRIPT + '</script></body></html>')
     return {'contents': [{'uri': RESOURCE, 'mimeType': MIME, 'text': html,
         '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': ['https://pbs.twimg.com', 'https://wx.qlogo.cn', 'https://thirdwx.qlogo.cn', 'https://mmbiz.qpic.cn', 'https://mmbiz.qlogo.cn', 'https://cdn1.suno.ai',
                                                                  'https://cdn2.suno.ai', 'https://suno-data-uploads.s3.amazonaws.com', 'https://acemusic.ai'], 'frameDomains': []}},

@@ -58,10 +58,18 @@
   grid-auto-rows:var(--lh-project-height,112px);
 }
 #wbMusicHome .lh-project-card {
-  display:flex; flex-direction:column; padding:0; border:0; border-radius:12px; overflow:hidden;
-  text-align:start; min-width:0; min-height:0; background:var(--lh-panel);
-  box-shadow:var(--wb-depth);
+  display:block; padding:0; border:0; border-radius:12px;
+  text-align:start; min-width:0; min-height:0; background:transparent; box-shadow:none;
 }
+#wbMusicHome :is(.lh-project-plane,.lh-recent-plane) {
+  position:relative; display:flex; flex-direction:column; width:100%; height:100%;
+  overflow:hidden; border-radius:inherit; background:var(--lh-panel); box-shadow:var(--wb-depth);
+  pointer-events:none;
+}
+#wbMusicHome :is(.lh-project-card,.lh-recent-card)[data-jiu-pressed] { box-shadow:none!important; }
+#wbMusicHome :is(.lh-project-card,.lh-recent-card)[data-jiu-pressed]>.jiu-card-motion-plane { box-shadow:var(--jiu-pressure); }
+#wbMusicHome :is(.lh-project-card,.lh-recent-card,.lh-feature-slot)[data-card-hover] { z-index:1; }
+#wbMusicHome .lh-project-plane { gap:inherit; }
 #wbMusicHome .lh-project-art {
   display:block; position:relative; flex:1; min-height:0; width:100%; overflow:hidden; background:var(--oa-fill);
 }
@@ -96,6 +104,11 @@
   grid-template-rows:minmax(0,1fr) minmax(0,1fr) minmax(0,.90fr);
   gap:var(--lh-gap); max-height:var(--lh-feature-height); min-height:0;
 }
+#wbMusicHome .lh-feature-slot { display:grid; position:relative; min-width:0; min-height:0; }
+#wbMusicHome .lh-feature-slot[data-feature=master] { grid-column:1 / 4; grid-row:1 / 3; }
+#wbMusicHome .lh-feature-slot[data-feature=solo] { grid-column:4; grid-row:1 / 3; }
+#wbMusicHome .lh-feature-slot[data-feature=trim] { grid-column:1 / 3; grid-row:3; }
+#wbMusicHome .lh-feature-slot[data-feature=versions] { grid-column:3 / 5; grid-row:3; }
 #wbMusicHome .lh-feature {
   position:relative; min-width:0; min-height:0; border-radius:14px; overflow:hidden; isolation:isolate;
   color:#fff8ef; border:1px solid #ffffff23; box-shadow:var(--wb-depth);
@@ -110,7 +123,6 @@
 #wbMusicHome .lh-feature-link:hover:not(:disabled) { background:#fff9ed; color:#241810; }
 #wbMusicHome .lh-feature-link:disabled { opacity:.55; }
 #wbMusicHome .lh-master-promo {
-  grid-column:1 / 4; grid-row:1 / 3;
   display:flex; flex-direction:column; justify-content:space-between; gap:6px;
   padding:clamp(12px,1.5vw,22px); background:#171213;
 }
@@ -143,7 +155,6 @@
 #wbMusicHome .lh-scope-bypass .lh-wave-strip { color:#da9d82; }
 #wbMusicHome .lh-scope-wet .lh-wave-strip { color:#ff7045; }
 #wbMusicHome .lh-solo-promo {
-  grid-column:4; grid-row:1 / 3;
   display:flex; flex-direction:column; justify-content:space-between; gap:7px; padding:clamp(10px,1.2vw,16px);
   background:radial-gradient(ellipse at 90% 80%,#304f70,transparent 74%),#172231; color:#f1faff;
 }
@@ -163,18 +174,18 @@
 #wbMusicHome .lh-solo-row .lh-wave-strip { color:#51d6ed; }
 #wbMusicHome .lh-solo-row + .lh-solo-row .lh-wave-strip { color:#b8a8ea; opacity:.55; }
 #wbMusicHome .lh-compact-promo {
-  grid-row:3; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,.65fr);
+  display:grid; grid-template-columns:minmax(0,1fr) minmax(0,.65fr);
   align-items:center; gap:clamp(4px,1vw,12px); padding:clamp(7px,1.16vw,16px);
 }
 #wbMusicHome .lh-trim-promo {
-  grid-column:1 / 3; background:radial-gradient(ellipse at 100% 0%,#406345,transparent 80%),#1b332c; color:#f0f9ef;
+  background:radial-gradient(ellipse at 100% 0%,#406345,transparent 80%),#1b332c; color:#f0f9ef;
 }
 #wbMusicHome .lh-trim-promo .lh-feature-link { background:#dcedc9; color:#13291f; }
 #wbMusicHome .lh-trim-promo > .lh-wave-strip {
   border-inline:2px solid #d2f1a8; color:#d2f1a8; align-self:center; height:clamp(28px,5.5vw,58px);
 }
 #wbMusicHome .lh-versions-promo {
-  grid-column:3 / 5; background:radial-gradient(ellipse at 100% 0%,#634e77,transparent 90%),#34283f; color:#fcf4fb;
+  background:radial-gradient(ellipse at 100% 0%,#634e77,transparent 90%),#34283f; color:#fcf4fb;
 }
 #wbMusicHome .lh-versions-promo .lh-feature-link { background:#eee2fa; color:#2d1e3e; }
 #wbMusicHome .lh-take-sheets {
@@ -211,13 +222,15 @@
     grid-template-columns:minmax(0,1fr) minmax(0,1.1fr); grid-template-rows:minmax(0,2.65fr) repeat(2,minmax(0,1fr));
     max-height:none;
   }
-  #wbMusicHome .lh-master-promo { grid-column:1 / -1; grid-row:1; padding:10px; }
+  #wbMusicHome .lh-feature-slot[data-feature=master] { grid-column:1 / -1; grid-row:1; }
+  #wbMusicHome .lh-feature-slot[data-feature=solo] { grid-column:1; grid-row:2 / 4; }
+  #wbMusicHome .lh-feature-slot[data-feature=trim] { grid-column:2; grid-row:2; }
+  #wbMusicHome .lh-feature-slot[data-feature=versions] { grid-column:2; grid-row:3; }
+  #wbMusicHome .lh-master-promo { padding:10px; }
   #wbMusicHome .lh-master-copy h3 { max-width:none; font-size:clamp(25px,7vw,38px); }
   #wbMusicHome .lh-master-art { object-position:64% 50%; }
-  #wbMusicHome .lh-solo-promo { grid-column:1; grid-row:2 / 4; justify-content:space-around; padding:8px; }
-  #wbMusicHome .lh-compact-promo { grid-column:2; grid-template-columns:minmax(0,1fr); padding:5px 7px; }
-  #wbMusicHome .lh-trim-promo { grid-row:2; }
-  #wbMusicHome .lh-versions-promo { grid-row:3; }
+  #wbMusicHome .lh-solo-promo { justify-content:space-around; padding:8px; }
+  #wbMusicHome .lh-compact-promo { grid-template-columns:minmax(0,1fr); padding:5px 7px; }
   #wbMusicHome :is(.lh-solo-copy,.lh-compact-copy) h3 { font-size:13px; }
   #wbMusicHome :is(.lh-solo-copy,.lh-compact-copy) p { font-size:10px; line-height:1.15; }
   #wbMusicHome .lh-compact-copy { gap:2px; }
@@ -311,11 +324,14 @@
   grid-template-rows:repeat(var(--lh-recent-rows,1),minmax(0,1fr)); gap:var(--lh-gap);
 }
 #wbMusicHome .lh-recent-card {
-  display:grid; grid-template-columns:var(--lh-recent-cover,36px) minmax(0,1fr) 14px; align-items:center; gap:6px;
-  min-width:0; min-height:0; padding:4px 6px 4px 4px; overflow:hidden; text-align:left;
-  border:1px solid transparent; border-radius:9px; background:var(--lh-panel); box-shadow:var(--wb-depth);
+  display:block; min-width:0; min-height:0; padding:0; text-align:left;
+  border:0; border-radius:9px; background:transparent; box-shadow:none;
 }
-#wbMusicHome .lh-recent-card[data-chosen] { border-color:var(--lh-focus); background:var(--lh-selected); }
+#wbMusicHome .lh-recent-plane {
+  display:grid; grid-template-columns:var(--lh-recent-cover,36px) minmax(0,1fr) 14px; align-items:center; gap:6px;
+  padding:4px 6px 4px 4px; border:1px solid transparent;
+}
+#wbMusicHome .lh-recent-card[data-chosen]>.lh-recent-plane { border-color:var(--lh-focus); background:var(--lh-selected); }
 #wbMusicHome .lh-recent-art {
   display:block; position:relative; width:100%; aspect-ratio:1; overflow:hidden; border-radius:6px; background:var(--lh-soft);
 }
@@ -384,11 +400,11 @@
   #wbMusicHome .lh-feature-pages button { flex:1; padding:4px; border-radius:8px; font-size:12px; }
   #wbMusicHome .lh-feature-pages button[aria-pressed=true] { background:var(--lh-selected); color:var(--lh-accent); }
   #wbMusicHome .lh-feature-grid { display:block; }
-  #wbMusicHome .lh-feature-grid .lh-feature { display:none; height:100%; }
-  #wbMusicHome .lh-feature-grid[data-feature=master] .lh-master-promo,
-  #wbMusicHome .lh-feature-grid[data-feature=solo] .lh-solo-promo { display:flex; }
-  #wbMusicHome .lh-feature-grid[data-feature=trim] .lh-trim-promo,
-  #wbMusicHome .lh-feature-grid[data-feature=versions] .lh-versions-promo { display:grid; }
+  #wbMusicHome .lh-feature-grid .lh-feature-slot { display:none; height:100%; }
+  #wbMusicHome .lh-feature-grid[data-feature=master] .lh-feature-slot[data-feature=master],
+  #wbMusicHome .lh-feature-grid[data-feature=solo] .lh-feature-slot[data-feature=solo],
+  #wbMusicHome .lh-feature-grid[data-feature=trim] .lh-feature-slot[data-feature=trim],
+  #wbMusicHome .lh-feature-grid[data-feature=versions] .lh-feature-slot[data-feature=versions] { display:grid; }
   #wbMusicHome .lh-feature-grid .lh-master-copy h3 { max-width:none; font-size:clamp(21px,4vw,40px); }
   #wbMusicHome .lh-feature-grid .lh-compact-promo { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
   #wbMusicHome .lh-feature-grid .lh-compact-promo > .lh-wave-strip { display:grid; }

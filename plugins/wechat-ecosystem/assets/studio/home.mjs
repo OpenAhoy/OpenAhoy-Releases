@@ -333,7 +333,9 @@ class Overview extends MusicPage {
     text.append(node("strong", row.song.name), node("small", row.project.name + " · " + row.version.name));
     const play = node("span", "", "lh-recent-play");
     play.setAttribute("aria-hidden", "true");
-    card.append(art, text, play);
+    const plane = node("span", "", "lh-recent-plane jiu-card-motion-plane");
+    plane.append(art, text, play);
+    card.append(plane);
     return card;
   }
 
@@ -425,7 +427,9 @@ class Overview extends MusicPage {
     const style = project.songs[0]?.category;
     if (style && project.songs.every(song => song.category === style)) names.append(node("small", style));
     title.append(names, node("span", project.songs.length + " 首", "lh-project-track-count"));
-    card.append(picture, title);
+    const plane = node("span", "", "lh-project-plane jiu-card-motion-plane");
+    plane.append(picture, title);
+    card.append(plane);
     return card;
   }
 
@@ -525,11 +529,21 @@ class Overview extends MusicPage {
     const trim = featureSelection(this.projects, "trim");
     const inUse = savedProject(this.projects);
     const forSongs = inUse?.songs.length ? inUse : this.projects.find(project => project.songs.length);
-    mosaic.append(masterPromotion(this.navigation, this.projects), soloPromotion(this.navigation, this.projects),
-      compactPromotion("trim", "选区剪辑", "从两端自由裁选区", "打开编辑器",
-        () => this.navigation.openStudio?.(trim), trim),
-      compactPromotion("versions", "歌曲版本", "切换试听与分轨版本", "查看版本",
-        () => this.navigation.openSongs?.(forSongs.id), forSongs));
+    const features = [
+      ["master", masterPromotion(this.navigation, this.projects)],
+      ["solo", soloPromotion(this.navigation, this.projects)],
+      ["trim", compactPromotion("trim", "选区剪辑", "从两端自由裁选区", "打开编辑器",
+        () => this.navigation.openStudio?.(trim), trim)],
+      ["versions", compactPromotion("versions", "歌曲版本", "切换试听与分轨版本", "查看版本",
+        () => this.navigation.openSongs?.(forSongs.id), forSongs)],
+    ];
+    for (const [key, panel] of features) {
+      const slot = node("div", "", "lh-feature-slot");
+      slot.dataset.feature = key;
+      panel.classList.add("jiu-card-motion-plane");
+      slot.append(panel);
+      mosaic.append(slot);
+    }
     const featurePages = node("nav", "", "lh-feature-pages");
     featurePages.setAttribute("aria-label", "IMW 功能分页");
     for (const [key, label] of [["master", "母带"], ["solo", "独听"], ["trim", "剪辑"], ["versions", "版本"]]) {

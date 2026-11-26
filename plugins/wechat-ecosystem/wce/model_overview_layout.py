@@ -28,12 +28,14 @@ STYLE = r'''
  grid-auto-rows:var(--wb-model-card-edge);gap:var(--wb-model-gap,10px);align-content:start;justify-content:start
 }
 #wbModelGrid .wb-model-card{width:100%;height:100%;aspect-ratio:1}
-#wbModelGrid[data-dense] .wb-model-tile{padding:5px 7px 2px;gap:1px}
+#wbModelGrid[data-dense] .wb-model-tile{grid-template-rows:auto minmax(0,1fr) auto;padding:4px 7px 3px;gap:1px}
+#wbModelGrid[data-dense] .wb-model-symbol{height:20px}
 #wbModelGrid[data-dense] .wb-model-tile-main{gap:1px}
 #wbModelGrid[data-dense] .wb-model-tile-main strong{font-size:12px}
 #wbModelGrid[data-dense] :is(.wb-model-spec,.wb-model-category,.wb-model-tile-foot){font-size:10px}
 #wbModelGrid[data-dense] .wb-model-credential:not(:has(code:not([hidden]))){display:none}
-#wbModelGrid[data-dense] .wb-model-link{margin:0 4px 4px;padding:3px 5px;font-size:11px}
+#wbModelGrid[data-dense] .wb-model-link{min-height:38px;padding:3px 9px 7px;font-size:11px}
+@media(pointer:coarse){#wbModelGrid[data-dense] .wb-model-link{min-height:44px}}
 #wbModels .wb-model-pager{justify-content:center;padding-top:5px;min-height:42px}
 #wbModels .wb-model-pager button{display:grid;place-items:center;min-width:44px;min-height:44px;padding:4px;font-size:18px}
 #wbModels .wb-model-pager button[aria-disabled=true]{opacity:.42;box-shadow:none;cursor:default}
@@ -98,14 +100,53 @@ STYLE = r'''
 @media(pointer:coarse){
  .wb-model-mode>button,#wbModelNews .wb-model-promos[data-brief] #wbModelPromoSetup{min-height:44px}
 }
+/* Rotate the painted face and its content around the same card center, leaving both controls in place. */
+@media (any-hover:hover) and (any-pointer:fine) and (prefers-reduced-motion:no-preference){
+ #wbModelGrid .wb-model-card{
+  --wb-card-projection:perspective(310px) rotateX(var(--wb-card-pitch,0deg)) rotateY(var(--wb-card-yaw,0deg));
+ }
+ #wbModelGrid .wb-model-face{
+  transform:var(--wb-card-projection);transition:transform 135ms ease-out
+ }
+ #wbModelGrid .wb-model-card::after{
+  transform:var(--wb-card-projection);transition:box-shadow 110ms ease-out,transform 135ms ease-out
+ }
+ #wbModelGrid .wb-model-card :is(.wb-model-tile,.wb-model-link)>span{
+  pointer-events:none;transform-origin:var(--wb-card-origin,50% 50%);
+  transform:var(--wb-card-projection) translateZ(var(--wb-card-depth,0px));
+  transition:transform 135ms ease-out
+ }
+ #wbModelGrid .wb-model-card[data-card-hover] .wb-model-tile-top{--wb-card-depth:25px}
+ #wbModelGrid .wb-model-card[data-card-hover] .wb-model-tile-main{--wb-card-depth:21px}
+ #wbModelGrid .wb-model-card[data-card-hover] :is(.wb-model-tile-foot,.wb-model-link>span){--wb-card-depth:4px}
+ #wbModelGrid .wb-model-card[data-card-hover]>.wb-model-face{
+  background:
+   radial-gradient(ellipse 78% 78% at var(--wb-card-x) var(--wb-card-y),
+    light-dark(#e7f2f4,#303a4b),var(--wb-surface) 95%) padding-box,
+   radial-gradient(circle 74px at var(--wb-card-x) var(--wb-card-y),
+    light-dark(#45899f,#b6d2ff),light-dark(#70afbd,#7ea7e995) 34%,var(--wb-surface) 100%) border-box
+ }
+}
+@media (forced-colors:active){
+ #wbModelGrid .wb-model-card[data-card-hover]>.wb-model-face{background:Canvas}
+ #wbModelGrid .wb-model-card::after,
+ #wbModelGrid .wb-model-face,
+ #wbModelGrid .wb-model-card :is(.wb-model-tile,.wb-model-link)>span{transform:none}
+}
+
 '''
 
 SCRIPT = r'''
+
 function OAModelLayout(){
  const root=document.getElementById('wbModelLayout'),grid=document.getElementById('wbModelGrid'),
        shelf=root.querySelector('.wb-model-shelf'),news=document.getElementById('wbModelNews'),
        promos=news.querySelector('.wb-model-promos'),tabs=root.querySelector('.wb-model-mode'),
        cards=[...grid.children],stories=[...promos.children];
+ const {clear:clearHover}=JiuseraCardMotion.mount(grid,[{
+  selector:'.wb-model-card',model:true,
+  parts:[['.wb-model-tile>span,.wb-model-link>span',0]]
+ }]);
  const page={models:0,promo:0};
  const buttons=[...tabs.querySelectorAll('button')];
  let section='models',activeSize=''; 
@@ -121,6 +162,7 @@ function OAModelLayout(){
    next.onclick=()=>{if(page[name]<count-1){page[name]++;paint();}};
  }
  function paint(provider){
+   clearHover();
    const rect=root.getBoundingClientRect();
    if(rect.width===0||rect.height===0)return;
    const stacked=rect.width<850;
@@ -175,6 +217,6 @@ function OAModelLayout(){
    if(size!==activeSize){activeSize=size;paint();}
  });
  observer.observe(root);
- return {paint};
+ return {paint,clearHover};
 }
 '''

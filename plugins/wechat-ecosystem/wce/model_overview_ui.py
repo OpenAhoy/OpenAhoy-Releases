@@ -183,8 +183,11 @@ def overview_html():
 </button>
 <a class="wb-model-link" href="{link_url}" target="_blank" rel="noopener noreferrer"
  aria-labelledby="wbModelLink-{provider} wbModelName-{provider}"><span id="wbModelLink-{provider}">{link_label}</span>
-<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"
- aria-hidden="true"><path d="M6 4H3v9h9v-3M8 3h5v5m0-5-6 6"/></svg></a>
+<span class="wb-model-link-mark" aria-hidden="true">
+ <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5">
+ <path d="M6 4H3v9h9v-3M8 3h5v5m0-5-6 6"/></svg>
+</span></a>
+<span class="wb-model-face" aria-hidden="true"></span>
 </div>''')
     return (
         '<div id="wbModelLayout" class="wb-model-layout">'

@@ -26,6 +26,8 @@
 
 ### 形象资产库
 
+生成、选用与登记总览卡头像走[人物卡头像取景](CHARACTER_PORTRAITS.md)。镜头的实际参考图用途和版本独立记录。
+
 在「资产库 → 形象」按项目、系列、人物及形态查找已登记的资产。同一人物一张卡，默认常态。标准资产可跨同项目的镜头使用，特别资产仅能用于登记的作品。形态可登记自己的人脸图，也可让不同形态的版本引用同一张原图。用 `character_set_primary` 设置该形态的主参考，提供现有 `expected_primary`。没有旧指针时省略该字段。主参考需为含人脸的标准资产。每种用途的当前版独立维护，由 `character_set_current` 和已观察的 `expected_current` 更新。
 
 新导入的精确图像字节写入项目的 `JiuseraAssets/Characters/`。本地 PCM WAV 声音参考写入 `JiuseraAssets/Audio/`。复制按摘要去重，原文件路径、原字节和旧索引引用照常保留。插件管理普通参考可通过 `character_import_version` 将精确版本引入另一个登记项目，传目标 `project_id` 和来源 `origin`（`project_id`、`version_id`、`sha256`）。特别资产和带裁切来源的资产留在原项目。

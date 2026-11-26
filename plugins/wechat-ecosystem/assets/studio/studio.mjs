@@ -168,6 +168,16 @@ class Studio extends HTMLElement {
   connectedCallback() {
     const root = this.attachShadow({ mode: "open" });
     root.innerHTML = markup;
+    const cardMotion = globalThis.JiuseraCardMotion;
+    if (cardMotion) {
+      const style = document.createElement("style");
+      style.textContent = cardMotion.style;
+      root.prepend(style);
+      this.songCardMotion = cardMotion.mount(root, [{
+        selector: ".song-card", parts: [[".song-cover-art", 25], [".song-name", 21]], clipped: true,
+      }]);
+      root.getElementById("songs").addEventListener("scroll", this.songCardMotion.clear, { passive: true });
+    }
     this.$ = id => root.getElementById(id);
     this.frameRuler = mountFrameRuler(this);
     this.length = 30;
@@ -290,6 +300,7 @@ class Studio extends HTMLElement {
     });
     const visibility = () => {
       if (container.hidden) {
+        this.songCardMotion?.clear();
         settings.hidePopover();
         this.pause();
         this.transport.close();
@@ -314,6 +325,7 @@ class Studio extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this.songCardMotion?.dispose();
     this.timelineSelection.dispose();
     this.detachedTracks.dispose();
     this.stop();
@@ -430,6 +442,7 @@ class Studio extends HTMLElement {
       this.$("songs-close").focus();
       if (this.project) void this.refreshCatalog();
     }
+    if (!open) this.songCardMotion?.clear();
     if (!open && previous && restore) button.focus();
   }
 
@@ -656,6 +669,7 @@ class Studio extends HTMLElement {
     const focus = this.shadowRoot.activeElement;
     const focusSong = focus?.closest(".song-card")?.dataset.song;
     const focusControl = focus?.dataset.cardControl;
+    this.songCardMotion?.clear();
     this.coverController?.abort();
     this.coverController = new AbortController();
     this.$("count").textContent = this.project.songs.length + " 首";
@@ -686,12 +700,14 @@ class Studio extends HTMLElement {
     cover.dataset.cardControl = "cover";
     cover.disabled = !playable;
     cover.dataset.label = song.name + " · " + version.name;
+    const coverArt = document.createElement("span");
+    coverArt.className = "song-cover-art";
     if (version.cover) {
       const art = new Image();
       art.alt = "";
       art.draggable = false;
       art.onerror = () => art.remove();
-      cover.append(art);
+      coverArt.append(art);
       const signal = this.coverController.signal;
       void studioCover(version.cover, signal).then(url => {
         if (!url) return;
@@ -705,7 +721,8 @@ class Studio extends HTMLElement {
     const playIcon = document.createElement("span");
     playIcon.className = "song-icon";
     playIcon.setAttribute("aria-hidden", "true");
-    cover.append(playIcon);
+    coverArt.append(playIcon);
+    cover.append(coverArt);
     cover.onclick = () => this.audition(project, song.id, version.id);
 
     const select = document.createElement("button");
@@ -759,7 +776,7 @@ class Studio extends HTMLElement {
       button.title = label;
       button.setAttribute("aria-label", label);
       button.setAttribute("aria-pressed", String(Boolean(playing)));
-      button.lastElementChild.textContent = button.disabled ? "·" : playing ? "Ⅱ" : warm ? "…" : "▶";
+      button.querySelector(".song-icon").textContent = button.disabled ? "·" : playing ? "Ⅱ" : warm ? "…" : "▶";
     }
   }
 

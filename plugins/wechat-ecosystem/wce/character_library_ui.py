@@ -1,5 +1,6 @@
 """Character reference browser and exact-version storyboard picker."""
 
+from .character_library import PORTRAIT_FRAME_UNITS
 from .character_ruler_ui import SCRIPT as RULER_SCRIPT, STYLE as RULER_STYLE
 from .character_set_trial_ui import SCRIPT as SET_TRIAL_SCRIPT, STYLE as SET_TRIAL_STYLE
 
@@ -67,9 +68,15 @@ STYLE = RULER_STYLE + r'''
 .cl-count{margin:0 0 12px;color:var(--muted)}
 .cl-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .oa-native :is(#characterLibrary,#characterPicker) .cl-card{
+ --cl-card-radius:10px;
  display:grid;grid-template-rows:auto 1fr;align-content:stretch;align-items:start;justify-items:stretch;width:100%;
  min-width:0;padding:0;border:1px solid var(--cl-line);
- border-radius:10px;background:var(--cl-card);box-shadow:none;overflow:hidden;text-align:start;font:inherit;color:inherit}
+ border-radius:var(--cl-card-radius);background:var(--cl-card);box-shadow:none;overflow:hidden;text-align:start;font:inherit;color:inherit}
+
+/* The picture keeps its own inner corner clip while the card face tilts independently. */
+.oa-native :is(#characterLibrary,#characterPicker) .cl-card>.cl-picture{
+ border-start-start-radius:calc(var(--cl-card-radius) - 1px);
+ border-start-end-radius:calc(var(--cl-card-radius) - 1px)}
 .oa-native :is(#characterLibrary,#characterPicker) .cl-card:is(:hover,:focus-visible){border-color:var(--cl-accent);background:var(--cl-card)}
 .cl-picture{display:grid;place-items:center;width:100%;aspect-ratio:1.24;overflow:hidden;background:var(--cl-frame);
  color:var(--cl-gray);font-size:12px;white-space:normal;text-align:center}
@@ -166,10 +173,16 @@ STYLE = RULER_STYLE + r'''
 .cl-roster .cl-count{margin:10px 0 8px;font-size:12px}
 .cl-roster .cl-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,143px),1fr));gap:10px}
 .cl-roster .cl-card{max-width:225px}
+#characterLibrary .cl-roster .cl-card{grid-template-columns:minmax(0,1fr)}
 .cl-roster .cl-card-copy{padding:8px 9px}
 .cl-roster .cl-card-copy strong{font-size:14px}
-.cl-roster .cl-picture{aspect-ratio:1.18}
+.cl-roster .cl-picture{--cl-portrait-ratio:1.18;aspect-ratio:var(--cl-portrait-ratio)}
 .cl-roster .cl-picture img{object-fit:cover;object-position:center 34%}
+.cl-roster .cl-picture[data-portrait]{position:relative;background:#fff}
+.cl-roster .cl-picture[data-portrait] img{object-fit:contain;object-position:center}
+.cl-roster .cl-picture[data-portrait=reviewed] img{
+ position:absolute;max-width:none;max-height:none
+}
 #characterDetail:has(.cl-gear){width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:0;
  border:0;border-radius:0;overflow:hidden;box-sizing:border-box;background:var(--cl-bg)}
 .cl-gear{--cl-side:clamp(65px,11vw,145px);box-sizing:border-box;width:100%;height:100%;min-height:0;padding:12px clamp(10px,3vw,44px) 9px;
@@ -628,6 +641,7 @@ function OACharacterLibrary(tool,openProjectSettings,sendChat,canSend){
    DIRECTOR_CHARACTER_FACE_REFERENCE_REQUIRED:'请选用此形态中能看到人脸的标准资产。',
    DIRECTOR_CHARACTER_WORK_SCOPE_MISMATCH:'该特别资产只用于登记的作品。',
    DIRECTOR_CHARACTER_FORM_CONFLICT:'形态标识与已登记的名称冲突。',
+   DIRECTOR_CHARACTER_PORTRAIT_FRAME_INVALID:'头像显示范围须在独立正面人头的原图内。',
    DIRECTOR_CHARACTER_CROP_INVALID:'裁切范围或原图版本无法核对。',
    DIRECTOR_CHARACTER_STALE_INDEX:'索引已有更新，请重新预览。',
    DIRECTOR_CHARACTER_REFERENCE_MISMATCH:'登记版本或原图指纹已变化，请重新选择。',
@@ -746,18 +760,37 @@ function OACharacterLibrary(tool,openProjectSettings,sendChat,canSend){
    return pending;
  }
  const jobs=[];let running=0;
+ function framePortrait(figure,img,frame){
+   // Fit the reviewed window, then clip only at the card's own media edges.
+   // The browser uses the original aspect ratio in both dimensions.
+   const {x,y,width,height}=frame,units=__PORTRAIT_UNITS__;
+   const aspect=img.naturalWidth/img.naturalHeight;
+   const cardRatio=Number(getComputedStyle(figure).getPropertyValue('--cl-portrait-ratio'));
+   const w=Math.min(units/width,aspect*units/(cardRatio*height));
+   const h=w*cardRatio/aspect;
+   Object.assign(img.style,{width:(w*100)+'%',height:(h*100)+'%',
+     left:(50-100*w*(x+width/2)/units)+'%',top:(50-100*h*(y+height/2)/units)+'%'});
+   figure.dataset.portrait='reviewed';
+ }
  function drain(){
    while(running<3&&jobs.length){
      const task=jobs.shift();if(!task.figure.isConnected)continue;
      running++;
      cachedCharacterImage('character_thumbnail',task.row).then(src=>{
        if(!task.figure.isConnected)return;
-       const img=node('img');img.alt=task.row.character.name;img.src=src;
-       if(task.figure.closest('#characterLibrary .cl-card')){
+       const img=node('img');img.alt=task.row.character.name;
+       const roster=task.figure.closest('#characterLibrary .cl-card');
+       if(roster){
          img.onerror=()=>{if(img.parentElement===task.figure)cardPlaceholder(task.figure,'unreadable');};
+         img.onload=()=>{
+           if(img.parentElement!==task.figure||!task.figure.isConnected)return;
+           task.figure.dataset.portrait='full_image';
+           if(task.row.portrait_framing?.frame)framePortrait(task.figure,img,task.row.portrait_framing.frame);
+           task.figure.dataset.coverState='available';
+         };
        }
        task.figure.replaceChildren(img);
-       if(task.figure.closest('#characterLibrary .cl-card'))task.figure.dataset.coverState='available';
+       img.src=src;
      }).catch(problem=>{
        if(!task.figure.isConnected)return;
        if(task.figure.closest('#characterLibrary .cl-card'))cardPlaceholder(task.figure,'unreadable');
@@ -820,9 +853,7 @@ function OACharacterLibrary(tool,openProjectSettings,sendChat,canSend){
    }
  }
  function overviewHead(forms){
-   const isHead=row=>!inHistory(row)&&!row.browseArchived&&!row.crop&&kind(row)==='standard'&&
-     row.use==='face'&&row.face_visible!==false&&row.appearance?.group==='base'&&
-     row.appearance.view==='head_front'&&row.appearance.format==='individual';
+   const isHead=row=>!inHistory(row)&&!row.browseArchived&&Boolean(row.portrait_framing);
    for(const form of forms){
      const rows=form.rows.filter(isHead);
      const row=rows.find(value=>value.primary)||rows.find(value=>value.status==='current')||rows[0];
@@ -830,6 +861,7 @@ function OACharacterLibrary(tool,openProjectSettings,sendChat,canSend){
    }
  }
  function cardPlaceholder(figure,state){
+   delete figure.dataset.portrait;
    figure.dataset.coverState=state;figure.classList.add('cl-card-placeholder');
    figure.replaceChildren(ringSymbol('head'),node('span','',state==='missing'?'未登记正面纯人头':'正面纯人头暂无法读取'));
  }
@@ -2643,7 +2675,8 @@ function OACharacterLibrary(tool,openProjectSettings,sendChat,canSend){
    const available={available:'原图可用',missing:'缺少原图',unavailable:'原图校验失败'},
      entry={new:'新版本',existing:'已登记',conflict:'版本冲突'};
    importRows.replaceChildren(...plan.assets.map(row=>node('li','',
-     [row.name,row.id,t(stateText[row.status]),t(messages[row.availability_reason]||available[row.availability]),t(entry[row.entry])].join(' · '))));
+     [row.name,row.id,t(stateText[row.status]),t(messages[row.availability_reason]||available[row.availability]),t(entry[row.entry]),
+      {'reviewed':t('使用已校准的头像取景'),'full_image':t('头像完整原图')}[row.portrait_framing?.mode]].filter(Boolean).join(' · '))));
    apply.disabled=plan.assets.some(row=>row.entry==='conflict'||(row.status==='current'&&row.entry==='new'&&row.availability!=='available'));
    importStatus.textContent=t(apply.disabled?'请先处理冲突或不可用的当前版本。':'索引预览已就绪。');
  }
@@ -2742,4 +2775,4 @@ function OACharacterLibrary(tool,openProjectSettings,sendChat,canSend){
 '''
 
 STYLE += SET_TRIAL_STYLE
-SCRIPT = SET_TRIAL_SCRIPT + SCRIPT
+SCRIPT = SET_TRIAL_SCRIPT + SCRIPT.replace('__PORTRAIT_UNITS__', str(PORTRAIT_FRAME_UNITS))
