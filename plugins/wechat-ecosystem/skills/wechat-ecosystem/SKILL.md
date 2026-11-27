@@ -79,7 +79,7 @@ X 页的“立即生产并发布”通过现有宿主消息桥向当前聊天发
    多篇组的每篇 `metadata.digest` 留空；自定义摘要保留在制作记录，用户要求单独编辑时明确标记 `editorial_intent.summary=manual_required`。平台补默认摘录应如实报告待处理，不填前段或隐形字符，也不为摘要拆组。
 3. 读取 `own.articles.read`，核对整组内容、顺序、版本和完整 assets。需要本机预览时使用该原 bundle/version 的 `own.documents.preview`；预览不取 token，不等于微信视觉验收。预览到期可对原版本重新生成，无需重导入/重存。
 4. 按返回的全部 scoped slots 调用 `own.uploads.execute`，每个原 slot 使用其稳定请求键。正常入口没有固定四图/五图或本机累计素材数量、调用次数、每秒业务额度。逐段处理、串行背压和持久续接由实现负责，不要求用户为内部封套上限删图删文。
-5. 全部素材成功后，同组调用一次 `own.drafts.save`，再独立 `own.drafts.readback`。核对实际文章数、顺序、正文、封面和元数据。严格 `MATCHED` 与有限 `PLATFORM_REPRESENTATION_MATCHED` 分别报告；后者不覆盖原 strict UNVERIFIED、来源或 UNKNOWN，也不证明像素/手机视觉。
+5. 全部素材成功后，同组调用一次 `own.drafts.save`，再独立 `own.drafts.readback`。核对实际文章数、顺序、正文、封面和元数据。严格 `MATCHED` 与有限 `PLATFORM_REPRESENTATION_MATCHED` 分别报告；后者不覆盖原 strict UNVERIFIED、来源或 UNKNOWN，也不证明像素/手机视觉。若返回 `body_link_diagnostic`，按篇次和预览编号说明正文链接保留、仅余文字、目标变化或无法核验，区分源稿、原出站与独立读回。另列「阅读原文」，不要复述链接参数。链接观察只作编辑提示，不阻挡普通发表。
 
 只保留当前已核实的微信接口约束、真实账号权限/官方配额结果和用户明确选择的偏好。兼容格式1/2、SAFE/IMPORTED V1的旧技术封套不当作新正常 HTML 的业务额度。有限 PNG/JPEG 解码支持不冒充任意图片格式；需要传输副本时保留原件、明确实际差异并遵守已有用户要求。封面与正文 API 的实际限制分别核对，不能把本用户“全图小于1MB”的偏好硬编码为所有用户的封面官方规则。
 

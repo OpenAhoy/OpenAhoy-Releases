@@ -553,7 +553,7 @@ class _OrdinaryDraftRead:
         return row,m
 
     def guard(self):
-        with _history_transaction(self.w.db)as(db,h):self.guard_in(db,h)
+        with _history_transaction(self.w.db)as(db,h):return self.guard_in(db,h)
 
     def read(self,kind,payload,phase):
         self.guard();self.calls[kind]+=1
@@ -606,7 +606,7 @@ def checked_ordinary_context(w,p,lease):
 
 
 def _ordinary_result(ctx,a,state,reason,observation=None,reference=None):
-    ctx.guard()
+    guarded=ctx.guard()
     output=ctx.w._view(ctx.p,ctx.expected)|{'readback_state':state,'reconciliation_origin':ORDINARY_ORIGIN,
         'reconciliation_reason':reason,'read_counts':dict(ctx.calls),'candidate_count':ctx.candidate_count,
         'candidate_comparisons':[{'reference':ref,'comparison':obs['comparison']}for ref,obs in ctx.observations]}
@@ -620,6 +620,14 @@ def _ordinary_result(ctx,a,state,reason,observation=None,reference=None):
             output['platform_representation']=deepcopy(observation['platform_representation'])
         if a.get('include_projection',False):output.update(actual_projection_policy='ACTUAL_DOCUMENT_PROJECTION_V2',actual_projection=observation['projection'])
     elif a.get('include_projection',False):output['actual_projection']=None
+    if guarded is not None:
+        row,manifest=guarded
+        if 'document' in manifest:
+            from .own_body_link_diagnostic import observe
+            # A recovery GET or scan cannot establish the bytes originally sent.
+            actual=observation['projection'] if observation is not None and row['state']=='SUCCEEDED' else None
+            links=observe(ctx.w,ctx.p,row,ctx.intent,{},manifest['document'],actual)
+            if links is not None:output['body_link_diagnostic']=links
     return output
 
 

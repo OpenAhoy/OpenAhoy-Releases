@@ -32,10 +32,10 @@ def _need(value):
         raise _Invalid()
 
 class _HTML(HTMLParser):
-    def __init__(self, raw):
+    def __init__(self, raw, *, max_content_chars=MAX_CONTENT_CHARS):
         super().__init__(convert_charrefs=True)
         self.raw=raw;self.tokens=[];self.images=[];self.visible=[];self.stack=[]
-        _need(type(raw)is str and len(raw)<=MAX_CONTENT_CHARS and len(raw.encode('utf-8'))<=1_000_000
+        _need(type(raw)is str and len(raw)<=max_content_chars and len(raw.encode('utf-8'))<=1_000_000
               and re.search(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]',raw)is None)
         self.offsets=[0]
         for line in raw.splitlines(keepends=True):self.offsets.append(self.offsets[-1]+len(line))

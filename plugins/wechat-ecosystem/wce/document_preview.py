@@ -59,13 +59,15 @@ def html(document, images):
             raise WCEError('DOCUMENT_PREVIEW_LIMIT')
         urls[slot] = 'data:' + mime + ';base64,' + base64.b64encode(raw).decode('ascii')
     if document.get('format') == 3:
+        from .own_body_link_diagnostic import preview_summary
         articles = []
         for index, article in enumerate(document['articles']):
             articles.append('<details class="wce-card"' + (' open' if index == 0 else '') +
                 '><summary class="wce-summary">' + str(index+1) + ' · ' + escape(article['title']) +
-                '</summary><div class="wce-content">' + render_blocks(article, urls, preview=True) + '</div></details>')
+                '</summary>' + preview_summary(article) +
+                '<div class="wce-content">' + render_blocks(article, urls, preview=True) + '</div></details>')
         # Chrome selectors never match submitted content; no inherited reading theme.
-        style = 'body{margin:0}.wce-header{padding:18px;background:#f1f5f2;font:14px system-ui;color:#375142}.wce-main{max-width:720px;margin:24px auto;padding:0 12px}.wce-card{margin-bottom:20px;border:1px solid #dce5de;border-radius:10px}.wce-summary{padding:14px;font:14px system-ui;cursor:pointer;overflow-wrap:anywhere}.wce-content{padding:16px}@media(min-width:760px){.wce-content{padding:30px}}'
+        style = 'body{margin:0}.wce-header{padding:18px;background:#f1f5f2;font:14px system-ui;color:#375142}.wce-main{max-width:720px;margin:24px auto;padding:0 12px}.wce-card{margin-bottom:20px;border:1px solid #dce5de;border-radius:10px}.wce-summary{padding:14px;font:14px system-ui;cursor:pointer;overflow-wrap:anywhere}.wce-content{padding:16px}.wce-link-note{margin:0;padding:0 14px 12px;font:14px/1.5 system-ui;color:#375142}@media(min-width:760px){.wce-content{padding:30px}}'
         result = ('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
             '<title>Jiusera · HTML 预览</title><style>' + style + PREVIEW_STYLE + '</style><header class="wce-header">Jiusera · 直接 HTML 本机预览</header><main class="wce-main">' + ''.join(articles) + '</main></html>').encode()
         if len(result) > 48 * 1024 * 1024:

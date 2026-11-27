@@ -257,9 +257,9 @@ class Fragment(HTMLParser):
     def handle_pi(self,data):fail('HTML_DECLARATION_UNSUPPORTED',self.getpos())
 
 
-def serialize(node,urls=None,preview=False):
+def serialize(node,urls=None,preview=False,mark_links=False):
     # Explicit traversal also serves normal HTML deeper than Python's call stack.
-    parts=[];pending=[(node,False)]
+    parts=[];pending=[(node,False)];link_position=0
     while pending:
         item,closing=pending.pop()
         if isinstance(item,str):parts.append(escape(item,quote=False));continue
@@ -270,7 +270,11 @@ def serialize(node,urls=None,preview=False):
         attrs=dict(item['attrs'])
         if tag=='img' and urls is not None:attrs['src']=urls[attrs['src'][len('wce-asset:'):]]
         emitted=tag
-        if tag=='a' and preview:emitted='span';attrs.pop('href')
+        if tag=='a' and preview:
+            emitted='span';attrs.pop('href')
+            if mark_links:
+                link_position+=1
+                parts.append(f'<span style="color:#24634d;">〔{link_position}〕</span>')
         if tag:
             text=''.join(' '+k+'="'+escape(v,quote=True)+'"' for k,v in sorted(attrs.items()))
             parts.append('<'+emitted+text+'>')
@@ -398,7 +402,7 @@ def render(article,urls,preview=False):
     mapping={slot:urls[article['id']+'--'+slot] for slot in parsed.slots}
     if not preview:
         for value in mapping.values():safe_url(value)
-    result=serialize(parsed.root,mapping,preview)
+    result=serialize(parsed.root,mapping,preview,mark_links=preview and policy==NORMAL_POLICY)
     # Validate the actual emitted fragment, not only its placeholder input.
     Fragment(result,set(mapping.values()),policy)
     return result

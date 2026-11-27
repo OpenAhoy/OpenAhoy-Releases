@@ -1090,6 +1090,7 @@ class OwnWorkflow(PreparedHistoryValidation):
             # Construct the opt-in data before the final authority/snapshot check.
             self._readback_guard(p, lease, row)
         from .own_connection_workflow import PersistentWorkflow
+        observed = None
         if (type(self) is PersistentWorkflow and grouped
                 and diagnostic.get('reason') == 'PARSED_SUCCESS'
                 and type(reply.result) is dict):
@@ -1101,6 +1102,13 @@ class OwnWorkflow(PreparedHistoryValidation):
                 p.source_kind == 'SYNTHETIC_SETUP', result['reference'], intent)
             output['platform_representation'] = observed['platform_representation']
             self._readback_guard(p, lease, row)
+        if grouped and type(self) is PersistentWorkflow:
+            from .own_body_link_diagnostic import observe as observe_body_links
+            links = observe_body_links(self, p, row, intent, result, document,
+                observed['projection'] if observed is not None else None)
+            if links is not None:
+                output['body_link_diagnostic'] = links
+                self._readback_guard(p, lease, row)
         if intent['schema'] == 2:
             from .own_connection_workflow import PersistentWorkflow
             if type(self) is PersistentWorkflow:
