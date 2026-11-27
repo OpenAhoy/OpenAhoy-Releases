@@ -18,7 +18,7 @@ from .own_connection_policy import atomic_write, locked, read_optional, read_reg
 from .own_connection_registry import container
 from .prepared_contracts import ID, strict_validate
 from .tools import schema
-from .wechat_component_identity import clean_authorizer_info, official_profile_fields
+from .wechat_component_identity import _text, clean_authorizer_info, official_profile_fields
 from .wechat_workspace_proof import FORMAT as PROOF_FORMAT, WorkspaceProof, prepare_local_workspace
 
 BASE = 'https://www.readysteadysound.com/jiusera/api/oauth/wechat'
@@ -27,12 +27,22 @@ OVERVIEW = 'wce.ui.management.overview'
 WECHAT = 'wechat_official_account'
 APP = re.compile(r'wx[a-f0-9]{16}')
 TX = re.compile(r'[a-f0-9]{48}')
+TRANSFER_OFFER = 'TRANSFER_CONFIRMATION_REQUIRED'
+TRANSFER_CHALLENGE = 'TRANSFER_CHALLENGE_PENDING'
+TRANSFER_BLOCKED = 'TRANSFER_BLOCKED'
+TRANSFERRED_REASON = 'WORKSPACE_TRANSFERRED'
+AUTHORIZE = BASE + '/authorize?transaction='
 PUBLIC_STATES = frozenset({'STARTING', 'PENDING', 'EXPIRED', 'CANCELLED',
     'TICKET_OR_COMPONENT_UNAVAILABLE', 'START_UNKNOWN', 'EXCHANGING', 'EXCHANGE_UNKNOWN',
-    'REJECTED', 'WORKSPACE_CONFLICT', 'BOUND', 'REVOKED', 'TARGET_MISMATCH', 'TARGET_STALE'})
-ACTIVE = frozenset({'STARTING', 'PENDING', 'START_UNKNOWN', 'EXCHANGING', 'EXCHANGE_UNKNOWN'})
+    'REJECTED', 'WORKSPACE_CONFLICT', 'BOUND', 'REVOKED', 'TARGET_MISMATCH', 'TARGET_STALE',
+    TRANSFER_OFFER, TRANSFER_CHALLENGE, TRANSFER_BLOCKED})
+ACTIVE = frozenset({'STARTING', 'PENDING', 'START_UNKNOWN', 'EXCHANGING', 'EXCHANGE_UNKNOWN',
+                    TRANSFER_OFFER, TRANSFER_CHALLENGE})
 MAX_BODY = 256 * 1024
-SPEC = schema({'operation': {'type': 'string', 'enum': ['BEGIN', 'STATUS', 'CANCEL', 'WORKSPACE_STATUS', 'PROFILE_STATUS', 'TARGET_STATUS']}},
+LIMIT = 'WORKSPACE_ENROLLMENT_RATE_LIMITED'
+LIMIT_SCOPES = frozenset(('WORKSPACE_SHORT', 'SHARED_SHORT', 'SHARED_DAILY'))
+SPEC = schema({'operation': {'type': 'string', 'enum': ['OPEN', 'BEGIN', 'STATUS', 'CANCEL', 'WORKSPACE_STATUS',
+                                                       'PROFILE_STATUS', 'TARGET_STATUS', 'TRANSFER_BEGIN']}},
               {'connection_id': ID})
 
 
@@ -55,6 +65,11 @@ def _binding(value):
             or type(generation) is not int or not 0 < generation < 2**53):
         _bad()
     row = {'appid': app, 'originalId': original, 'state': state, 'generation': generation, 'verifiedAt': stamp}
+    if state == 'REVOKED' and value.get('reason') == TRANSFERRED_REASON:
+        row['reason'] = TRANSFERRED_REASON
+        info = clean_authorizer_info(value.get('authorizerInfo'))
+        if info:
+            row['authorizerInfo'] = info
     if state == 'ACTIVE':
         scopes, expiry, renew = value.get('funcInfo'), value.get('expiresAt'), value.get('refreshState')
         if (type(scopes) is not list or len(scopes) > 128
@@ -78,6 +93,33 @@ def _bindings(rows):
     return values
 
 
+def _transfer(value, state, original_tx):
+    if type(value) is not dict:
+        _bad()
+    appid, expiry = value.get('appid'), value.get('expiresAt')
+    if type(appid) is not str or not APP.fullmatch(appid) or not _timestamp(expiry):
+        _bad()
+    public = {'account_id': appid, 'expires_at': expiry}
+    info = value.get('authorizerInfo')
+    nickname = _text(info.get('nickname'), 128) if type(info) is dict else None
+    if nickname:
+        public['nickname'] = nickname
+    challenge = value.get('challenge')
+    if state == TRANSFER_CHALLENGE:
+        if type(challenge) is not dict or not _timestamp(challenge.get('expiresAt')):
+            _bad()
+        public['challenge_expires_at'] = challenge['expiresAt']
+        url = challenge.get('authorizeUrl')
+        if url is not None:
+            challenge_id = url.removeprefix(AUTHORIZE) if type(url) is str else ''
+            if not TX.fullmatch(challenge_id) or challenge_id == original_tx or url != AUTHORIZE + challenge_id:
+                _bad()
+            public.update(authorization_url=url, authorization_transaction=challenge_id)
+    elif challenge is not None:
+        _bad()
+    return public
+
+
 def _flow(value, expected=None):
     if type(value) is not dict:
         _bad()
@@ -89,10 +131,17 @@ def _flow(value, expected=None):
     if value.get('cancelRequested') is True:
         public['cancel_requested'] = True
     authorize_url = value.get('authorizeUrl')
+    if state == 'PENDING' and value.get('browserLaunched') is True:
+        if authorize_url is not None:
+            _bad()
+        public['browser_launched'] = True
     if authorize_url is not None:
-        if state != 'PENDING' or authorize_url != BASE + '/authorize?transaction=' + tx:
+        if state != 'PENDING' or authorize_url != AUTHORIZE + tx:
             _bad()
         public['authorization_url'] = authorize_url
+    transfer = value.get('transfer')
+    if state in (TRANSFER_OFFER, TRANSFER_CHALLENGE) or state == TRANSFER_BLOCKED and transfer is not None:
+        public['transfer'] = _transfer(transfer, state, tx)
     if state == 'BOUND':
         row = _binding(value.get('binding'))
         if value.get('appid') != row['appid']:
@@ -119,7 +168,8 @@ class WorkspaceBroker:
     def __init__(self, opener=None):
         self.open = opener or build_opener(_NoRedirect()).open
 
-    def request(self, path, proof, *, transaction=None, idempotency=None, target=None, profile=None):
+    def request(self, path, proof, *, transaction=None, idempotency=None, target=None, profile=None,
+                allow_transfer=False):
         payload = None
         headers = {'Accept': 'application/json', 'Authorization': 'Bearer ' + proof.reveal_for_adapter()}
         if target is not None and (type(target) is not str or not APP.fullmatch(target)):
@@ -128,20 +178,32 @@ class WorkspaceBroker:
             if type(idempotency) is not str or not PROOF_FORMAT.fullmatch(idempotency):
                 _bad()
             headers['Idempotency-Key'] = idempotency
-            payload = json.dumps({'expected_authorizer_appid': target} if target else {}).encode('ascii')
+            fields = {'expected_authorizer_appid': target} if target else {}
+            if allow_transfer:
+                fields['allow_transfer'] = True
+            payload = json.dumps(fields).encode('ascii')
+        elif path == 'transfer':
+            if (type(transaction) is not str or not TX.fullmatch(transaction) or target is None
+                    or type(idempotency) is not str or not PROOF_FORMAT.fullmatch(idempotency)):
+                _bad()
+            headers['Idempotency-Key'] = idempotency
+            payload = json.dumps({'action': 'confirm_transfer', 'transaction': transaction,
+                                  'appid': target}).encode('ascii')
         elif path == 'cancel':
             if type(transaction) is not str or not TX.fullmatch(transaction):
                 _bad()
             payload = json.dumps({'transaction': transaction}).encode('ascii')
         elif path == 'enroll':
             payload = b'{"action":"enroll"}'
-        elif path not in ('status', 'enrollment'):
+        elif path not in ('status', 'enrollment', 'pending'):
             _bad()
         if payload is not None:
             headers['Content-Type'] = 'application/json'
-        url = BASE + '/' + ('status' if path in ('enrollment', 'enroll') else path)
+        url = BASE + '/' + ('status' if path in ('enrollment', 'enroll', 'transfer', 'pending') else path)
         if path == 'enrollment':
             url += '?enrollment=1'
+        elif path == 'pending':
+            url += '?pending=1'
         elif path == 'status' and transaction is not None:
             if type(transaction) is not str or not TX.fullmatch(transaction):
                 _bad()
@@ -168,16 +230,18 @@ class WorkspaceBroker:
 
         if status == 401:
             return status, {}
+        if status == 429 and len(data) > MAX_BODY:
+            return status, {}
         if len(data) > MAX_BODY:
             _bad()
         try:
             value = json.loads(data)
         except (ValueError, RecursionError):
-            if status == 403:
+            if status in (403, 429):
                 return status, {}
             raise WCEError('WECHAT_COMPONENT_SERVICE_UNAVAILABLE') from None
         if type(value) is not dict:
-            if status == 403:
+            if status in (403, 429):
                 return status, {}
             _bad()
         return status, value
@@ -227,7 +291,7 @@ class ComponentBinding:
         removed = self._removals()
         for row in grants:
             if _cid(row['appid']) == cid and row['appid'] not in removed:
-                return row['appid'], False
+                return row['appid'], row.get('reason') == TRANSFERRED_REASON
         from .own_connection_policy import resolve
         try:
             policy = resolve(cid, self.registry, active=False, readonly=True)
@@ -248,8 +312,8 @@ class ComponentBinding:
         rows = _bindings(rows)
         for row in rows:
             old = previous.get(row['appid'])
-            if (old and old['state'] == row['state'] == 'ACTIVE'
-                    and old['generation'] == row['generation'] and old['originalId'] == row['originalId']):
+            if (old and old['generation'] == row['generation'] and old['originalId'] == row['originalId']
+                    and (old['state'] == row['state'] == 'ACTIVE' or row.get('reason') == TRANSFERRED_REASON)):
                 known = old.get('authorizerInfo')
                 if known and known['verifiedAt'] > row.get('authorizerInfo', {}).get('verifiedAt', 0):
                     row['authorizerInfo'] = known
@@ -267,6 +331,14 @@ class ComponentBinding:
                 or 'expected_authorizer_appid' in saved and (type(saved['expected_authorizer_appid']) is not str
                        or not APP.fullmatch(saved['expected_authorizer_appid']))
                 or 'connection_id' in saved and type(saved['connection_id']) is not str
+                or 'allow_transfer' in saved and type(saved['allow_transfer']) is not bool
+                or 'transfer_appid' in saved and (type(saved['transfer_appid']) is not str
+                       or not APP.fullmatch(saved['transfer_appid']) or not _timestamp(saved.get('transfer_expires')))
+                or 'transfer_key' in saved and (type(saved['transfer_key']) is not str
+                       or not PROOF_FORMAT.fullmatch(saved['transfer_key']) or 'transfer_appid' not in saved)
+                or 'transfer_retry' in saved and type(saved['transfer_retry']) is not bool
+                or 'recovered_transfer_challenge' in saved and (
+                    saved['recovered_transfer_challenge'] is not True or 'transfer_appid' not in saved)
                 or type(saved.get('state')) is not str
                 or saved['state'] not in PUBLIC_STATES | {'START_RECOVERY_REQUIRED'}):
             _bad()
@@ -284,26 +356,97 @@ class ComponentBinding:
             return {'status': 'WORKSPACE_REVOKED', 'http_status': code}
         if code == 403:
             return {'status': 'WORKSPACE_NOT_REGISTERED', 'http_status': code}
-        if code == 429 and value.get('state') == 'WORKSPACE_ENROLLMENT_LIMITED':
-            return {'status': 'WORKSPACE_ENROLLMENT_RATE_LIMITED', 'http_status': code}
+        if code == 429:
+            result = {'status': LIMIT, 'http_status': code}
+            retry_at, scopes = value.get('retryAt'), value.get('retryScopes')
+            if (value.get('state') == 'WORKSPACE_ENROLLMENT_LIMITED' and _timestamp(retry_at)
+                    and type(scopes) is list and 0 < len(scopes) <= len(LIMIT_SCOPES)
+                    and all(type(scope) is str and scope in LIMIT_SCOPES for scope in scopes)
+                    and len(set(scopes)) == len(scopes)):
+                result.update(retry_at=retry_at, retry_scopes=scopes)
+            return result
         if code == 409:
             return {'status': 'WORKSPACE_CONFLICT', 'http_status': code}
         if action == 'start' and code == 503 and value.get('state') == 'WECHAT_TICKET_OR_UPSTREAM_UNAVAILABLE':
             return {'status': 'TICKET_OR_COMPONENT_UNAVAILABLE', 'http_status': code}
         return {'status': 'WECHAT_COMPONENT_SERVICE_UNAVAILABLE', 'http_status': code}
 
+    def _record_limit(self, result):
+        if result and result['status'] == LIMIT:
+            details = {key: result[key] for key in ('retry_at', 'retry_scopes') if key in result}
+            atomic_write(self.root / 'workspace-scan-cooldown.json', details)
+
+    def _cooldown(self, operation):
+        data = read_optional(self.root / 'workspace-scan-cooldown.json')
+        if data is None:
+            return None
+        retry_at = data.get('retry_at')
+        if _timestamp(retry_at):
+            if retry_at <= self.clock():
+                return None
+        elif operation == 'BEGIN':
+            # An edge rate limit cannot supply a trustworthy time. Do not
+            # retry automatically on entry, but leave an explicit retry.
+            return None
+        return {'status': LIMIT, 'http_status': 429,
+                **{key: data[key] for key in ('retry_at', 'retry_scopes') if key in data}}
+
+    @staticmethod
+    def _pending_conflict(original_target):
+        result = {'status': 'REAUTH_INTENT_CONFLICT',
+                  'pending_entry': 'rebind' if original_target else 'add'}
+        if original_target:
+            result['pending_account_id'] = original_target
+        return result
+
+    def _read_pending(self, proof, target, cid, saved):
+        code, value = self.transport.request('pending', proof)
+        if code != 200 or set(value) != {'flow'} or value['flow'] is None:
+            # Earlier brokers do not implement this query. The checked-in
+            # local receipt and the normal admission check still apply.
+            return None
+        flow = value['flow']
+        recovered = _flow(flow)
+        original_target = flow.get('expected_authorizer_appid')
+        transfer = recovered.get('transfer')
+        state = recovered['status']
+        if (state not in ACTIVE and state != 'TICKET_OR_COMPONENT_UNAVAILABLE'
+                and not (state == TRANSFER_BLOCKED and transfer)
+                or original_target is not None
+                and (type(original_target) is not str or not APP.fullmatch(original_target))):
+            _bad()
+        if original_target != target:
+            return self._pending_conflict(original_target)
+        if state == 'TICKET_OR_COMPONENT_UNAVAILABLE':
+            return {'status': state}
+        if saved is not None and saved.get('transaction') == recovered['transaction']:
+            return self._accept_flow(flow, saved, code)
+        # The owner-scoped website status supplies the original transaction
+        # when no local receipt survived. Never recreate its issuing request.
+        intent = {'request_key': saved['request_key'] if saved else secrets.token_urlsafe(32),
+                  'transaction': recovered['transaction'], 'state': recovered['status']}
+        if target:
+            intent.update(expected_authorizer_appid=target, connection_id=cid)
+        if transfer:
+            # The owner-scoped parent can attest to an already-issued second
+            # challenge after local receipt loss. It cannot issue a new one.
+            intent['allow_transfer'] = True
+            if recovered['status'] == TRANSFER_CHALLENGE:
+                intent['recovered_transfer_challenge'] = True
+        return self._accept_flow(flow, intent, code)
+
     def _ensure_admitted(self, proof):
         code, value = self.transport.request('enrollment', proof)
         if code == 404 and value.get('state') == 'WORKSPACE_NOT_REGISTERED':
             code, value = self.transport.request('enroll', proof)
             if code == 201 and value.get('state') == 'WORKSPACE_PROVISIONAL':
-                return None
+                return None, type(value.get('transferVersion')) is int and value['transferVersion'] == 1
         if code == 200 and value.get('state') in ('WORKSPACE_ACTIVE', 'WORKSPACE_PROVISIONAL'):
-            return None
+            return None, type(value.get('transferVersion')) is int and value['transferVersion'] == 1
         status = self._project_status(code, value, 'enrollment')
         if status and status['status'] != 'WECHAT_COMPONENT_SERVICE_UNAVAILABLE':
-            return status
-        return {'status': 'WORKSPACE_ENROLLMENT_UNAVAILABLE', 'http_status': code}
+            return status, False
+        return {'status': 'WORKSPACE_ENROLLMENT_UNAVAILABLE', 'http_status': code}, False
 
     def _workspace_status(self, proof):
         code, value = self.transport.request('status', proof)
@@ -359,6 +502,22 @@ class ComponentBinding:
             return failure
         return self._accept_flow(value, saved, code)
 
+    def _confirm_transfer(self, proof, saved):
+        if not saved or not saved.get('transfer_appid') or not saved.get('transaction'):
+            return {'status': 'TRANSFER_NOT_READY'}
+        if saved['state'] == TRANSFER_CHALLENGE or self.clock() >= saved['transfer_expires']:
+            return self._flow_status(proof, saved, 'status')
+        if saved['state'] not in (TRANSFER_OFFER, TRANSFER_BLOCKED) or (
+                saved['state'] == TRANSFER_BLOCKED and not saved.get('transfer_retry')):
+            return {'status': 'TRANSFER_NOT_READY'}
+        key = saved.get('transfer_key') or secrets.token_urlsafe(32)
+        intent = saved | {'transfer_key': key}
+        self._save_flow(intent)
+        code, value = self.transport.request('transfer', proof, transaction=saved['transaction'],
+                                           target=saved['transfer_appid'], idempotency=key)
+        failure = self._project_status(code, value, 'transfer')
+        return failure if failure is not None else self._accept_flow(value, intent, code)
+
     def _accept_flow(self, value, saved, code):
         target = saved.get('expected_authorizer_appid')
         if target and value.get('expected_authorizer_appid') != target:
@@ -370,11 +529,30 @@ class ComponentBinding:
         if target and result.get('account_id') == target:
             result['connection_id'] = saved['connection_id']
         terminal = saved | {'transaction': result['transaction'], 'state': result['status']}
+        transfer = result.get('transfer')
+        transfer_appid = saved.get('transfer_appid')
+        challenge_confirmed = saved.get('transfer_key') or saved.get('recovered_transfer_challenge')
+        if transfer is not None:
+            appid = transfer['account_id']
+            if (not saved.get('allow_transfer') or target and appid != target
+                    or transfer_appid is not None and transfer_appid != appid
+                    or result['status'] == TRANSFER_CHALLENGE and not challenge_confirmed):
+                _bad()
+            terminal.update(transfer_appid=appid, transfer_expires=transfer['expires_at'],
+                            transfer_retry=result['status'] == TRANSFER_BLOCKED)
+        elif result['status'] == TRANSFER_BLOCKED:
+            terminal['transfer_retry'] = False
+        elif transfer_appid is not None and result['status'] in ('START_UNKNOWN', 'EXCHANGING', 'EXCHANGE_UNKNOWN'):
+            result['transfer_pending'] = {'account_id': transfer_appid}
         if result['status'] == 'TARGET_MISMATCH':
             self._save_flow(terminal)
             return {'status': 'REAUTH_ACCOUNT_MISMATCH', 'http_status': code}
         account = result.get('binding')
         if account is not None:
+            if transfer_appid is not None:
+                if not challenge_confirmed or account['appid'] != transfer_appid or account['state'] != 'ACTIVE':
+                    _bad()
+                result['transferred'] = True
             removed = self._removals()
             previous = removed.get(account['appid'])
             records = self._cache(include_removed=True)
@@ -414,9 +592,17 @@ class ComponentBinding:
         if operation == 'WORKSPACE_STATUS':
             return self._workspace_status(proof)
         saved = self._load_flow()
-        active = saved is not None and (saved['state'] in ACTIVE or saved['state']=='START_RECOVERY_REQUIRED')
-        if active and (saved.get('expected_authorizer_appid') != target or saved.get('connection_id') != cid):
-            return {'status': 'REAUTH_INTENT_CONFLICT'}
+        same = saved is not None and saved.get('expected_authorizer_appid') == target and saved.get('connection_id') == cid
+        active = saved is not None and (saved['state'] in ACTIVE or saved['state'] == 'START_RECOVERY_REQUIRED'
+                 or saved['state'] == TRANSFER_BLOCKED and saved.get('transfer_retry'))
+        if active and not same:
+            return self._pending_conflict(saved.get('expected_authorizer_appid'))
+        if operation == 'TRANSFER_BEGIN':
+            return self._confirm_transfer(proof, saved if same else None)
+        # Reopening a transfer dialog never starts a fresh QR. BEGIN remains
+        # the explicit new authorization action after a terminal outcome.
+        if operation in ('OPEN', 'STATUS') and same and saved.get('transfer_appid') and saved.get('transaction'):
+            return self._flow_status(proof, saved, 'status')
         if operation == 'TARGET_STATUS':
             if active:
                 return {'status': 'ORIGINAL_AUTHORIZATION_PENDING', 'account_id': target, 'connection_id': cid}
@@ -425,31 +611,54 @@ class ComponentBinding:
             if active and saved['transaction'] is not None:
                 return self._flow_status(proof, saved, 'status')
             if active:
-                return {'status': 'START_RECOVERY_REQUIRED'}
+                return self._read_pending(proof, target, cid, saved) or self._cooldown(operation) or {
+                    'status': 'START_RECOVERY_REQUIRED'}
             if target:
                 if saved and saved.get('expected_authorizer_appid') == target and saved.get('connection_id') == cid and saved.get('transaction'):
-                    return self._flow_status(proof, saved, 'status')
-                return {'status': 'IDLE'}
-            return self._workspace_status(proof)
+                    prior = self._flow_status(proof, saved, 'status')
+                    if prior['status'] not in ('EXPIRED', 'CANCELLED', 'REJECTED'):
+                        return prior
+            pending = self._read_pending(proof, target, cid, None)
+            return pending or self._cooldown(operation) or (
+                {'status': 'IDLE'} if target else self._workspace_status(proof))
         if operation == 'CANCEL':
             if active and saved['transaction'] is not None:
-                return self._flow_status(proof, saved, 'cancel')
+                result = self._flow_status(proof, saved, 'cancel')
+                cooldown = self._cooldown(operation) if result['status'] == 'CANCELLED' else None
+                if cooldown and 'retry_at' in cooldown:
+                    result.update(retry_at=cooldown['retry_at'], retry_scopes=cooldown['retry_scopes'])
+                return result
             return {'status': 'START_RECOVERY_REQUIRED' if active else 'IDLE'}
         if active and saved['transaction'] is not None:
             return self._flow_status(proof, saved, 'status')
+        if operation == 'OPEN':
+            pending = self._read_pending(proof, target, cid, saved if active else None)
+            if pending is not None:
+                return pending
+        cooldown = self._cooldown(operation)
+        if cooldown is not None:
+            return cooldown
+        if operation == 'OPEN' and active:
+            return {'status': 'START_RECOVERY_REQUIRED'}
 
-        failure = self._ensure_admitted(proof)
+        failure, transfer_supported = self._ensure_admitted(proof)
         if failure is not None:
+            self._record_limit(failure)
             return failure
 
         key = saved['request_key'] if active else secrets.token_urlsafe(32)
+        allow_transfer = saved.get('allow_transfer', False) if active else transfer_supported
         intent = {'request_key': key, 'transaction': None, 'state': 'START_RECOVERY_REQUIRED'}
         options = {}
+        if allow_transfer:
+            intent['allow_transfer'] = True
+            options['allow_transfer'] = True
         if target:
             # Positive attestation before POST prevents older brokers which
             # ignore unknown JSON fields from allocating an unrestricted QR.
             ready = self._target_status(proof, target, cid, first_direct)
             if ready['status'] not in ('TARGET_READY', 'LEGACY_TARGET_READY'):
+                self._record_limit(ready)
                 return ready
             intent['expected_authorizer_appid'] = target
             intent['connection_id'] = cid
@@ -462,10 +671,18 @@ class ComponentBinding:
                 or (code == 409 and value.get('state') == 'TARGET_BUSY' and value.get('expected_authorizer_appid') == target)):
             self._save_flow(intent | {'state': 'REJECTED'})
             return {'status': value['state'], 'http_status': code}
+        if (code == 409 and value.get('state') == 'REJECTED'
+                and value.get('reason') == 'WORKSPACE_AUTHORIZATION_IN_PROGRESS'):
+            self._save_flow(intent | {'state': 'REJECTED'})
+            return self._read_pending(proof, target, cid, None) or {'status': 'REAUTH_INTENT_CONFLICT'}
         failure = self._project_status(code, value, 'start')
         if failure is not None:
-            # A bare 503 does not identify the server-side transaction. Keep
-            # the key until that exact request returns its persisted outcome.
+            self._record_limit(failure)
+            # The application limit is checked after the server looks for an
+            # existing request key. An untyped gateway failure cannot prove
+            # the request was never allocated.
+            if failure['status'] == LIMIT and 'retry_at' in failure:
+                self._save_flow(intent | {'state': 'REJECTED'})
             return failure
         # Idempotent POST /start gives the transaction view. GET /status
         # supplies its binding when that original response is already BOUND.
@@ -485,7 +702,7 @@ class ComponentBinding:
             try:
                 if connection_id is not None and operation == 'WORKSPACE_STATUS':
                     return {'status': 'REAUTH_INTENT_CONFLICT'}
-                begin = operation == 'BEGIN'
+                begin = operation in ('OPEN', 'BEGIN')
                 if begin and connection_id is None and not os.path.lexists(self.registry):
                     if os.path.lexists(self.root) and not os.path.lexists(self.registry):
                         return {'status': 'WORKSPACE_LOCAL_STATE_UNAVAILABLE'}
@@ -546,8 +763,10 @@ class ComponentBinding:
             if not revoked:
                 refresh = row['refreshState'] if row['expiresAt'] > self.clock() else 'REQUIRED'
                 profile.update(permissions=row['funcInfo'], refresh_state=refresh)
-                if row.get('authorizerInfo'):
-                    profile.update(official_profile_fields(row['authorizerInfo']))
+            if row.get('reason') == TRANSFERRED_REASON:
+                profile['reason'] = TRANSFERRED_REASON
+            if row.get('authorizerInfo'):
+                profile.update(official_profile_fields(row['authorizerInfo']))
             rows.append({'platform_id': WECHAT, 'connection_id': cid, 'account_id': row['appid'],
                          'state': 'ACTION_REQUIRED' if revoked or not recent else 'BOUND_IDLE',
                          'binding_provider': 'WECHAT_THIRD_PARTY',
@@ -579,7 +798,7 @@ class ComponentBindingRouter:
                 GENERATION:{'type':'integer','minimum':1}}}}
         return [describe(row) for row in rows] + [descriptor(), {
             'name': TOOL, 'title': '公众号管理员扫码绑定', 'inputSchema': SPEC,
-            'description': 'Start, check or cancel the administrator QR authorization in this workspace.',
+            'description': 'Start, check or cancel the administrator QR authorization and its transfer challenge.',
             'annotations': {'openWorldHint': True}, '_meta': {'ui': {'visibility': ['app']}},
         }]
 
@@ -612,14 +831,15 @@ class ComponentBindingRouter:
                 # Direct official profile metadata can be fresher than the
                 # grant. Keep the independently read authorization available.
                 target['component_grant'] = {key:authorized[key] for key in
-                    ('state','generation','permissions','observed_at') if key in authorized}
+                    ('state','generation','permissions','observed_at','reason') if key in authorized}
                 if existing is None:
                     value['connections'].append(row)
                 else:
                     original = existing.get('official_profile', {})
                     # Leave independently signed richer metadata intact. Grant and
                     # revocation come from the more recent confirmed authority.
-                    if authorized['observed_at'] >= (original.get('observed_at') or 0):
+                    if (authorized.get('reason') != TRANSFERRED_REASON
+                            and authorized['observed_at'] >= (original.get('observed_at') or 0)):
                         existing['official_profile'] = (
                             original | authorized if original.get('state') == authorized['state']=='ACTIVE'
                             else authorized)

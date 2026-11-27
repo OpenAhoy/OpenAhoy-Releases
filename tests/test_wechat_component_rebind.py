@@ -54,6 +54,7 @@ class Transport:
         self.profile = (200,{'state':'ACTIVE','appid':A,'originalId':'gh_scopea','generation':1,'authorizerInfo':INFO})
     def request(self, path, proof, **options):
         self.log.append((path, options))
+        if path == 'pending': return 400, {'state':'REJECTED'}
         if path in ('enroll', 'enrollment'):
             result = getattr(self, path)
             if isinstance(result, Exception): raise result
@@ -119,6 +120,13 @@ class Rebind(unittest.TestCase):
             self.assertEqual(self.act('BEGIN',CA)['status'],'TARGET_UNVERIFIED' if check[0]==404 else 'REAUTH_TARGET_UNCONFIRMED')
         self.assertEqual(self.act('BEGIN','not-connected')['status'],'REAUTH_TARGET_UNAVAILABLE')
         self.assertFalse(any(op=='start' for op,_ in self.transport.log))
+    def test_open_reuses_active_request_when_legacy_status_has_no_pending_query(self):
+        self.assertEqual(self.act('OPEN', CA)['status'], 'PENDING')
+        self.reload()
+        self.assertEqual(self.act('OPEN', CA)['status'], 'PENDING')
+        self.assertEqual(self.act('OPEN')['status'], 'REAUTH_INTENT_CONFLICT')
+        self.assertEqual(sum(path == 'start' for path, _ in self.transport.log), 1)
+
     def test_same_request_only_across_reopen_cancel_and_two_accounts(self):
         self.begin(); self.reload()
         self.assertEqual(self.act('BEGIN',CA)['status'],'PENDING')

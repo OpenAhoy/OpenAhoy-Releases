@@ -716,6 +716,7 @@ SCRIPT = r'''
    if(activePlatform==='xiaohongshu')xhsManagement.updateControls();else buttons();
  }
  function accountState(row){
+   if(componentOnly(row)&&row.component_grant?.reason==='WORKSPACE_TRANSFERRED')return '扫码授权已转移';
    return {CONNECTED:'已连接',BOUND:'已绑定',BOUND_IDLE:'已绑定 · 空闲',DISCONNECTED:'已断开',
            ACTION_REQUIRED:'需要处理',BUSY:'正在使用'}[row.state]||'状态待核对';
  }
@@ -853,7 +854,9 @@ SCRIPT = r'''
    const row=current(),info=row&&official(row),snapshot=row?.official_profile;
    const state=$('wechatOfficialState'),fields=$('wechatOfficialFields'),graphic=$('wechatOfficialGraphic');
    fields.replaceChildren();graphic.replaceChildren();$('wechatStatusAvatar').replaceChildren();
-   OAUI.set(state,!row?'先选择一个公众号':({
+   const moved=row?.component_grant?.reason==='WORKSPACE_TRANSFERRED';
+   OAUI.set(state,!row?'先选择一个公众号':moved?(componentOnly(row)?'扫码授权已转移，当前工作区无法用它管理本号':
+     '扫码授权已转移，独立直连仍按原有权限工作'):({
      ACTIVE:'已取得微信官方资料',SERVICE_NOT_CONFIGURED:'第三方授权服务尚未配置',
      AUTH_REQUIRED:'本号尚未取得第三方授权',REVOKED:'本号已撤销第三方授权',
      STALE:'本号官方资料已过期，等待授权服务同步',UNAVAILABLE:'本号官方资料暂时不可用',
@@ -873,7 +876,7 @@ SCRIPT = r'''
    const checkedAt=info?.identity_verified_at??snapshot?.observed_at;
    const observed=Number.isSafeInteger(checkedAt)?new Date(checkedAt*1000).toLocaleString(document.documentElement.lang):'';
    for(const [label,value] of [
-     ['连接方式',OAUI.format(componentOnly(row)?'管理员扫码':grant?'原直连及管理员扫码':'原直连')],
+     ['连接方式',OAUI.format(componentOnly(row)?'管理员扫码':grant?.state==='ACTIVE'?'原直连及管理员扫码':'原直连')],
      ['账号状态',OAUI.format(accountState(row))],
      ['权限来源',grant?OAUI.format('微信第三方平台授权回执'):info?OAUI.format('已同步的微信官方资料'):''],
      ['AppID',row.account_id],['官方昵称',info?.nickname],['微信号',info?.alias],
@@ -1271,7 +1274,11 @@ SCRIPT = r'''
  const componentStart=$('wechatComponentStart'),componentCheck=$('wechatComponentCheck');
  const componentLink=$('wechatComponentLink'),componentHostOpen=$('wechatComponentHostOpen');
  const componentCancel=$('wechatComponentCancel'),componentClose=$('wechatComponentClose');
- const componentActive=new Set(['STARTING','PENDING','START_UNKNOWN','EXCHANGING','EXCHANGE_UNKNOWN','START_RECOVERY_REQUIRED']);
+ const componentKeep=$('wechatComponentKeep'),componentTransferBegin=$('wechatComponentTransferBegin');
+ const componentTransferDetails=$('wechatComponentTransferDetails'),componentTransferPanel=$('wechatComponentTransfer');
+ const transferOffer='TRANSFER_CONFIRMATION_REQUIRED',transferChallenge='TRANSFER_CHALLENGE_PENDING';
+ const componentActive=new Set(['STARTING','PENDING','START_UNKNOWN','EXCHANGING','EXCHANGE_UNKNOWN','START_RECOVERY_REQUIRED',
+   transferOffer,transferChallenge]);
  const componentWorkspaceIssues=new Set(['WORKSPACE_AUTHENTICATION_REQUIRED',
    'WORKSPACE_NOT_REGISTERED','WORKSPACE_REVOKED','WORKSPACE_PROOF_RECOVERY_REQUIRED',
    'WORKSPACE_LOCAL_STATE_UNAVAILABLE','WECHAT_WORKSPACE_PROOF_INVALID']);
@@ -1288,7 +1295,7 @@ SCRIPT = r'''
    REVOKED:'公众号已撤回这次授权。',
    IDLE:'当前没有待检查的扫码。',
    REAUTH_TARGET_UNAVAILABLE:'这个公众号的绑定身份暂不可核对。请刷新账号后重试。',
-   REAUTH_INTENT_CONFLICT:'本工作区已有其他扫码请求。请回到发起扫码的账号查看结果。',
+   REAUTH_INTENT_CONFLICT:'本工作区已有另一笔扫码。请回到原账号卡或原添加入口检查或取消。',
    TARGET_UNVERIFIED:'此工作区尚未核实这个公众号的归属。请核对当前工作区和所选公众号后重试。',
    TARGET_BUSY:'微信正在更新这个公众号的授权。请稍后从本号重试。',
    TARGET_STALE:'本号授权已变化，请刷新账号后再试。',
@@ -1299,10 +1306,15 @@ SCRIPT = r'''
    WORKSPACE_LOCAL_STATE_UNAVAILABLE:'无法读取原工作区记录。请恢复该工作区的连接记录，再继续扫码。',
    WORKSPACE_REVOKED:'官网已停用这个工作区的扫码资格。请联系 Jiusera 支持核对原工作区。',
    WORKSPACE_ENROLLMENT_UNAVAILABLE:'官网暂不能为此工作区开通扫码。请稍后用同一工作区重试。',
-   WORKSPACE_ENROLLMENT_RATE_LIMITED:'扫码准备请求过多。请稍后用同一工作区重试。',
+   WORKSPACE_ENROLLMENT_RATE_LIMITED:'扫码请求过多，暂时无法发起新的二维码。仍可检查或取消原授权。',
    WORKSPACE_AUTHENTICATION_REQUIRED:'官网无法验证本工作区的扫码凭据（401）。请联系 Jiusera 支持核对工作区登记。',
    WORKSPACE_NOT_REGISTERED:'官网未允许本工作区使用扫码服务（403）。请联系 Jiusera 支持核对工作区登记。',
    WORKSPACE_CONFLICT:'官网已有待处理授权或该公众号已归属另一工作区。请检查原授权。',
+   TRANSFER_CONFIRMATION_REQUIRED:'原绑定仍有效。请核对公众号，再决定是否发起第二次管理员授权。',
+   TRANSFER_CHALLENGE_PENDING:'请在新打开的微信官方页完成第二次扫码，回来检查同一笔转移。',
+   TRANSFER_BLOCKED:'此刻无法继续转移。原请求仍可检查。',
+   TRANSFER_NOT_READY:'还没有已核实的转移请求。请检查本次授权。',
+   TRANSFERRED:'公众号已转移到本工作区。可以查看本号授权状态。',
    TICKET_OR_COMPONENT_UNAVAILABLE:'公众号扫码暂不可用，官网尚未取得可用微信平台票据或组件凭证。',
    WECHAT_WORKSPACE_KEYCHAIN_UNAVAILABLE:'系统暂时无法读取此工作区的扫码凭据。请确认本机能访问钥匙串，再重新检查。',
    WECHAT_WORKSPACE_PROOF_INVALID:'本工作区的扫码凭据无法使用。请联系 Jiusera 支持核对登记。',
@@ -1311,44 +1323,94 @@ SCRIPT = r'''
  let componentTarget=null,profileReturnPage='settings';
  let componentBusy=false,componentState='IDLE',componentTrigger=null,componentSession=0;
  let componentOpening=false,componentLinkTimer=0,componentOpeningId=0;
+ let componentTransfer=null,componentTransferredRow=null,componentChallengeId=null;
+ const automaticAuthorizations=new Set();
+ let componentRetryAt=0,componentRateTimer=0;
+ const componentLimit='WORKSPACE_ENROLLMENT_RATE_LIMITED';
+ const limitScopes={WORKSPACE_SHORT:'当前工作区短时限制',SHARED_SHORT:'扫码服务短时限制',SHARED_DAILY:'扫码服务每日限制'};
  const componentInfo=key=>OAUI.set($('wechatComponentStatus'),key);
  const componentOpenInfo=key=>OAUI.set($('wechatComponentOpenStatus'),key);
+ function clearComponentLimit(){
+   clearTimeout(componentRateTimer);
+   componentRetryAt=0;
+   $('wechatComponentCooldown').hidden=true;
+ }
+ function showComponentLimit(value){
+   clearComponentLimit();
+   const note=$('wechatComponentCooldown');
+   note.hidden=false;
+   const scopes=(value.retry_scopes||[]).filter(scope=>Object.hasOwn(limitScopes,scope)).map(scope=>OAUI.format(limitScopes[scope]));
+   if(!Number.isSafeInteger(value.retry_at)||value.retry_at<=0||!scopes.length){
+     OAUI.set(note,'扫码服务未返回解除时间。稍后可手动重试。');
+     return;
+   }
+   componentRetryAt=value.retry_at*1000;
+   const date=new Date(componentRetryAt).toLocaleString(document.documentElement.lang||'zh-CN');
+   function paintTime(){
+     const remaining=componentRetryAt-Date.now();
+     if(remaining>0){
+       OAUI.set(note,'{0}。可在 {1} 后重试。',scopes.join(' · '),date);
+       componentRateTimer=setTimeout(paintTime,Math.min(remaining+20,2147483647));
+     }else{
+       OAUI.set(note,'扫码等待时间已结束。可以手动重试。');
+       paintComponent();
+     }
+   }
+   paintTime();
+ }
  function clearComponentLink(){
    clearTimeout(componentLinkTimer);
-   componentLink.removeAttribute('href');componentOpening=false;componentOpeningId++;
+   componentLink.removeAttribute('href');componentChallengeId=null;componentOpening=false;componentOpeningId++;
    componentOpenInfo('');
  }
  function paintComponent(){
-   const hasLink=componentLink.hasAttribute('href');
-   componentLink.hidden=componentBusy||!hasLink;
+   const hasLink=componentLink.hasAttribute('href'),transferring=!!componentTransfer;
+   const mayStartChallenge=[transferOffer,'TRANSFER_BLOCKED'].includes(componentState)&&transferring;
+   componentTransferPanel.hidden=!transferring;
+   $('wechatComponentScanHelp').hidden=transferring||!!componentTransferredRow;
+   $('wechatComponentTransferAccount').textContent=transferring
+     ?[componentTransfer.nickname,componentTransfer.account_id].filter(Boolean).join(' · '):'';
+   componentLink.hidden=componentBusy||!hasLink||componentOpening;
    componentHostOpen.hidden=componentBusy||!hasLink||!hostCapabilities.openLinks;
    componentHostOpen.disabled=componentOpening;
-   componentStart.hidden=hasLink;
-   componentStart.disabled=componentBusy||componentWorkspaceIssues.has(componentState)||
+   OAUI.set(componentLink,componentChallengeId?'打开第二次微信扫码':'打开微信扫码');
+   componentStart.hidden=hasLink||transferring;
+   OAUI.set(componentStart,componentTransferredRow?'开始新的扫码':'继续微信扫码');
+   componentStart.disabled=componentBusy||componentRetryAt>Date.now()||componentWorkspaceIssues.has(componentState)||
      (componentActive.has(componentState)&&componentState!=='START_RECOVERY_REQUIRED')||
      ['REAUTH_INTENT_CONFLICT','WORKSPACE_CONFLICT','REAUTH_TARGET_UNCONFIRMED','REAUTH_TARGET_UNAVAILABLE'].includes(componentState);
-   componentCheck.hidden=false;componentCheck.disabled=componentBusy;
-   OAUI.set(componentCheck,componentWorkspaceIssues.has(componentState)?'重新检查工作区':'检查授权结果');
-   componentCancel.hidden=!['STARTING','PENDING','EXCHANGING'].includes(componentState);
+   componentCheck.hidden=!!componentTransferredRow;componentCheck.disabled=componentBusy;
+   OAUI.set(componentCheck,transferring?'检查转移结果':
+     componentWorkspaceIssues.has(componentState)?'重新检查工作区':'检查授权结果');
+   componentCancel.hidden=transferring||!['STARTING','PENDING','EXCHANGING'].includes(componentState);
    componentCancel.disabled=componentBusy;
+   componentKeep.hidden=!transferring;componentKeep.disabled=componentBusy;
+   componentTransferBegin.hidden=!mayStartChallenge;componentTransferBegin.disabled=componentBusy;
+   componentTransferDetails.hidden=!componentTransferredRow;componentTransferDetails.disabled=componentBusy;
  }
  function componentLaunch(value){
-   const tx=value.transaction,expiry=value.expires_at;
+   const challenge=value.status===transferChallenge;
+   const tx=challenge?value.transfer.authorization_transaction:value.transaction;
+   const expiry=challenge?value.transfer.challenge_expires_at:value.expires_at;
+   const authorization=challenge?value.transfer.authorization_url:value.authorization_url;
    const url='https://www.readysteadysound.com/jiusera/api/oauth/wechat/authorize?transaction='+tx;
-   if(typeof tx!=='string'||!/^[a-f0-9]{48}$/.test(tx)||value.authorization_url!==url||
-      !Number.isSafeInteger(expiry))throw Error('WECHAT_COMPONENT_RESPONSE_INVALID');
+   if(typeof tx!=='string'||!/^[a-f0-9]{48}$/.test(tx)||authorization!==url||
+      challenge&&tx===value.transaction||!Number.isSafeInteger(expiry))throw Error('WECHAT_COMPONENT_RESPONSE_INVALID');
    const remaining=expiry*1000-Date.now();
    if(remaining<=0){componentInfo('扫码入口已过期。请检查原授权结果。');return;}
-   componentLink.href=url;
+   componentLink.href=url;componentChallengeId=challenge?tx:null;
    componentLinkTimer=setTimeout(()=>{
      clearComponentLink();componentInfo('扫码入口已过期。请检查原授权结果。');paintComponent();
    },Math.min(remaining,2147483647));
  }
  componentLink.onclick=event=>{
-   if(componentBusy||!componentLink.hasAttribute('href')){event.preventDefault();return;}
-   componentOpenInfo(hostCapabilities.openLinks
-     ?'若浏览器未打开，可以用 Codex 打开。完成扫码后回来检查结果。'
-     :'若浏览器未打开，请允许此页面打开新窗口。完成扫码后回来检查结果。');
+   if(componentBusy||componentOpening||!componentLink.hasAttribute('href')){event.preventDefault();return;}
+   const address=componentLink.getAttribute('href');
+   setTimeout(()=>{
+     if(componentLink.getAttribute('href')!==address)return;
+     clearComponentLink();paintComponent();
+     componentOpenInfo('已打开扫码入口。若浏览器未打开，请先检查授权结果，再使用仍有效的链接。');
+   },0);
  };
  async function openComponentBrowser(){
    const session=componentSession,url=componentLink.getAttribute('href');
@@ -1356,18 +1418,17 @@ SCRIPT = r'''
    const openingId=++componentOpeningId;componentOpening=true;paintComponent();
    componentOpenInfo('正在请 Codex 打开浏览器。你仍可检查授权结果或关闭此窗口。');
    const visible=()=>!closed&&componentDialog.open&&componentSession===session&&componentOpeningId===openingId&&componentLink.getAttribute('href')===url;
+   let feedback='已请 Codex 打开浏览器。完成扫码后回来检查结果。';
    try{
      await openXLink(url);
-     if(visible())componentOpenInfo('已请求 Codex 打开浏览器。若没有打开，请使用「打开微信扫码」。');
-   }catch(error){
-     if(visible())componentOpenInfo(error.message==='HOST_TIMEOUT'
-       ?'Codex 打开浏览器超时。请使用「打开微信扫码」，或检查授权结果。'
-       :'Codex 无法打开浏览器。请使用「打开微信扫码」，或检查授权结果。');
-   }finally{if(visible()){componentOpening=false;paintComponent();}}
+   }catch(_){
+     feedback='Codex 未确认浏览器是否打开。请检查授权结果，再使用仍有效的链接。';
+   }finally{if(visible()){clearComponentLink();paintComponent();componentOpenInfo(feedback);}}
  }
  componentHostOpen.onclick=openComponentBrowser;
  function closeComponent(){
-   componentSession++;clearComponentLink();
+   componentSession++;clearComponentLink();clearComponentLimit();
+   componentTransfer=null;componentTransferredRow=null;
    if(componentDialog.open)componentDialog.close();
    if(componentTrigger?.isConnected)componentTrigger.focus();
    else if(componentTarget&&isWechat()){
@@ -1380,19 +1441,26 @@ SCRIPT = r'''
    const session=componentSession,target=componentTarget;
    const visible=()=>!closed&&componentDialog.open&&componentSession===session;
    componentBusy=true;paintComponent();
+   const starting=operation==='OPEN'||operation==='BEGIN';
    componentInfo(operation==='WORKSPACE_STATUS'?'正在检查当前工作区的扫码资格…':
-     operation==='BEGIN'?'正在连接工作区并准备微信二维码…':operation==='CANCEL'?'正在取消本次扫码…':'正在检查原授权结果…');
+     starting?'正在连接工作区并准备微信二维码…':operation==='TRANSFER_BEGIN'?'正在准备第二次微信管理员授权…':
+     operation==='CANCEL'?'正在取消本次扫码…':'正在检查原授权结果…');
    try{
      const reply=await tool('wce.ui.wechat.component_binding',{operation,
        ...(target&&operation!=='WORKSPACE_STATUS'?{connection_id:target.connection_id}:{})});
      if(!visible())return;
      const value=reply?.isError?{status:reply.structuredContent?.error||'WECHAT_COMPONENT_SERVICE_UNAVAILABLE'}:content(reply);
      const previous=componentState;
-     const preserve=componentActive.has(previous)&&(componentWorkspaceIssues.has(value.status)||
-       ['WORKSPACE_CONFLICT','WECHAT_COMPONENT_SERVICE_UNAVAILABLE','WECHAT_COMPONENT_RESPONSE_INVALID','REAUTH_TARGET_UNCONFIRMED'].includes(value.status));
+     const preserve=(componentActive.has(previous)||componentTransfer)&&(componentWorkspaceIssues.has(value.status)||
+       [componentLimit,'WORKSPACE_CONFLICT','WECHAT_COMPONENT_SERVICE_UNAVAILABLE','WECHAT_COMPONENT_RESPONSE_INVALID','REAUTH_TARGET_UNCONFIRMED'].includes(value.status));
      componentState=preserve?previous:value.status;
-     if(operation==='CANCEL'&&['CANCELLED','IDLE'].includes(value.status)){closeComponent();return;}
+     if(!preserve){
+       componentTransfer=value.transfer||(value.transfer_pending?(componentTransfer||value.transfer_pending):null);
+       componentTransferredRow=null;
+     }
      clearComponentLink();
+     if(value.status===componentLimit||value.status==='CANCELLED'&&value.retry_at)showComponentLimit(value);
+     else if(!preserve)clearComponentLimit();
      if(value.status==='WORKSPACE_READ'){
        await refresh();
        if(visible())OAUI.set($('wechatComponentStatus'),'已核对本工作区授权，当前有效公众号 {0} 个。',value.active_count);
@@ -1407,17 +1475,36 @@ SCRIPT = r'''
        const row=results?.find(item=>item.platform_id===wechatPlatform&&item.account_id===value.account_id&&
          (!target||item.connection_id===target.connection_id));
        if(!row||!isWechat()){componentInfo('授权已读回，请刷新账号列表。');return;}
+       if(value.transferred){
+         componentTransferredRow=row;
+         componentInfo(componentMessages.TRANSFERRED);
+         return;
+       }
        closeComponent();await showWechatStatus(row);return;
      }
+     if(value.status==='REAUTH_INTENT_CONFLICT'){
+       const previousRow=rows.find(row=>row.platform_id===wechatPlatform&&row.account_id===value.pending_account_id);
+       if(previousRow){
+         OAUI.set($('wechatComponentStatus'),'本工作区已有「{0}」的扫码。请从这张账号卡进入，检查或取消原授权。',name(previousRow));
+         return;
+       }
+       if(value.pending_entry==='add'){
+         componentInfo('本工作区已有添加公众号的扫码。请回到「添加公众号」检查或取消原授权。');
+         return;
+       }
+     }
      const key=value.status==='EXCHANGING'&&value.cancel_requested?'已请求取消，正在核对原扫码结果。请检查本次授权。':
-       value.status==='PENDING'&&!value.authorization_url?'原扫码入口已打开或暂不可重开。请回原浏览器完成扫码，或在这里检查授权结果。':
+       value.status==='PENDING'&&!value.authorization_url?(value.browser_launched?
+         '原扫码页已经打开过。可回浏览器继续；如果已关闭，请取消本次授权后再发起。':
+         '原扫码入口暂不可重开。可检查授权结果；若原网页已关闭，请取消本次授权后再发起。'):
        componentMessages[value.status]||'公众号扫码服务暂时不可用。请检查原授权结果或稍后重试。';
      componentInfo(key);
-     if(value.status==='PENDING'&&value.authorization_url)componentLaunch(value);
+     if(value.status==='PENDING'&&value.authorization_url||
+        value.status===transferChallenge&&value.transfer?.authorization_url)componentLaunch(value);
    }catch(error){
      if(!visible())return;
      clearComponentLink();
-     if(operation==='BEGIN'&&!componentActive.has(componentState))componentState='START_RECOVERY_REQUIRED';
+     if(starting&&!componentActive.has(componentState))componentState='START_RECOVERY_REQUIRED';
      componentInfo(error.message==='HOST_TIMEOUT'?
        'Codex 等待授权工具超时。请检查原授权结果，或关闭后回到同一账号继续。':
        componentMessages[error.message]||'暂时无法读取授权结果。请检查原授权，或关闭后回到同一账号继续。');
@@ -1425,16 +1512,30 @@ SCRIPT = r'''
      componentBusy=false;
      if(componentDialog.open&&!closed){
        paintComponent();
-       if(visible()&&operation==='BEGIN'&&!componentLink.hidden){
+       if(visible()&&(starting||operation==='TRANSFER_BEGIN')&&!componentLink.hidden){
          componentLink.focus({preventScroll:true});
-         void openComponentBrowser();
+         const address=componentLink.getAttribute('href');
+         if(!automaticAuthorizations.has(address)){
+           automaticAuthorizations.add(address);
+           void openComponentBrowser();
+         }
+       }else if(visible()&&!componentKeep.hidden&&!componentTransferBegin.hidden){
+         componentKeep.focus({preventScroll:true});
+       }else if(visible()&&componentTransferredRow){
+         componentTransferDetails.focus({preventScroll:true});
        }else if(!visible())componentInfo('上一次授权请求已返回。请检查原授权结果，或继续本号扫码。');
      }
    }
  }
  componentStart.onclick=()=>void componentAction('BEGIN');
  componentCheck.onclick=()=>void componentAction(!componentTarget&&componentWorkspaceIssues.has(componentState)?'WORKSPACE_STATUS':'STATUS');
- componentCancel.onclick=()=>void componentAction('CANCEL');
+ componentCancel.onclick=componentKeep.onclick=()=>void componentAction('CANCEL');
+ componentTransferBegin.onclick=()=>void componentAction('TRANSFER_BEGIN');
+ componentTransferDetails.onclick=()=>{
+   const row=componentTransferredRow;
+   if(!row)return;
+   closeComponent();void showWechatStatus(row);
+ };
  componentClose.onclick=closeComponent;
  componentDialog.addEventListener('cancel',event=>{event.preventDefault();closeComponent();});
  async function showWechatStatus(row){
@@ -1444,16 +1545,32 @@ SCRIPT = r'''
    $('wechatProfileFeedback').textContent='';
    wechatConnection=row.connection_id;setWechatPage('profile');$('wechatStatusBack').focus({preventScroll:true});
  }
+ async function readWechatWorkspace(){
+   try{
+     const result=await tool('wce.ui.wechat.component_binding',{operation:'WORKSPACE_STATUS'});
+     return !result.isError&&content(result).status==='WORKSPACE_READ';
+   }catch(_){return false;}
+ }
+ async function refreshWechatWorkspace(){
+   const verified=await readWechatWorkspace();
+   const result=await refresh({afterWrite:true});
+   if(!verified&&isWechat())notice('微信授权暂未同步，正在显示本机上次核对的状态。',true);
+   return result;
+ }
  async function refreshWechatProfile(){
    const row=current(),trigger=$('wechatProfileRefresh');
    if(!row||trigger.disabled||!isWechat()||wechatPage!=='profile')return;
    const epoch=++profileReadIntent;trigger.disabled=true;
    const visible=()=>epoch===profileReadIntent&&isWechat()&&wechatPage==='profile'&&current()?.connection_id===row.connection_id;
    try{
+     const verified=await readWechatWorkspace();
+     if(verified)await refresh({afterWrite:true});
+     if(!visible())return;
+     if(current()?.component_grant?.state==='REVOKED')return;
      const result=await tool('wce.ui.wechat.component_binding',{operation:'PROFILE_STATUS',connection_id:row.connection_id});
      if(!visible())return;
      if(result.isError||content(result).status!=='PROFILE_READ')throw Error();
-     await refresh();
+     await refresh({afterWrite:true});
      if(visible())OAUI.set($('wechatProfileFeedback'),'已刷新本号官方资料。');
    }catch(_){if(visible())OAUI.set($('wechatProfileFeedback'),'本次未能读取官方资料。请稍后重试。');}
    finally{if(epoch===profileReadIntent)trigger.disabled=false;}
@@ -1465,7 +1582,7 @@ SCRIPT = r'''
  };
  async function openWechatBinding(row=null,trigger=document.activeElement){
    if(!ready||refreshing||componentDialog.open)return;
-   componentSession++;clearComponentLink();
+   componentSession++;clearComponentLink();clearComponentLimit();
    componentTarget=row?{connection_id:row.connection_id,account_id:row.account_id}:null;
    componentTrigger=trigger;componentState='IDLE';
    OAUI.set($('wechatComponentTitle'),row?'重新绑定公众号':'绑定公众号');
@@ -1474,7 +1591,7 @@ SCRIPT = r'''
    componentInfo(componentBusy?'上一次授权操作尚未返回。你可以关闭此窗口，稍后回到原账号检查。':
      '正在连接工作区并准备微信二维码…');
    componentDialog.showModal();paintComponent();componentClose.focus({preventScroll:true});
-   if(!componentBusy)await componentAction('BEGIN');
+   if(!componentBusy)await componentAction('OPEN');
  }
  async function secure(){
    if(!ready||!bindingPlatform()?.binding_supported)return;
@@ -1508,7 +1625,7 @@ SCRIPT = r'''
  }
  const openAhoyBoard=OAOpenAhoyBoard({
    ui:OAUI,wechatName:name,decorate:(node,id,label,presentation)=>OAPlatformBranding.decorate(node,id,label,OAUI,presentation),
-   avatar,manage:manageBoardAccount,reload:refresh,openLink:openXLink,
+   avatar,manage:manageBoardAccount,reload:refreshWechatWorkspace,openLink:openXLink,
    checkService:async service=>content(await tool('wce.ui.openahoy.mcp.check',{service})),
    
    selectDouyin:connection=>{if(view===douyinPlatform)updateAccountURL(douyinPlatform,connection);},
@@ -2244,7 +2361,8 @@ SCRIPT = r'''
  };
  for(const button of studioEntries.querySelectorAll('[data-studio-page]'))
    button.onclick=()=>enterStudio(button.dataset.studioPage,{user:true,focus:true});
- $('refresh').addEventListener('click',()=>void refresh());$('showAdd').addEventListener('click',secure);
+ $('refresh').addEventListener('click',()=>void (isWechat()?refreshWechatWorkspace():refresh()));
+ $('showAdd').addEventListener('click',secure);
  addWechatAccount.type='button';
  addWechatAccount.className='oa-wechat-add-account';
  const addWechatIcon=document.createElement('span'),addWechatLabel=document.createElement('span');

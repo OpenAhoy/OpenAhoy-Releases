@@ -23,6 +23,8 @@ body.oa-management{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55
 .oa-management button:hover:not(:disabled){background:var(--surface);border-color:var(--control-edge-hover);box-shadow:var(--control-hover)}.oa-management button:active:not(:disabled){background:var(--soft);box-shadow:var(--control-pressed)}.oa-management button:disabled{opacity:.48;cursor:not-allowed;box-shadow:none}.oa-management button.primary{background:var(--surface);color:var(--ink);border-color:var(--accent);font-weight:650;box-shadow:var(--primary-shadow)}.oa-management button.primary:hover:not(:disabled){background:var(--surface);box-shadow:var(--control-hover)}.oa-management button.primary:active:not(:disabled){box-shadow:var(--control-pressed)}.oa-management .quiet{background:transparent}.oa-management .danger{color:#a53c46}
 .oa-management :is(button,input,select,textarea,a,summary):focus-visible{outline:2px solid var(--accent);outline-offset:3px}.oa-management svg.oa-icon{display:block;width:16px;height:16px;flex:0 0 16px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 #wechatComponentLink:not([hidden]){display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:7px 12px;border:1px solid var(--accent);border-radius:10px;color:var(--ink);font-weight:650;text-underline-offset:3px}#wechatComponentOpenStatus:empty{display:none}
+#wechatComponentTransfer{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:12px;margin:12px 0;overflow-wrap:anywhere}
+#wechatComponentTransfer p{margin:7px 0 0}#wechatComponentTransfer h3{margin:0}#wechatComponentTransferAccount{font-weight:650}
 .oa-management .actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.oa-management .notice{border:0;background:transparent;margin:0 0 12px;padding:0;color:var(--muted);font-size:12px;line-height:1.5;min-height:18px;box-shadow:none}.oa-management .notice.error{color:#a53c46}
 .oa-accounts-layout{display:grid;grid-template-columns:minmax(0,1fr) 252px;gap:16px;align-items:start}.oa-list,.oa-detail,.oa-management .panel{min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:16px;box-shadow:var(--raised)}
 .oa-list-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;font-size:12px;color:var(--muted)}.oa-management .count{font-size:12px;font-weight:500;background:transparent;padding:0;margin:0}.oa-management .account{display:flex;align-items:center;min-width:0;gap:12px;border:1px solid transparent;border-radius:8px;background:transparent;padding:10px;margin:0 0 4px;box-shadow:none}.oa-management .account:last-child{margin-bottom:0}.oa-management .account.is-selected{background:var(--tint);border-color:#dce7fb}
@@ -326,14 +328,24 @@ def native_page_body(logo, platform_settings):
 <dialog id="wechatComponentDialog" class="oa-account-remove-dialog" aria-labelledby="wechatComponentTitle">
 <h2 id="wechatComponentTitle">绑定公众号</h2>
 <p id="wechatComponentTarget" hidden></p>
-<p>请用该公众号管理员的微信，在微信官方页面扫码授权。</p>
+<p id="wechatComponentScanHelp">请用该公众号管理员的微信，在微信官方页面扫码授权。</p>
+<section id="wechatComponentTransfer" aria-labelledby="wechatComponentTransferTitle" hidden>
+ <h3 id="wechatComponentTransferTitle">已在另一个 Jiusera 工作区绑定</h3>
+ <p id="wechatComponentTransferAccount"></p>
+ <p>转移目标是本工作区。只有该公众号的管理员在微信完成第二次扫码授权，转移才会生效。</p>
+ <p>转移后，原工作区失去该号的扫码管理权限。其本地稿件、素材和其他公众号仍保留，独立 AppSecret 直连仍受原有权限约束。</p>
+</section>
 <p id="wechatComponentStatus" role="status" aria-live="polite"></p>
+<p id="wechatComponentCooldown" role="status" aria-live="polite" hidden></p>
 <div class="actions">
  <button id="wechatComponentStart" type="button" class="primary">继续微信扫码</button>
  <a id="wechatComponentLink" role="link" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" hidden>打开微信扫码</a>
  <button id="wechatComponentHostOpen" type="button" hidden>用 Codex 打开</button>
  <button id="wechatComponentCheck" type="button" hidden>检查授权结果</button>
  <button id="wechatComponentCancel" type="button" hidden>取消授权</button>
+ <button id="wechatComponentKeep" type="button" hidden>保留原绑定</button>
+ <button id="wechatComponentTransferBegin" class="primary" type="button" hidden>转移到本工作区</button>
+ <button id="wechatComponentTransferDetails" class="primary" type="button" hidden>查看状态详情</button>
  <button id="wechatComponentClose" type="button">关闭</button>
 </div>
 <p id="wechatComponentOpenStatus" role="status" aria-live="polite"></p>
